@@ -34,8 +34,64 @@ if not output:find('"type":"final"', 1, true) then
     error("cli output missing final envelope")
 end
 
+if not output:find('"kind":"runtime_pressure_snapshot"', 1, true) then
+    error("cli output should include runtime pressure snapshot by default")
+end
+
+if not output:find('"kind":"substrate_result_boundary"', 1, true) then
+    error("cli output should include LOGIC boundary by default")
+end
+
+if not output:find('"kind":"cycle_decision"', 1, true) then
+    error("cli output should include CYCLE decision by default")
+end
+
 if not output:find('"result":"substrate loop complete"', 1, true) then
     error("cli output missing neutral manifest result")
+end
+
+local no_runtime_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-runtime-snapshot')
+local no_runtime_output = no_runtime_handle:read("*a")
+local no_runtime_ok, _, no_runtime_code = no_runtime_handle:close()
+
+if not no_runtime_ok or no_runtime_code ~= 0 then
+    error("cli no-runtime snapshot run exited with non-zero code")
+end
+
+if no_runtime_output:find('"kind":"runtime_pressure_snapshot"', 1, true) then
+    error("cli output should omit runtime pressure snapshot only when disabled")
+end
+
+local no_logic_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-logic')
+local no_logic_output = no_logic_handle:read("*a")
+local no_logic_ok, _, no_logic_code = no_logic_handle:close()
+
+if not no_logic_ok or no_logic_code ~= 0 then
+    error("cli no-logic run exited with non-zero code")
+end
+
+if no_logic_output:find('"kind":"substrate_result_boundary"', 1, true) then
+    error("cli output should omit LOGIC boundary only when disabled")
+end
+
+if not no_logic_output:find('"kind":"cycle_decision"', 1, true) then
+    error("CYCLE should remain default-on when LOGIC is disabled")
+end
+
+local no_cycle_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-cycle')
+local no_cycle_output = no_cycle_handle:read("*a")
+local no_cycle_ok, _, no_cycle_code = no_cycle_handle:close()
+
+if not no_cycle_ok or no_cycle_code ~= 0 then
+    error("cli no-cycle run exited with non-zero code")
+end
+
+if no_cycle_output:find('"kind":"cycle_decision"', 1, true) then
+    error("cli output should omit CYCLE decision only when disabled")
+end
+
+if not no_cycle_output:find('"kind":"substrate_result_boundary"', 1, true) then
+    error("LOGIC should remain default-on when CYCLE is disabled")
 end
 
 local mode_handle = io.popen('lua cli/procesis-body.lua run --task "mode task" --fake --jsonl --mode chaos')
@@ -80,6 +136,26 @@ end
 
 if not context_output:find('"truth_status":"runtime_confirmed"', 1, true) then
     error("cli output missing runtime_confirmed repo context")
+end
+
+local runtime_handle = io.popen('lua cli/procesis-body.lua run --task "runtime task" --fake --jsonl')
+local runtime_output = runtime_handle:read("*a")
+local runtime_ok, _, runtime_code = runtime_handle:close()
+
+if not runtime_ok or runtime_code ~= 0 then
+    error("cli runtime snapshot run exited with non-zero code")
+end
+
+if not runtime_output:find('"kind":"runtime_pressure_snapshot"', 1, true) then
+    error("cli output missing runtime pressure snapshot observation")
+end
+
+if not runtime_output:find('"kind":"runtime_pressure_snapshot_payload"', 1, true) then
+    error("cli output missing runtime pressure snapshot payload")
+end
+
+if runtime_output:find('"next_action"', 1, true) then
+    error("runtime pressure snapshot must not expose next_action")
 end
 
 local bad_context_handle = io.popen('lua cli/procesis-body.lua run --task "bad context" --fake --jsonl --repo-context ../README.md 2>/dev/null')

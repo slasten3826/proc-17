@@ -112,3 +112,13 @@ unsupported_form_dissolve_unit
 unsupported_form_promote_unit
 fake_substrate_loop_integration
 ```
+
+## Current Crystallized Organs
+
+```text
+☴ repo_context_eye
+☴ repo_listing_eye
+☶ repo_selection_validator
+☲ cycle_decision
+☱ runtime_pressure_snapshot
+```

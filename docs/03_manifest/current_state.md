@@ -68,6 +68,9 @@ logic/repo_selection.lua
 logic/cycle.lua
   CYCLE boundary: pure bounded continuation decision module
 
+runtime/pressure_snapshot.lua
+  RUNTIME lower pressure eye: pure read-only packet/body pressure snapshot
+
 organs/repo_context.lua
   first OBSERVE-side eye: explicit file-list repo context payload through fs/sandbox
 
@@ -78,10 +81,10 @@ runtime/trace_store.lua
   explicit JSONL packet trace writer
 
 cli/procesis-body.lua
-  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, and --repo-context
+  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, --repo-context, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
 
 tests/
-  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, cycle decision, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
+  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, cycle decision, runtime pressure snapshot, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
   includes mode path policy tests
 ```
 
@@ -115,7 +118,9 @@ fs_tool: read_write_guarded
 repo_listing_eye: bounded_read_only_file_tree
 repo_context_eye: explicit_file_list_read_only
 repo_selection_validator: pure_logic_module
-cycle_decision: pure_logic_module
+logic_boundary: default_on_cli_boundary
+cycle_decision: default_on_cli_boundary
+runtime_pressure_snapshot: default_on_read_only_module
 growth_pipeline: documented_only_pending
 trace_store: explicit_jsonl
 body_modes: packet_cli_and_path_policy_implemented
@@ -165,6 +170,36 @@ Run fake machine CLI with runtime-confirmed repo listing under prefix:
 lua cli/procesis-body.lua run --task "inspect docs" --fake --jsonl --repo-list docs/02_crystall
 ```
 
+Run fake machine CLI with default RUNTIME lower pressure snapshot:
+
+```text
+lua cli/procesis-body.lua run --task "inspect runtime" --fake --jsonl
+```
+
+Run fake machine CLI without LOGIC boundary:
+
+```text
+lua cli/procesis-body.lua run --task "inspect logic" --fake --jsonl --no-logic
+```
+
+Run fake machine CLI without CYCLE decision:
+
+```text
+lua cli/procesis-body.lua run --task "inspect cycle" --fake --jsonl --no-cycle
+```
+
+Run fake machine CLI without RUNTIME lower pressure snapshot:
+
+```text
+lua cli/procesis-body.lua run --task "inspect runtime" --fake --jsonl --no-runtime-snapshot
+```
+
+Run DeepSeek machine CLI with default RUNTIME lower pressure snapshot:
+
+```text
+lua cli/procesis-body.lua run --task "Return one word: ok" --deepseek --jsonl
+```
+
 Run DeepSeek machine CLI:
 
 ```text
@@ -191,6 +226,7 @@ test_substrates ok
 test_tools ok
 test_fs_tool ok
 test_cycle ok
+test_runtime_pressure_snapshot ok
 test_repo_listing ok
 test_repo_selection ok
 test_repo_context ok
@@ -253,6 +289,7 @@ Current missing integration:
 
 ```text
 automatic handoff from cycle continue decision to repo_context_organ
+repo_selection_validator only runs when repo_listing evidence exists
 ```
 
 ## Current Limits

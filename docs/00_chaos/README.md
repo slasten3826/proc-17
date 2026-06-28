@@ -66,6 +66,15 @@ two_eyes_runtime_notes.md
 pressure_topology_notes.md
   raw pressure topology: input/output pressure, transformers, hubs, emergent will
 
+glyph_first_interface_notes.md
+  raw pressure toward glyph-first body commands and word aliases
+
+runtime_manifestation_notes.md
+  raw thinking after first RUNTIME crystal: how to manifest the lower eye
+
+live_deepseek_default_organs_notes.md
+  live DeepSeek observations after LOGIC/CYCLE/RUNTIME became default-on
+
 ignition_tests_notes.md
   live DeepSeek ignition observations and failure shape
 

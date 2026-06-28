@@ -5,12 +5,15 @@ local json = require("core.json")
 local fake = require("substrates.fake")
 local deepseek = require("substrates.deepseek")
 local fake_tool = require("tools.fake")
+local cycle = require("logic.cycle")
+local repo_selection = require("logic.repo_selection")
 local trace_store = require("runtime.trace_store")
+local runtime_pressure = require("runtime.pressure_snapshot")
 local repo_context = require("organs.repo_context")
 local repo_listing = require("organs.repo_listing")
 
 local function usage()
-    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--repo-list [prefix]] [--repo-context <paths>] [--trace-file <path>]\n")
+    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--repo-list [prefix]] [--repo-context <paths>] [--no-logic] [--no-cycle] [--no-runtime-snapshot] [--trace-file <path>]\n")
 end
 
 local function emit(event)
@@ -36,7 +39,7 @@ local function emit_new_events(instance, from_index)
 end
 
 local function parse_args(argv)
-    local parsed = {command = argv[1]}
+    local parsed = {command = argv[1], logic = true, cycle = true, runtime_snapshot = true}
     local index = 2
     while index <= #argv do
         local arg = argv[index]
@@ -66,6 +69,24 @@ local function parse_args(argv)
             else
                 index = index + 1
             end
+        elseif arg == "--runtime-snapshot" then
+            parsed.runtime_snapshot = true
+            index = index + 1
+        elseif arg == "--no-runtime-snapshot" then
+            parsed.runtime_snapshot = false
+            index = index + 1
+        elseif arg == "--logic" then
+            parsed.logic = true
+            index = index + 1
+        elseif arg == "--no-logic" then
+            parsed.logic = false
+            index = index + 1
+        elseif arg == "--cycle" then
+            parsed.cycle = true
+            index = index + 1
+        elseif arg == "--no-cycle" then
+            parsed.cycle = false
+            index = index + 1
         elseif arg == "--mode" then
             parsed.mode = argv[index + 1]
             index = index + 2
@@ -293,6 +314,182 @@ local function run(argv)
     })
     packet.spend(p, {tool_calls = 1})
     next_event = emit_new_events(p, next_event)
+
+    local logic_context
+    if args.logic then
+        packet.enter(p, "☶")
+        next_event = emit_new_events(p, next_event)
+
+        if repo_listing_payload then
+            local selection_payload, selection_err = repo_selection.validate({
+                listing = repo_listing_payload,
+                text = response.text or "",
+                allow_directories = false,
+                max_paths = 8,
+            })
+            if not selection_payload then
+                packet.append(p, {
+                    type = "validation",
+                    operator = "☶",
+                    truth_status = "rejected",
+                    payload = {
+                        kind = "repo_selection",
+                        error = selection_err,
+                    },
+                    cost = {},
+                })
+                logic_context = {
+                    accepted_count = 0,
+                    rejected_count = 1,
+                    rejection_reasons = {selection_err or "repo_selection_failed"},
+                }
+            else
+                packet.append(p, {
+                    type = "validation",
+                    operator = "☶",
+                    truth_status = "runtime_confirmed",
+                    payload = {
+                        kind = "repo_selection",
+                        repo_selection = selection_payload,
+                    },
+                    cost = {},
+                })
+                logic_context = {
+                    accepted_count = #selection_payload.accepted_paths,
+                    rejected_count = #selection_payload.rejected_paths,
+                    rejection_reasons = {},
+                }
+                for _, rejected in ipairs(selection_payload.rejected_paths) do
+                    logic_context.rejection_reasons[#logic_context.rejection_reasons + 1] = rejected.reason
+                end
+            end
+        else
+            packet.append(p, {
+                type = "validation",
+                operator = "☶",
+                truth_status = "runtime_confirmed",
+                payload = {
+                    kind = "substrate_result_boundary",
+                    substrate_result_truth_status = "semantic_proposal",
+                    substrate_text_present = type(response.text) == "string" and response.text ~= "",
+                    rule = "substrate_result_remains_semantic_proposal",
+                },
+                cost = {},
+            })
+            logic_context = {
+                accepted_count = 1,
+                rejected_count = 0,
+                rejection_reasons = {},
+            }
+        end
+        logic_context.last_validation_event = p.trace[#p.trace].id
+        next_event = emit_new_events(p, next_event)
+    end
+
+    local cycle_context
+    if args.cycle then
+        packet.enter(p, "☲")
+        next_event = emit_new_events(p, next_event)
+
+        local accepted_count = logic_context and logic_context.accepted_count or 1
+        local rejected_count = logic_context and logic_context.rejected_count or 0
+        local cycle_payload, cycle_err = cycle.decide({
+            cycle_key = "cli_single_run",
+            turn_count = 0,
+            max_turns = 1,
+            accepted_count = accepted_count > 0 and accepted_count or (rejected_count == 0 and 1 or 0),
+            new_input_count = response and response.text and response.text ~= "" and 1 or 0,
+            budget = p.budget,
+            required_budget = {steps = 1},
+            manifest_ready = false,
+            unsafe = false,
+            needs_user_input = false,
+            previous_fingerprints = {},
+            state_fingerprint = nil,
+        })
+        if not cycle_payload then
+            packet.append(p, {
+                type = "choice",
+                operator = "☲",
+                truth_status = "rejected",
+                payload = {
+                    kind = "cycle_decision",
+                    error = cycle_err,
+                },
+                cost = {},
+            })
+            cycle_context = {
+                last_cycle_decision = "cycle_error",
+                last_cycle_reasons = {cycle_err or "cycle_failed"},
+                repeated_fingerprint = false,
+                turn_budget_pressure = "unknown",
+            }
+        else
+            packet.append(p, {
+                type = "choice",
+                operator = "☲",
+                truth_status = "runtime_confirmed",
+                payload = {
+                    kind = "cycle_decision",
+                    cycle_decision = cycle_payload,
+                },
+                cost = {},
+            })
+            cycle_context = {
+                last_cycle_decision = cycle_payload.decision,
+                last_cycle_reasons = {cycle_payload.reason},
+                repeated_fingerprint = cycle_payload.reason == "state_fingerprint",
+                turn_budget_pressure = cycle_payload.decision == "stop_budget" and "cannot_pay" or "payable",
+            }
+        end
+        next_event = emit_new_events(p, next_event)
+    end
+
+    if args.runtime_snapshot then
+        if p.operator ~= "☱" then
+            packet.enter(p, "☱")
+            next_event = emit_new_events(p, next_event)
+        end
+        local snapshot_payload, snapshot_err = runtime_pressure.snapshot({
+            packet = p,
+            limits = {
+                trace_tail_count = 6,
+                include_residue = true,
+                include_budget = true,
+                include_pressure_sections = true,
+            },
+            logic_context = logic_context,
+            cycle_context = cycle_context,
+            manifest_context = {
+                pending_output_shape = "substrate loop complete",
+                output_pressure = "ready",
+            },
+        })
+        if not snapshot_payload then
+            packet.append(p, {
+                type = "observation",
+                operator = "☱",
+                truth_status = "rejected",
+                payload = {
+                    kind = "runtime_pressure_snapshot",
+                    error = snapshot_err,
+                },
+                cost = {},
+            })
+        else
+            packet.append(p, {
+                type = "observation",
+                operator = "☱",
+                truth_status = "runtime_confirmed",
+                payload = {
+                    kind = "runtime_pressure_snapshot",
+                    runtime_pressure_snapshot = snapshot_payload,
+                },
+                cost = {},
+            })
+        end
+        next_event = emit_new_events(p, next_event)
+    end
 
     packet.enter(p, "△")
     packet.manifest(p, {truth_status = "runtime_confirmed", result = "substrate loop complete"})
