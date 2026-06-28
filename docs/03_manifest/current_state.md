@@ -87,6 +87,7 @@ runtime: budget_inside_packet_only
 substrates: fake_and_deepseek
 tools: fake_only
 trace_store: explicit_jsonl
+body_modes: documented_not_implemented
 ```
 
 ## Current Commands
@@ -160,5 +161,6 @@ no file editing
 no automatic trace persistence
 no TUI or human UI
 no child packet execution
+no mode permission enforcement
 real provider calls are manual, not part of normal test suite
 ```

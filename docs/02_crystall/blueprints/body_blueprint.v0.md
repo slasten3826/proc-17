@@ -299,3 +299,11 @@ Future organ growth must follow:
 ```text
 docs/02_crystall/blueprints/organogenesis.v0.md
 ```
+
+## Body Modes Link
+
+Future process mode gating must follow:
+
+```text
+docs/02_crystall/blueprints/body_modes.v0.md
+```

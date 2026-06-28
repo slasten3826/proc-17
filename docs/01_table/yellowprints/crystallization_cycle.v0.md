@@ -99,5 +99,8 @@ lua_first_body
 
 tests_required
   every crystall contract needs a test or explicit manual check
-```
 
+body_modes
+  chaos/table/crystall/manifest are process permission modes
+  code writes only in manifest mode
+```
