@@ -12,6 +12,12 @@ crystall/blueprints, and manifest/runtime docs.
 body_origin_notes.md
   first shared frame: procesis as soul, body as runtime, substrate as current
 
+completed_form_myth_notes.md
+  raw myth note: ProcessLang as grammar of completed nested form
+
+proc17_myth_notes.md
+  raw myth note: proc-17 as process body hidden under coding-agent surface
+
 body_kernel.md
   core idea of the future agent body
 
@@ -53,6 +59,12 @@ operator_readiness_notes.md
 
 cycle_operator_notes.md
   raw pressure for CYCLE as bounded continuation decision, not immortal loop
+
+two_eyes_runtime_notes.md
+  raw thinking on OBSERVE/RUNTIME as two read-only evidence eyes
+
+pressure_topology_notes.md
+  raw pressure topology: input/output pressure, transformers, hubs, emergent will
 
 ignition_tests_notes.md
   live DeepSeek ignition observations and failure shape

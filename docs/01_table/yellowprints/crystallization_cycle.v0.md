@@ -145,6 +145,11 @@ cycle_decision
   first CYCLE shape
   decides whether a packet may take one more bounded turn
 
+runtime_pressure_snapshot
+  first RUNTIME shape
+  exposes lower pressure condition as read-only evidence
+  does not decide, route, plan, or produce will
+
 growth_pipeline
   ⋯☴⊞☴◈☴ should become a body-owned documentation/build route
 ```
