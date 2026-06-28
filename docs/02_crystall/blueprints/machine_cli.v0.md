@@ -131,12 +131,28 @@ The CLI reads those files through the repo context organ and fs/sandbox.
 The resulting payload is runtime-confirmed evidence and is included in
 the `substrate_call` payload.
 
+Optional OBSERVE-side repo listing:
+
+```text
+procesis-body run --task <text> --fake --jsonl --repo-list
+```
+
+Optional prefix:
+
+```text
+procesis-body run --task <text> --fake --jsonl --repo-list docs/02_crystall
+```
+
+`--repo-list` emits a runtime-confirmed `repo_listing` observation and includes
+the bounded listing payload in `substrate_call`.
+
 Test status:
 
 ```text
 integration_test: machine_cli_fake_run_integration
 integration_test: machine_cli_trace_file_integration
 integration_test: machine_cli_mode_integration
+integration_test: machine_cli_repo_listing_integration
 integration_test: machine_cli_repo_context_integration
 manual_check: machine_cli_deepseek_smoke
 ```

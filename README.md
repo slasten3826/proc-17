@@ -25,6 +25,7 @@ DeepSeek substrate
 fake tool facade
 fs tool facade
 repo context eye
+repo listing eye
 JSONL trace store
 machine CLI
 tests
@@ -50,6 +51,12 @@ Run fake loop with runtime-confirmed repo context:
 lua cli/procesis-body.lua run --task "inspect this" --fake --jsonl --repo-context README.md,core/packet.lua
 ```
 
+Run fake loop with runtime-confirmed repo listing:
+
+```sh
+lua cli/procesis-body.lua run --task "inspect tree" --fake --jsonl --repo-list
+```
+
 Run DeepSeek loop:
 
 ```sh
@@ -73,6 +80,7 @@ test_packet ok
 test_substrates ok
 test_tools ok
 test_fs_tool ok
+test_repo_listing ok
 test_repo_context ok
 test_trace_store ok
 test_cli ok

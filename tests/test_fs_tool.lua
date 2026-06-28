@@ -57,6 +57,33 @@ if read.output.content ~= "fs tool ok" then
     error("fs read content mismatch")
 end
 
+local listed = fs.run({
+    action = "list_dir",
+    input = {
+        path = ".",
+        limits = {
+            max_depth = 2,
+            max_entries = 128,
+            max_path_bytes = 240,
+        },
+    },
+})
+
+if listed.ok ~= true then
+    error("fs list_dir should succeed: " .. tostring(listed.error))
+end
+
+local saw_readme = false
+for _, entry in ipairs(listed.output.entries) do
+    if entry.path == "README.md" then
+        saw_readme = true
+    end
+end
+
+if not saw_readme then
+    error("fs list_dir should include README.md")
+end
+
 os.remove(path)
 
 print("test_fs_tool ok")

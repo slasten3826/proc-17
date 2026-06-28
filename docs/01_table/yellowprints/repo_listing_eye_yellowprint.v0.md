@@ -150,3 +150,20 @@ should CLI default to listing README/docs/core, or require --repo-list?
 
 Early implementation should prefer explicit `--repo-list` over automatic
 always-on listing.
+
+## Ignition Result Notes
+
+Cases A-D showed:
+
+```text
+repo_listing_eye reduces absent-path invention
+repo_listing_eye does not validate file role
+repo_listing_eye does not validate selection reasons
+insufficient listing can cause correct request for broader listing
+```
+
+Next downstream table shape:
+
+```text
+repo_selection_validator
+```

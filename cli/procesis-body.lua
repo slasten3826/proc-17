@@ -7,9 +7,10 @@ local deepseek = require("substrates.deepseek")
 local fake_tool = require("tools.fake")
 local trace_store = require("runtime.trace_store")
 local repo_context = require("organs.repo_context")
+local repo_listing = require("organs.repo_listing")
 
 local function usage()
-    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--repo-context <paths>] [--trace-file <path>]\n")
+    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--repo-list [prefix]] [--repo-context <paths>] [--trace-file <path>]\n")
 end
 
 local function emit(event)
@@ -57,6 +58,14 @@ local function parse_args(argv)
         elseif arg == "--repo-context" then
             parsed.repo_context = argv[index + 1]
             index = index + 2
+        elseif arg == "--repo-list" then
+            parsed.repo_list = true
+            if argv[index + 1] and argv[index + 1]:sub(1, 2) ~= "--" then
+                parsed.repo_list_prefix = argv[index + 1]
+                index = index + 2
+            else
+                index = index + 1
+            end
         elseif arg == "--mode" then
             parsed.mode = argv[index + 1]
             index = index + 2
@@ -114,6 +123,38 @@ local function run(argv)
     packet.enter(p, "☴")
     next_event = emit_new_events(p, next_event)
 
+    local repo_listing_payload
+    if args.repo_list then
+        local listing_err
+        repo_listing_payload, listing_err = repo_listing.attach(p, {
+            prefix = args.repo_list_prefix or ".",
+            mode = mode,
+        })
+        if not repo_listing_payload then
+            packet.append(p, {
+                type = "observation",
+                operator = "☴",
+                truth_status = "rejected",
+                payload = {
+                    kind = "repo_listing",
+                    error = listing_err,
+                },
+                cost = {},
+            })
+            emit_new_events(p, next_event)
+            packet.die(p, "unsafe_scope")
+            emit(event_envelope(p, p.trace[#p.trace]))
+            emit({
+                packet_id = p.id,
+                type = "final",
+                status = p.status,
+                residue = p.residue,
+            })
+            return 2
+        end
+        next_event = emit_new_events(p, next_event)
+    end
+
     local repo_context_payload
     if args.repo_context then
         local context_err
@@ -147,12 +188,17 @@ local function run(argv)
     end
 
     local prompt_payload = args.task
+    local prompt_parts = {args.task}
+    if repo_listing_payload then
+        prompt_parts[#prompt_parts + 1] = ""
+        prompt_parts[#prompt_parts + 1] = repo_listing.format_for_substrate(repo_listing_payload)
+    end
     if repo_context_payload then
-        prompt_payload = table.concat({
-            args.task,
-            "",
-            repo_context.format_for_substrate(repo_context_payload),
-        }, "\n")
+        prompt_parts[#prompt_parts + 1] = ""
+        prompt_parts[#prompt_parts + 1] = repo_context.format_for_substrate(repo_context_payload)
+    end
+    if #prompt_parts > 1 then
+        prompt_payload = table.concat(prompt_parts, "\n")
     end
 
     packet.append(p, {
@@ -163,6 +209,7 @@ local function run(argv)
             mode = "mixed",
             operator = "☴",
             prompt_payload = prompt_payload,
+            repo_listing = repo_listing_payload,
             repo_context = repo_context_payload,
             expected_shape = "semantic_proposal",
         },
@@ -176,6 +223,7 @@ local function run(argv)
             mode = "mixed",
             operator = "☴",
             prompt_payload = prompt_payload,
+            repo_listing = repo_listing_payload,
             repo_context = repo_context_payload,
             expected_shape = "semantic_proposal",
         })

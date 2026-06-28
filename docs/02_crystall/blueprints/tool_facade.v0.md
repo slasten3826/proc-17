@@ -18,7 +18,7 @@ tools/fake.lua
   deterministic fake tool facade for tests
 
 tools/fs.lua
-  real workspace-relative read_file/write_file facade
+  real workspace-relative read_file/write_file/list_dir facade
 ```
 
 ## Tool Call Contract
@@ -53,7 +53,26 @@ relative paths only
 absolute paths denied
 parent traversal denied
 write_file must pass mode path policy
+list_dir must pass read path policy and bounded listing limits
 ```
+
+## list_dir Hardening Target
+
+Current v0 uses internal `find` through `io.popen`.
+
+This is allowed only as a temporary body-owned implementation detail.
+
+Required hardening direction:
+
+```text
+validate limit values before command construction
+validate ignored path names before command construction
+keep prefix sandbox-checked
+keep shell unavailable to substrate
+prefer non-shell directory primitive when available
+```
+
+The body must not treat shell-backed listing as final architecture.
 
 ## Tool Result Contract
 
@@ -90,6 +109,7 @@ unit_test: fs tool denies parent traversal
 unit_test: fs tool denies implementation write outside manifest
 unit_test: fs tool writes allowed layer docs path
 unit_test: fs tool reads written file
+unit_test: fs tool lists workspace files
 integration_test: machine CLI emits tool_call/tool_result
 ```
 
@@ -98,7 +118,8 @@ integration_test: machine CLI emits tool_call/tool_result
 ```text
 no real shell tool yet
 no directory creation yet
-no list_dir implementation yet
 no run_command implementation yet
 real write tool is guarded but intentionally minimal
+list_dir v0 uses internal host find behind sandbox
+list_dir hardening pending
 ```

@@ -50,6 +50,22 @@ if not mode_output:find('"mode":"chaos"', 1, true) then
     error("cli output missing selected mode")
 end
 
+local listing_handle = io.popen('lua cli/procesis-body.lua run --task "listing task" --fake --jsonl --repo-list')
+local listing_output = listing_handle:read("*a")
+local listing_ok, _, listing_code = listing_handle:close()
+
+if not listing_ok or listing_code ~= 0 then
+    error("cli repo listing run exited with non-zero code")
+end
+
+if not listing_output:find('"kind":"repo_listing"', 1, true) then
+    error("cli output missing repo_listing observation")
+end
+
+if not listing_output:find('"repo_listing"', 1, true) then
+    error("cli output missing repo_listing payload")
+end
+
 local context_handle = io.popen('lua cli/procesis-body.lua run --task "context task" --fake --jsonl --repo-context README.md')
 local context_output = context_handle:read("*a")
 local context_ok, _, context_code = context_handle:close()
@@ -72,6 +88,14 @@ local bad_context_ok, _, bad_context_code = bad_context_handle:close()
 
 if bad_context_ok or bad_context_code ~= 2 then
     error("unsafe repo context should exit with code 2")
+end
+
+local bad_listing_handle = io.popen('lua cli/procesis-body.lua run --task "bad listing" --fake --jsonl --repo-list ../ 2>/dev/null')
+bad_listing_handle:read("*a")
+local bad_listing_ok, _, bad_listing_code = bad_listing_handle:close()
+
+if bad_listing_ok or bad_listing_code ~= 2 then
+    error("unsafe repo listing should exit with code 2")
 end
 
 local bad_mode_handle = io.popen('lua cli/procesis-body.lua run --task "bad mode" --fake --jsonl --mode nope 2>/dev/null')

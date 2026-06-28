@@ -115,4 +115,12 @@ repo_context_eye
 repo_listing_eye
   next OBSERVE-side eye pressure
   gives body-owned bounded file tree before file context selection
+
+repo_selection_validator
+  LOGIC boundary after repo_listing_eye
+  validates selected paths before repo_context_organ reads them
+
+fs_listing_hardening
+  implementation pressure from live context test
+  internal io.popen/find is useful v0 but should be constrained or replaced
 ```

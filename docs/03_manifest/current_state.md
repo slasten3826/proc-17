@@ -59,19 +59,22 @@ tools/fake.lua
   deterministic fake tool facade with write permission dry-run
 
 tools/fs.lua
-  real workspace-relative read_file/write_file facade with mode path policy
+  real workspace-relative read_file/write_file/list_dir facade with mode path policy
 
 organs/repo_context.lua
   first OBSERVE-side eye: explicit file-list repo context payload through fs/sandbox
+
+organs/repo_listing.lua
+  OBSERVE-side retina: bounded runtime-confirmed repo file tree through fs/sandbox
 
 runtime/trace_store.lua
   explicit JSONL packet trace writer
 
 cli/procesis-body.lua
-  machine-facing JSONL CLI with --fake, --deepseek, --mode, and --repo-context
+  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, and --repo-context
 
 tests/
-  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, repo context organ, trace store, and CLI smoke tests
+  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, repo listing organ, repo context organ, trace store, and CLI smoke tests
   includes mode path policy tests
 ```
 
@@ -102,7 +105,9 @@ sandbox: default_deny_v0
 substrates: fake_and_deepseek
 tools: fake_only
 fs_tool: read_write_guarded
+repo_listing_eye: bounded_read_only_file_tree
 repo_context_eye: explicit_file_list_read_only
+repo_selection_validator: blueprint_only_pending
 trace_store: explicit_jsonl
 body_modes: packet_cli_and_path_policy_implemented
 ```
@@ -139,6 +144,18 @@ Run fake machine CLI with runtime-confirmed repo context:
 lua cli/procesis-body.lua run --task "inspect context" --fake --jsonl --repo-context README.md,core/packet.lua
 ```
 
+Run fake machine CLI with runtime-confirmed repo listing:
+
+```text
+lua cli/procesis-body.lua run --task "inspect tree" --fake --jsonl --repo-list
+```
+
+Run fake machine CLI with runtime-confirmed repo listing under prefix:
+
+```text
+lua cli/procesis-body.lua run --task "inspect docs" --fake --jsonl --repo-list docs/02_crystall
+```
+
 Run DeepSeek machine CLI:
 
 ```text
@@ -164,6 +181,7 @@ test_packet ok
 test_substrates ok
 test_tools ok
 test_fs_tool ok
+test_repo_listing ok
 test_repo_context ok
 test_trace_store ok
 test_cli ok
@@ -186,6 +204,25 @@ final status: dead
 death cause: complete
 ```
 
+Manual DeepSeek repo listing cases:
+
+```text
+/tmp/proc-17-case-a-crystall-listing.jsonl
+/tmp/proc-17-case-b-listing-context.jsonl
+/tmp/proc-17-case-c-adversarial-listing.jsonl
+/tmp/proc-17-case-d-insufficient-listing.jsonl
+```
+
+Observed result:
+
+```text
+repo_listing reduced absent-path invention
+valid paths can still receive unsupported roles or reasons
+insufficient listings can produce correct request for broader listing
+next pending LOGIC boundary: repo_selection_validator
+implementation hardening target: fs.list_dir internal io.popen/find
+```
+
 ## Current Limits
 
 ```text
@@ -194,9 +231,12 @@ no shell command tool
 no directory creation in fs tool
 no automatic trace persistence
 no automatic repo file selection
+no repo_selection_validator implementation yet
 no semantic repo ranking
 no TUI or human UI
 no child packet execution
 no real file writes; write permissions are dry-run only
 real provider calls are manual, not part of normal test suite
+repo listing v0 uses internal host find behind sandbox; shell is still not exposed to substrate
+repo listing hardening pending
 ```
