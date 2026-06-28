@@ -119,6 +119,7 @@ fake_substrate_loop_integration
 ☴ repo_context_eye
 ☴ repo_listing_eye
 ☶ repo_selection_validator
+☳ choose_collapse
 ☲ cycle_decision
 ☱ runtime_pressure_snapshot
 ```

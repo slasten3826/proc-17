@@ -54,6 +54,9 @@ sandbox_policy_notes.md
 logic_validator_notes.md
   LOGIC as stupid proposal validator, distinct from sandbox
 
+choose_operator_notes.md
+  raw invariant for CHOOSE as irreversible narrowing and loss generation
+
 operator_readiness_notes.md
   current raw checkpoint: FLOW, OBSERVE, and LOGIC have first working organs
 

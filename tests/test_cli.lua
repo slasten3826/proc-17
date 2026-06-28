@@ -38,6 +38,10 @@ if not output:find('"kind":"runtime_pressure_snapshot"', 1, true) then
     error("cli output should include runtime pressure snapshot by default")
 end
 
+if not output:find('"kind":"choose_collapse"', 1, true) then
+    error("cli output should include CHOOSE collapse by default")
+end
+
 if not output:find('"kind":"substrate_result_boundary"', 1, true) then
     error("cli output should include LOGIC boundary by default")
 end
@@ -62,6 +66,18 @@ if no_runtime_output:find('"kind":"runtime_pressure_snapshot"', 1, true) then
     error("cli output should omit runtime pressure snapshot only when disabled")
 end
 
+local no_choose_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-choose')
+local no_choose_output = no_choose_handle:read("*a")
+local no_choose_ok, _, no_choose_code = no_choose_handle:close()
+
+if not no_choose_ok or no_choose_code ~= 0 then
+    error("cli no-choose run exited with non-zero code")
+end
+
+if no_choose_output:find('"kind":"choose_collapse"', 1, true) then
+    error("cli output should omit CHOOSE collapse only when disabled")
+end
+
 local no_logic_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-logic')
 local no_logic_output = no_logic_handle:read("*a")
 local no_logic_ok, _, no_logic_code = no_logic_handle:close()
@@ -76,6 +92,10 @@ end
 
 if not no_logic_output:find('"kind":"cycle_decision"', 1, true) then
     error("CYCLE should remain default-on when LOGIC is disabled")
+end
+
+if not no_logic_output:find('"kind":"choose_collapse"', 1, true) then
+    error("CHOOSE should remain default-on when LOGIC is disabled")
 end
 
 local no_cycle_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-cycle')

@@ -65,6 +65,9 @@ tools/fs.lua
 logic/repo_selection.lua
   LOGIC boundary: validates selected paths against runtime-confirmed repo listing
 
+logic/choose.lua
+  CHOOSE collapse: pure deterministic narrowing of a supplied possibility field into selected branch plus attention loss
+
 logic/cycle.lua
   CYCLE boundary: pure bounded continuation decision module
 
@@ -81,10 +84,10 @@ runtime/trace_store.lua
   explicit JSONL packet trace writer
 
 cli/procesis-body.lua
-  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, --repo-context, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
+  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, --repo-context, default CHOOSE collapse, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
 
 tests/
-  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, cycle decision, runtime pressure snapshot, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
+  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, choose collapse, cycle decision, runtime pressure snapshot, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
   includes mode path policy tests
 ```
 
@@ -118,6 +121,8 @@ fs_tool: read_write_guarded
 repo_listing_eye: bounded_read_only_file_tree
 repo_context_eye: explicit_file_list_read_only
 repo_selection_validator: pure_logic_module
+choose_collapse: pure_logic_module
+choose_boundary: default_on_cli_boundary
 logic_boundary: default_on_cli_boundary
 cycle_decision: default_on_cli_boundary
 runtime_pressure_snapshot: default_on_read_only_module
@@ -225,6 +230,7 @@ test_packet ok
 test_substrates ok
 test_tools ok
 test_fs_tool ok
+test_choose ok
 test_cycle ok
 test_runtime_pressure_snapshot ok
 test_repo_listing ok

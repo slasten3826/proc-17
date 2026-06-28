@@ -9,6 +9,7 @@ local tests = {
     "tests.test_substrates",
     "tests.test_tools",
     "tests.test_fs_tool",
+    "tests.test_choose",
     "tests.test_cycle",
     "tests.test_runtime_pressure_snapshot",
     "tests.test_repo_listing",

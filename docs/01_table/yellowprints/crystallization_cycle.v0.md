@@ -137,6 +137,10 @@ repo_selection_validator
   LOGIC boundary after repo_listing_eye
   validates selected paths before repo_context_organ reads them
 
+choose_collapse
+  first CHOOSE shape
+  irreversible narrowing of possibility into selected branch plus loss
+
 fs_listing_hardening
   implementation pressure from live context test
   internal io.popen/find is useful v0 but should be constrained or replaced

@@ -5,6 +5,7 @@ local json = require("core.json")
 local fake = require("substrates.fake")
 local deepseek = require("substrates.deepseek")
 local fake_tool = require("tools.fake")
+local choose = require("logic.choose")
 local cycle = require("logic.cycle")
 local repo_selection = require("logic.repo_selection")
 local trace_store = require("runtime.trace_store")
@@ -13,7 +14,7 @@ local repo_context = require("organs.repo_context")
 local repo_listing = require("organs.repo_listing")
 
 local function usage()
-    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--repo-list [prefix]] [--repo-context <paths>] [--no-logic] [--no-cycle] [--no-runtime-snapshot] [--trace-file <path>]\n")
+    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--deepseek-model <name>] [--repo-list [prefix]] [--repo-context <paths>] [--no-choose] [--no-logic] [--no-cycle] [--no-runtime-snapshot] [--trace-file <path>]\n")
 end
 
 local function emit(event)
@@ -39,7 +40,7 @@ local function emit_new_events(instance, from_index)
 end
 
 local function parse_args(argv)
-    local parsed = {command = argv[1], logic = true, cycle = true, runtime_snapshot = true}
+    local parsed = {command = argv[1], choose = true, logic = true, cycle = true, runtime_snapshot = true}
     local index = 2
     while index <= #argv do
         local arg = argv[index]
@@ -52,6 +53,9 @@ local function parse_args(argv)
         elseif arg == "--deepseek" then
             parsed.deepseek = true
             index = index + 1
+        elseif arg == "--deepseek-model" then
+            parsed.deepseek_model = argv[index + 1]
+            index = index + 2
         elseif arg == "--jsonl" then
             parsed.jsonl = true
             index = index + 1
@@ -74,6 +78,12 @@ local function parse_args(argv)
             index = index + 1
         elseif arg == "--no-runtime-snapshot" then
             parsed.runtime_snapshot = false
+            index = index + 1
+        elseif arg == "--choose" then
+            parsed.choose = true
+            index = index + 1
+        elseif arg == "--no-choose" then
+            parsed.choose = false
             index = index + 1
         elseif arg == "--logic" then
             parsed.logic = true
@@ -98,6 +108,82 @@ local function parse_args(argv)
     return parsed
 end
 
+local function trim(value)
+    return tostring(value or ""):match("^%s*(.-)%s*$")
+end
+
+local function response_line_items(text)
+    local items = {}
+    local seen = {}
+    for line in (tostring(text or "") .. "\n"):gmatch("([^\n]*)\n") do
+        local value = trim(line)
+        value = value:gsub("^%s*[%-%*]%s*", "")
+        value = value:gsub("^%s*%d+[%.)]%s*", "")
+        value = trim(value)
+        if value ~= "" and not seen[value] then
+            seen[value] = true
+            items[#items + 1] = {
+                id = "line:" .. tostring(#items + 1),
+                kind = "semantic_line",
+                value = value,
+                truth_status = "semantic_proposal",
+            }
+        end
+    end
+    return items
+end
+
+local function repo_listing_items(payload)
+    local items = {}
+    if type(payload) ~= "table" or type(payload.entries) ~= "table" then
+        return items
+    end
+    for _, entry in ipairs(payload.entries) do
+        if entry.kind == "file" then
+            items[#items + 1] = {
+                id = entry.path,
+                kind = "repo_path",
+                value = entry.path,
+                truth_status = entry.truth_status or "runtime_confirmed",
+            }
+        end
+    end
+    return items
+end
+
+local function build_choice_input(args, repo_listing_payload, response)
+    local items = repo_listing_items(repo_listing_payload)
+    local field_truth = "runtime_confirmed"
+    local pressure = {
+        operator_pressure = "cli_default_choose",
+    }
+
+    if #items == 0 then
+        items = response_line_items(response and response.text or "")
+        field_truth = "semantic_proposal"
+        pressure.operator_pressure = "substrate_response_lines"
+    else
+        pressure.operator_pressure = "repo_listing_focus"
+        pressure.context_limit_pressure = "repo_listing_entries"
+    end
+
+    return {
+        field = {
+            items = items,
+            truth_status = field_truth,
+        },
+        limits = {
+            max_selected = 4,
+            max_killed_sample = 4,
+        },
+        pressure = pressure,
+        semantic_ranking = {
+            truth_status = "semantic_proposal",
+            items = response_line_items(response and response.text or ""),
+        },
+    }
+end
+
 local function run(argv)
     local args = parse_args(argv)
     if args.command ~= "run" then
@@ -114,6 +200,10 @@ local function run(argv)
     end
     if args.fake and args.deepseek then
         io.stderr:write("choose only one substrate\n")
+        return 2
+    end
+    if args.deepseek_model and not args.deepseek then
+        io.stderr:write("--deepseek-model requires --deepseek\n")
         return 2
     end
     if not args.fake and not args.deepseek then
@@ -243,10 +333,13 @@ local function run(argv)
         response, substrate_err = deepseek.ask({
             mode = "mixed",
             operator = "☴",
+            model = args.deepseek_model,
             prompt_payload = prompt_payload,
             repo_listing = repo_listing_payload,
             repo_context = repo_context_payload,
             expected_shape = "semantic_proposal",
+        }, {
+            model = args.deepseek_model,
         })
     else
         response = fake.ask({mode = "mixed", operator = "☴", task = args.task})
@@ -314,6 +407,51 @@ local function run(argv)
     })
     packet.spend(p, {tool_calls = 1})
     next_event = emit_new_events(p, next_event)
+
+    local choose_context
+    if args.choose then
+        packet.enter(p, "☳")
+        next_event = emit_new_events(p, next_event)
+
+        local choose_payload, choose_err = choose.choose(build_choice_input(args, repo_listing_payload, response))
+        if not choose_payload then
+            packet.append(p, {
+                type = "choice",
+                operator = "☳",
+                truth_status = "rejected",
+                payload = {
+                    kind = "choose_collapse",
+                    error = choose_err,
+                },
+                cost = {},
+            })
+            choose_context = {
+                selected_count = 0,
+                not_chosen_count = 0,
+                loss_kind = "none",
+                error = choose_err,
+            }
+        else
+            packet.append(p, {
+                type = "choice",
+                operator = "☳",
+                truth_status = "runtime_confirmed",
+                payload = {
+                    kind = "choose_collapse",
+                    choose_collapse = choose_payload,
+                },
+                cost = {},
+            })
+            choose_context = {
+                selected_count = #choose_payload.selected,
+                not_chosen_count = choose_payload.not_chosen_count,
+                loss_kind = choose_payload.loss and choose_payload.loss.kind,
+                last_choice_event = nil,
+            }
+        end
+        choose_context.last_choice_event = p.trace[#p.trace].id
+        next_event = emit_new_events(p, next_event)
+    end
 
     local logic_context
     if args.logic then
@@ -388,6 +526,10 @@ local function run(argv)
 
     local cycle_context
     if args.cycle then
+        if p.operator == "☳" then
+            packet.enter(p, "☱")
+            next_event = emit_new_events(p, next_event)
+        end
         packet.enter(p, "☲")
         next_event = emit_new_events(p, next_event)
 
