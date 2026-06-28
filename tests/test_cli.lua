@@ -50,6 +50,30 @@ if not mode_output:find('"mode":"chaos"', 1, true) then
     error("cli output missing selected mode")
 end
 
+local context_handle = io.popen('lua cli/procesis-body.lua run --task "context task" --fake --jsonl --repo-context README.md')
+local context_output = context_handle:read("*a")
+local context_ok, _, context_code = context_handle:close()
+
+if not context_ok or context_code ~= 0 then
+    error("cli repo context run exited with non-zero code")
+end
+
+if not context_output:find('"kind":"repo_context"', 1, true) then
+    error("cli output missing repo_context observation")
+end
+
+if not context_output:find('"truth_status":"runtime_confirmed"', 1, true) then
+    error("cli output missing runtime_confirmed repo context")
+end
+
+local bad_context_handle = io.popen('lua cli/procesis-body.lua run --task "bad context" --fake --jsonl --repo-context ../README.md 2>/dev/null')
+bad_context_handle:read("*a")
+local bad_context_ok, _, bad_context_code = bad_context_handle:close()
+
+if bad_context_ok or bad_context_code ~= 2 then
+    error("unsafe repo context should exit with code 2")
+end
+
 local bad_mode_handle = io.popen('lua cli/procesis-body.lua run --task "bad mode" --fake --jsonl --mode nope 2>/dev/null')
 bad_mode_handle:read("*a")
 local bad_ok, _, bad_code = bad_mode_handle:close()

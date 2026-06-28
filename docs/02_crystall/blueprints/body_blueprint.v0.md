@@ -315,3 +315,11 @@ Host interaction policy must follow:
 ```text
 docs/02_crystall/blueprints/sandbox_policy.v0.md
 ```
+
+## Repo Context Eye Link
+
+The first OBSERVE-side eye must follow:
+
+```text
+docs/02_crystall/blueprints/repo_context_eye.v0.md
+```

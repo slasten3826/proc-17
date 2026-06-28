@@ -120,12 +120,24 @@ manifest
 
 Invalid mode exits with code `2`.
 
+Optional OBSERVE-side repo context:
+
+```text
+procesis-body run --task <text> --fake --jsonl --repo-context README.md,core/packet.lua
+```
+
+`--repo-context` accepts a comma-separated explicit file list.
+The CLI reads those files through the repo context organ and fs/sandbox.
+The resulting payload is runtime-confirmed evidence and is included in
+the `substrate_call` payload.
+
 Test status:
 
 ```text
 integration_test: machine_cli_fake_run_integration
 integration_test: machine_cli_trace_file_integration
 integration_test: machine_cli_mode_integration
+integration_test: machine_cli_repo_context_integration
 manual_check: machine_cli_deepseek_smoke
 ```
 

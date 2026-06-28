@@ -107,4 +107,12 @@ body_modes
 sandbox_policy
   default-deny host permission layer below tool facade
   tools ask sandbox before host access
+
+repo_context_eye
+  first OBSERVE-side eye
+  gives substrate runtime-confirmed repo evidence before reasoning
+
+repo_listing_eye
+  next OBSERVE-side eye pressure
+  gives body-owned bounded file tree before file context selection
 ```

@@ -6,9 +6,10 @@ local fake = require("substrates.fake")
 local deepseek = require("substrates.deepseek")
 local fake_tool = require("tools.fake")
 local trace_store = require("runtime.trace_store")
+local repo_context = require("organs.repo_context")
 
 local function usage()
-    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--trace-file <path>]\n")
+    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--repo-context <paths>] [--trace-file <path>]\n")
 end
 
 local function emit(event)
@@ -52,6 +53,9 @@ local function parse_args(argv)
             index = index + 1
         elseif arg == "--trace-file" then
             parsed.trace_file = argv[index + 1]
+            index = index + 2
+        elseif arg == "--repo-context" then
+            parsed.repo_context = argv[index + 1]
             index = index + 2
         elseif arg == "--mode" then
             parsed.mode = argv[index + 1]
@@ -110,6 +114,47 @@ local function run(argv)
     packet.enter(p, "☴")
     next_event = emit_new_events(p, next_event)
 
+    local repo_context_payload
+    if args.repo_context then
+        local context_err
+        repo_context_payload, context_err = repo_context.attach(p, {
+            files = args.repo_context,
+            mode = mode,
+        })
+        if not repo_context_payload then
+            packet.append(p, {
+                type = "observation",
+                operator = "☴",
+                truth_status = "rejected",
+                payload = {
+                    kind = "repo_context",
+                    error = context_err,
+                },
+                cost = {},
+            })
+            emit_new_events(p, next_event)
+            packet.die(p, "unsafe_scope")
+            emit(event_envelope(p, p.trace[#p.trace]))
+            emit({
+                packet_id = p.id,
+                type = "final",
+                status = p.status,
+                residue = p.residue,
+            })
+            return 2
+        end
+        next_event = emit_new_events(p, next_event)
+    end
+
+    local prompt_payload = args.task
+    if repo_context_payload then
+        prompt_payload = table.concat({
+            args.task,
+            "",
+            repo_context.format_for_substrate(repo_context_payload),
+        }, "\n")
+    end
+
     packet.append(p, {
         type = "substrate_call",
         operator = "☴",
@@ -117,7 +162,8 @@ local function run(argv)
         payload = {
             mode = "mixed",
             operator = "☴",
-            prompt_payload = args.task,
+            prompt_payload = prompt_payload,
+            repo_context = repo_context_payload,
             expected_shape = "semantic_proposal",
         },
         cost = {substrate_calls = 1},
@@ -129,7 +175,8 @@ local function run(argv)
         response, substrate_err = deepseek.ask({
             mode = "mixed",
             operator = "☴",
-            prompt_payload = args.task,
+            prompt_payload = prompt_payload,
+            repo_context = repo_context_payload,
             expected_shape = "semantic_proposal",
         })
     else

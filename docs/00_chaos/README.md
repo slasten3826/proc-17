@@ -44,6 +44,15 @@ body_modes_notes.md
 
 sandbox_policy_notes.md
   default-deny host permission layer below tool facade
+
+ignition_tests_notes.md
+  live DeepSeek ignition observations and failure shape
+
+eyes_after_ignition_notes.md
+  first-eye conclusion: repo context before deeper substrate reasoning
+
+ignition_tests_notes.md now also includes the second ignition result:
+  repo context reduced repo-shape hallucination and produced repo_listing_eye pressure
 ```
 
 ## Current Center

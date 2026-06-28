@@ -23,6 +23,8 @@ topology.v0
 fake substrate
 DeepSeek substrate
 fake tool facade
+fs tool facade
+repo context eye
 JSONL trace store
 machine CLI
 tests
@@ -42,6 +44,12 @@ Run fake loop and persist trace:
 lua cli/procesis-body.lua run --task "smoke" --fake --jsonl --trace-file /tmp/proc-17-trace.jsonl
 ```
 
+Run fake loop with runtime-confirmed repo context:
+
+```sh
+lua cli/procesis-body.lua run --task "inspect this" --fake --jsonl --repo-context README.md,core/packet.lua
+```
+
 Run DeepSeek loop:
 
 ```sh
@@ -58,10 +66,14 @@ Expected:
 
 ```text
 test_json ok
+test_modes ok
+test_sandbox ok
 test_topology ok
 test_packet ok
 test_substrates ok
 test_tools ok
+test_fs_tool ok
+test_repo_context ok
 test_trace_store ok
 test_cli ok
 all tests ok
@@ -78,4 +90,3 @@ tool_result      -> runtime_confirmed
 
 The body owns packet lifecycle, topology, budget, trace, manifestation, death,
 and residue.
-
