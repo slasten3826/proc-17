@@ -282,16 +282,19 @@ Future route:
 
 ```text
 ☴ repo_listing_eye
-☵ candidate field, minimal v0 may be direct field construction
+☵ encoded_field
 ☳ choose_collapse
 ☶ repo_selection_validator
 ☴ repo_context_eye
 ```
 
-Since `☵ ENCODE` is not crystallized yet, first implementation may accept a
-prebuilt `field.items` input.
+`☵ ENCODE` is now crystallized separately in:
 
-This does not define ENCODE.
+```text
+connect_dissolve_encode.v0.md
+```
+
+CHOOSE still accepts a supplied `field.items` input and does not own ENCODE.
 
 ## Manifest v0 Status
 
@@ -300,6 +303,7 @@ Current implementation:
 ```text
 logic/choose.lua
 tests/test_choose.lua
+cli/procesis-body.lua default CHOOSE boundary
 ```
 
 Implemented:
@@ -314,13 +318,12 @@ semantic reasons preserved as semantic_proposal
 not_chosen_count
 loss.kind = attention_collapse
 bounded killed_alternatives sample
+CLI wiring after ENCODE field formation
 unit tests
 ```
 
 Still absent:
 
 ```text
-CLI wiring
-repo_listing candidate-field construction
 RUNTIME choice pressure section
 ```

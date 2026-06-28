@@ -36,6 +36,12 @@ unsupported_form_protocol.md
 processlang_lua_source_notes.md
   reading of old ProcessLang Lua source and how to reuse it
 
+connect_operator_notes.md
+  raw invariant for CONNECT as source relation and pressure channel
+
+dissolve_operator_notes.md
+  raw invariant for DISSOLVE as false-status removal, weakening, and residue
+
 cognitive_wrapper_packet_notes.md
   concrete model: wrapper owns process, packet moves inside, LLM is called
 
@@ -57,6 +63,9 @@ logic_validator_notes.md
 choose_operator_notes.md
   raw invariant for CHOOSE as irreversible narrowing and loss generation
 
+encode_operator_notes.md
+  raw invariant for ENCODE as loss-bearing field formation between OBSERVE and CHOOSE
+
 operator_readiness_notes.md
   current raw checkpoint: FLOW, OBSERVE, and LOGIC have first working organs
 
@@ -77,6 +86,9 @@ runtime_manifestation_notes.md
 
 live_deepseek_default_organs_notes.md
   live DeepSeek observations after LOGIC/CYCLE/RUNTIME became default-on
+
+reflection_model_tests_notes.md
+  live DeepSeek reflection tests and model-substrate pressure notes
 
 ignition_tests_notes.md
   live DeepSeek ignition observations and failure shape

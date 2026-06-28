@@ -5,6 +5,7 @@ local json = require("core.json")
 local fake = require("substrates.fake")
 local deepseek = require("substrates.deepseek")
 local fake_tool = require("tools.fake")
+local encode = require("logic.encode")
 local choose = require("logic.choose")
 local cycle = require("logic.cycle")
 local repo_selection = require("logic.repo_selection")
@@ -108,78 +109,40 @@ local function parse_args(argv)
     return parsed
 end
 
-local function trim(value)
-    return tostring(value or ""):match("^%s*(.-)%s*$")
-end
-
-local function response_line_items(text)
-    local items = {}
-    local seen = {}
-    for line in (tostring(text or "") .. "\n"):gmatch("([^\n]*)\n") do
-        local value = trim(line)
-        value = value:gsub("^%s*[%-%*]%s*", "")
-        value = value:gsub("^%s*%d+[%.)]%s*", "")
-        value = trim(value)
-        if value ~= "" and not seen[value] then
-            seen[value] = true
-            items[#items + 1] = {
-                id = "line:" .. tostring(#items + 1),
-                kind = "semantic_line",
-                value = value,
-                truth_status = "semantic_proposal",
-            }
-        end
-    end
-    return items
-end
-
-local function repo_listing_items(payload)
-    local items = {}
-    if type(payload) ~= "table" or type(payload.entries) ~= "table" then
-        return items
-    end
-    for _, entry in ipairs(payload.entries) do
-        if entry.kind == "file" then
-            items[#items + 1] = {
-                id = entry.path,
-                kind = "repo_path",
-                value = entry.path,
-                truth_status = entry.truth_status or "runtime_confirmed",
-            }
-        end
-    end
-    return items
-end
-
-local function build_choice_input(args, repo_listing_payload, response)
-    local items = repo_listing_items(repo_listing_payload)
-    local field_truth = "runtime_confirmed"
+local function build_encode_pressure(repo_listing_payload)
     local pressure = {
-        operator_pressure = "cli_default_choose",
+        operator_pressure = "cli_default_encode",
     }
-
-    if #items == 0 then
-        items = response_line_items(response and response.text or "")
-        field_truth = "semantic_proposal"
-        pressure.operator_pressure = "substrate_response_lines"
-    else
-        pressure.operator_pressure = "repo_listing_focus"
+    if repo_listing_payload then
+        pressure.operator_pressure = "repo_listing_field"
         pressure.context_limit_pressure = "repo_listing_entries"
+    else
+        pressure.operator_pressure = "substrate_response_field"
+    end
+    return pressure
+end
+
+local function build_choice_input(encoded_payload, repo_listing_payload, response)
+    local ranking_items = encode.response_line_items(response and response.text or "")
+    local max_selected = 4
+    if repo_listing_payload and #ranking_items > 0 then
+        max_selected = math.min(max_selected, #ranking_items)
     end
 
     return {
-        field = {
-            items = items,
-            truth_status = field_truth,
-        },
+        field = encoded_payload and encoded_payload.field,
         limits = {
-            max_selected = 4,
+            max_selected = max_selected,
             max_killed_sample = 4,
         },
-        pressure = pressure,
+        pressure = {
+            operator_pressure = repo_listing_payload and "repo_listing_focus" or "substrate_response_lines",
+            context_limit_pressure = repo_listing_payload and "repo_listing_entries" or nil,
+            encoded_field_kind = encoded_payload and encoded_payload.kind,
+        },
         semantic_ranking = {
             truth_status = "semantic_proposal",
-            items = response_line_items(response and response.text or ""),
+            items = ranking_items,
         },
     }
 end
@@ -410,10 +373,48 @@ local function run(argv)
 
     local choose_context
     if args.choose then
+        packet.enter(p, "☵")
+        next_event = emit_new_events(p, next_event)
+
+        local encoded_payload, encoded_err = encode.encode({
+            repo_listing = repo_listing_payload,
+            repo_context = repo_context_payload,
+            substrate_result = response,
+            limits = {
+                max_items = 128,
+            },
+            pressure = build_encode_pressure(repo_listing_payload),
+        })
+        if not encoded_payload then
+            packet.append(p, {
+                type = "observation",
+                operator = "☵",
+                truth_status = "rejected",
+                payload = {
+                    kind = "encoded_field",
+                    error = encoded_err,
+                },
+                cost = {},
+            })
+            next_event = emit_new_events(p, next_event)
+        else
+            packet.append(p, {
+                type = "observation",
+                operator = "☵",
+                truth_status = "runtime_confirmed",
+                payload = {
+                    kind = "encoded_field",
+                    encoded_field = encoded_payload,
+                },
+                cost = {},
+            })
+            next_event = emit_new_events(p, next_event)
+        end
+
         packet.enter(p, "☳")
         next_event = emit_new_events(p, next_event)
 
-        local choose_payload, choose_err = choose.choose(build_choice_input(args, repo_listing_payload, response))
+        local choose_payload, choose_err = choose.choose(build_choice_input(encoded_payload, repo_listing_payload, response))
         if not choose_payload then
             packet.append(p, {
                 type = "choice",

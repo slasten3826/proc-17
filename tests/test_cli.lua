@@ -42,6 +42,10 @@ if not output:find('"kind":"choose_collapse"', 1, true) then
     error("cli output should include CHOOSE collapse by default")
 end
 
+if not output:find('"kind":"encoded_field"', 1, true) then
+    error("cli output should include ENCODE field by default before CHOOSE")
+end
+
 if not output:find('"kind":"substrate_result_boundary"', 1, true) then
     error("cli output should include LOGIC boundary by default")
 end
@@ -78,6 +82,10 @@ if no_choose_output:find('"kind":"choose_collapse"', 1, true) then
     error("cli output should omit CHOOSE collapse only when disabled")
 end
 
+if no_choose_output:find('"kind":"encoded_field"', 1, true) then
+    error("cli output should omit ENCODE field when CHOOSE is disabled in v0")
+end
+
 local no_logic_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-logic')
 local no_logic_output = no_logic_handle:read("*a")
 local no_logic_ok, _, no_logic_code = no_logic_handle:close()
@@ -96,6 +104,10 @@ end
 
 if not no_logic_output:find('"kind":"choose_collapse"', 1, true) then
     error("CHOOSE should remain default-on when LOGIC is disabled")
+end
+
+if not no_logic_output:find('"kind":"encoded_field"', 1, true) then
+    error("ENCODE should remain default-on when LOGIC is disabled")
 end
 
 local no_cycle_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-cycle')
