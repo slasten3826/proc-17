@@ -1,0 +1,6 @@
+.env
+*.log
+*.tmp
+*.jsonl
+.DS_Store
+
