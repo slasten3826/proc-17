@@ -9,6 +9,23 @@ The goal is repeated compression:
 chaos -> table -> crystall -> manifest
 ```
 
+Glyph shorthand:
+
+```text
+⋯☴⊞☴◈☴
+```
+
+Working reading:
+
+```text
+⋯   chaos pressure / raw unresolved field
+☴   OBSERVE raw pressure
+⊞   TABLE compile / arrange shape
+☴   OBSERVE table shape
+◈   CRYSTALL contract
+☴   OBSERVE/test manifest result and return pressure to chaos
+```
+
 Then repeat from chaos.
 
 ## Cycle
@@ -123,4 +140,11 @@ repo_selection_validator
 fs_listing_hardening
   implementation pressure from live context test
   internal io.popen/find is useful v0 but should be constrained or replaced
+
+cycle_decision
+  first CYCLE shape
+  decides whether a packet may take one more bounded turn
+
+growth_pipeline
+  ⋯☴⊞☴◈☴ should become a body-owned documentation/build route
 ```

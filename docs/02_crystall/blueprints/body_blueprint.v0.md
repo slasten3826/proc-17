@@ -54,6 +54,7 @@ Neither center is allowed to absorb all agency.
 
 ☲ CYCLE
   iterate when continuation has budget and pressure
+  first contract: cycle_decision as bounded continuation gate
 
 ☶ LOGIC
   validate topology, permissions, tests, claims, and patch scope

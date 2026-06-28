@@ -21,6 +21,30 @@ repo_context_organ
   reads accepted paths
 ```
 
+## Layer Boundary
+
+```text
+LOGIC validates proposal before contact
+SANDBOX guards contact itself
+```
+
+For this validator:
+
+```text
+LOGIC:
+  path exists in repo_listing
+  path kind is acceptable
+  max_paths is not exceeded
+
+SANDBOX:
+  path is relative
+  path has no parent traversal
+  read_file is allowed
+```
+
+The validator may call sandbox path checks as a secondary guard, but it must
+not become the permission layer.
+
 ## Failure Shapes
 
 ```text

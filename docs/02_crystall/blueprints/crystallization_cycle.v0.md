@@ -30,6 +30,43 @@ Each build pass must do:
 7. write new chaos for failures, gaps, and new pressure
 ```
 
+## Glyph Pipeline Contract
+
+The working shorthand is:
+
+```text
+⋯☴⊞☴◈☴
+```
+
+Meaning:
+
+```text
+⋯
+  preserve raw chaos pressure
+
+☴
+  observe/read chaos without pretending it is stable
+
+⊞
+  table/yellowprint: arrange stable shapes, routes, inventories
+
+☴
+  observe/read table and identify testable contracts
+
+◈
+  crystall/blueprint: write stable contract and test obligations
+
+☴
+  observe manifest/test result and feed new pressure back to chaos
+```
+
+This is a documentation/build route first.
+
+It is not yet an automated proc-17 pipeline.
+
+Future implementation may expose it as a body-owned command after CYCLE can
+make bounded continuation decisions.
+
 ## Test Contract
 
 Every new crystall contract must include one test status:
@@ -75,4 +112,3 @@ unsupported_form_dissolve_unit
 unsupported_form_promote_unit
 fake_substrate_loop_integration
 ```
-

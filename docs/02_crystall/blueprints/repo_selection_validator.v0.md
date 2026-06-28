@@ -30,6 +30,10 @@ It does not decide that a file implements a concept.
 
 It does not prove dependency claims.
 
+It validates proposal shape before runtime contact.
+
+Sandbox still guards contact itself.
+
 ## Required Behavior
 
 The validator must:
@@ -43,6 +47,29 @@ reject paths absent from listing entries
 reject directories unless allow_directories = true
 preserve reasons as semantic_proposal or unsupported text
 produce repo_selection_payload
+```
+
+Required module path:
+
+```text
+logic/repo_selection.lua
+```
+
+Required functions:
+
+```text
+build_index(repo_listing_payload) -> index
+extract_paths(text, repo_listing_payload, options) -> candidates
+validate(input) -> repo_selection_payload | nil, error
+```
+
+`validate(input)` input:
+
+```text
+listing
+text
+allow_directories = false
+max_paths = 8
 ```
 
 ## Required Payload Fields
@@ -79,12 +106,40 @@ Reason text from substrate must include:
 truth_status = semantic_proposal
 ```
 
+## Path Extraction v0
+
+The first extractor should be conservative:
+
+```text
+prefer exact path membership against repo_listing entries
+accept paths inside backticks only if exact listed path
+accept bare listed paths only if exact listed path
+do not repair or normalize model output paths
+do not accept basename-only matches
+deduplicate accepted paths
+```
+
+If text contains no listed path, output should keep:
+
+```text
+unparsed_text
+```
+
 ## Input Truth Boundaries
 
 Runtime-confirmed input:
 
 ```text
 repo_listing_payload.entries
+```
+
+Runtime-confirmed output:
+
+```text
+accepted path membership
+rejected absent path membership
+directory rejection
+limit rejection
 ```
 
 Semantic input:
@@ -106,6 +161,8 @@ unit_test: rejects listed directory by default
 unit_test: allows listed directory only when allow_directories = true
 unit_test: preserves reason as semantic_proposal
 unit_test: unparsed text remains semantic
+unit_test: deduplicates repeated path
+unit_test: enforces max_paths
 integration_test: listing -> substrate proposal -> selection validation -> context read
 ```
 
@@ -147,4 +204,39 @@ substrate selection proposal
 repo_selection_validator
 repo_context_organ reads accepted paths
 substrate reasons from file contents
+```
+
+## Manifest v0 Status
+
+Current implementation:
+
+```text
+logic/repo_selection.lua
+tests/test_repo_selection.lua
+```
+
+Implemented:
+
+```text
+build_index
+extract_paths
+validate
+listed file acceptance
+absent path rejection
+directory rejection by default
+directory allowance by option
+max_paths enforcement
+deduplication
+semantic_proposal preservation for reasons
+tuned extraction for backticks, markdown bold, leading line paths, and standalone listed paths
+```
+
+Still absent:
+
+```text
+CLI integration
+automatic listing -> selection -> context loop
+structured JSON selection protocol
+role validation
+reason validation
 ```

@@ -45,6 +45,15 @@ body_modes_notes.md
 sandbox_policy_notes.md
   default-deny host permission layer below tool facade
 
+logic_validator_notes.md
+  LOGIC as stupid proposal validator, distinct from sandbox
+
+operator_readiness_notes.md
+  current raw checkpoint: FLOW, OBSERVE, and LOGIC have first working organs
+
+cycle_operator_notes.md
+  raw pressure for CYCLE as bounded continuation decision, not immortal loop
+
 ignition_tests_notes.md
   live DeepSeek ignition observations and failure shape
 

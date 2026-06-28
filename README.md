@@ -26,6 +26,8 @@ fake tool facade
 fs tool facade
 repo context eye
 repo listing eye
+repo selection validator
+cycle decision
 JSONL trace store
 machine CLI
 tests
@@ -80,7 +82,9 @@ test_packet ok
 test_substrates ok
 test_tools ok
 test_fs_tool ok
+test_cycle ok
 test_repo_listing ok
+test_repo_selection ok
 test_repo_context ok
 test_trace_store ok
 test_cli ok

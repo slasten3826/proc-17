@@ -12,6 +12,7 @@ PACKET_SPEC.md
 SUBSTRATE_SPEC.md
 core/
 cli/
+logic/
 organs/
 substrates/
 tests/
@@ -61,6 +62,12 @@ tools/fake.lua
 tools/fs.lua
   real workspace-relative read_file/write_file/list_dir facade with mode path policy
 
+logic/repo_selection.lua
+  LOGIC boundary: validates selected paths against runtime-confirmed repo listing
+
+logic/cycle.lua
+  CYCLE boundary: pure bounded continuation decision module
+
 organs/repo_context.lua
   first OBSERVE-side eye: explicit file-list repo context payload through fs/sandbox
 
@@ -74,7 +81,7 @@ cli/procesis-body.lua
   machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, and --repo-context
 
 tests/
-  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, repo listing organ, repo context organ, trace store, and CLI smoke tests
+  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, cycle decision, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
   includes mode path policy tests
 ```
 
@@ -107,7 +114,9 @@ tools: fake_only
 fs_tool: read_write_guarded
 repo_listing_eye: bounded_read_only_file_tree
 repo_context_eye: explicit_file_list_read_only
-repo_selection_validator: blueprint_only_pending
+repo_selection_validator: pure_logic_module
+cycle_decision: pure_logic_module
+growth_pipeline: documented_only_pending
 trace_store: explicit_jsonl
 body_modes: packet_cli_and_path_policy_implemented
 ```
@@ -181,7 +190,9 @@ test_packet ok
 test_substrates ok
 test_tools ok
 test_fs_tool ok
+test_cycle ok
 test_repo_listing ok
+test_repo_selection ok
 test_repo_context ok
 test_trace_store ok
 test_cli ok
@@ -223,6 +234,27 @@ next pending LOGIC boundary: repo_selection_validator
 implementation hardening target: fs.list_dir internal io.popen/find
 ```
 
+Manual DeepSeek cycle check:
+
+```text
+/tmp/proc-17-cycle-live.jsonl
+```
+
+Observed result:
+
+```text
+DeepSeek proposed two valid files, one absent path, and one directory
+repo_selection_validator accepted the two files
+repo_selection_validator rejected absent path and directory
+cycle_decision returned continue with reason continuation_payable
+```
+
+Current missing integration:
+
+```text
+automatic handoff from cycle continue decision to repo_context_organ
+```
+
 ## Current Limits
 
 ```text
@@ -231,7 +263,8 @@ no shell command tool
 no directory creation in fs tool
 no automatic trace persistence
 no automatic repo file selection
-no repo_selection_validator implementation yet
+no automatic repo selection loop yet
+no automated ⋯☴⊞☴◈☴ pipeline yet
 no semantic repo ranking
 no TUI or human UI
 no child packet execution
