@@ -63,10 +63,16 @@ tests/
 
 ## Current Git State
 
-This directory is prepared for publication as:
+This directory is published as:
 
 ```text
 https://github.com/slasten3826/proc-17
+```
+
+Current branch:
+
+```text
+main
 ```
 
 ## Current Architecture Status
