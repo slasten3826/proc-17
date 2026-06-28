@@ -41,6 +41,9 @@ organogenesis_notes.md
 
 body_modes_notes.md
   four process modes: chaos/table/crystall/manifest
+
+sandbox_policy_notes.md
+  default-deny host permission layer below tool facade
 ```
 
 ## Current Center

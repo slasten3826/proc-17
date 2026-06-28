@@ -1,4 +1,5 @@
 local topology = require("core.topology")
+local modes = require("core.modes")
 
 local packet = {}
 
@@ -26,6 +27,7 @@ packet.event_types = {
     tool_result = true,
     validation = true,
     budget_spend = true,
+    mode_enter = true,
     unsupported_form = true,
     gap_residue = true,
     choice = true,
@@ -128,6 +130,7 @@ function packet.new(task, options)
         parent_id = options.parent_id,
         task = task,
         status = "born",
+        mode = options.mode or modes.default(),
         operator = "▽",
         budget = copy_map(options.budget or default_budget()),
         pressure = options.pressure or 0,
@@ -139,11 +142,36 @@ function packet.new(task, options)
         metadata = options.metadata or {},
     }
 
+    if not modes.is_valid(instance.mode) then
+        error("invalid packet mode")
+    end
+
     packet.append(instance, {
         type = "birth",
         operator = "▽",
         truth_status = "runtime_confirmed",
-        payload = {task = task, parent_id = instance.parent_id},
+        payload = {task = task, parent_id = instance.parent_id, mode = instance.mode},
+        cost = {},
+    })
+
+    return instance
+end
+
+function packet.enter_mode(instance, mode, reason)
+    if not modes.is_valid(mode) then
+        return nil, "invalid mode"
+    end
+
+    instance.mode = mode
+    packet.append(instance, {
+        type = "mode_enter",
+        operator = instance.operator,
+        truth_status = "runtime_confirmed",
+        payload = {
+            mode = mode,
+            reason = reason,
+            permissions = modes.describe(mode),
+        },
         cost = {},
     })
 
@@ -336,6 +364,14 @@ end
 
 function packet.validate_event(event)
     return validate_event(event)
+end
+
+function packet.validate_mode(mode)
+    return modes.is_valid(mode)
+end
+
+function packet.can_write_code(instance)
+    return modes.can_write_code(instance.mode)
 end
 
 return packet

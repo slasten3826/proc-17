@@ -8,7 +8,7 @@ local fake_tool = require("tools.fake")
 local trace_store = require("runtime.trace_store")
 
 local function usage()
-    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--trace-file <path>]\n")
+    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--trace-file <path>]\n")
 end
 
 local function emit(event)
@@ -53,6 +53,9 @@ local function parse_args(argv)
         elseif arg == "--trace-file" then
             parsed.trace_file = argv[index + 1]
             index = index + 2
+        elseif arg == "--mode" then
+            parsed.mode = argv[index + 1]
+            index = index + 2
         else
             parsed.unknown = arg
             index = index + 1
@@ -88,8 +91,17 @@ local function run(argv)
         return 5
     end
 
-    local p = packet.new(args.task)
+    local mode = args.mode or "manifest"
+    if not packet.validate_mode(mode) then
+        io.stderr:write("invalid mode: " .. tostring(mode) .. "\n")
+        return 2
+    end
+
+    local p = packet.new(args.task, {mode = mode})
     local next_event = 1
+    next_event = emit_new_events(p, next_event)
+
+    packet.enter_mode(p, mode, "cli")
     next_event = emit_new_events(p, next_event)
 
     packet.enter(p, "☰")

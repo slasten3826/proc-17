@@ -103,4 +103,8 @@ tests_required
 body_modes
   chaos/table/crystall/manifest are process permission modes
   code writes only in manifest mode
+
+sandbox_policy
+  default-deny host permission layer below tool facade
+  tools ask sandbox before host access
 ```

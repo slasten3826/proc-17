@@ -27,8 +27,14 @@ Current implemented files:
 core/topology.lua
   ProcessLang operator topology and trace validation
 
+core/modes.lua
+  body mode permission descriptors and write path policy
+
+core/sandbox.lua
+  default-deny host permission layer for filesystem/shell checks
+
 core/packet.lua
-  packet.v0 protocol: birth, trace, budget spend, unsupported form, manifest, death, residue
+  packet.v0 protocol: birth, mode, trace, budget spend, unsupported form, manifest, death, residue
 
 core/json.lua
   small dependency-free JSON encoder/decoder
@@ -49,16 +55,20 @@ tools/contract.lua
   shared tool call/result contract helpers
 
 tools/fake.lua
-  deterministic fake tool facade
+  deterministic fake tool facade with write permission dry-run
+
+tools/fs.lua
+  real workspace-relative read_file/write_file facade with mode path policy
 
 runtime/trace_store.lua
   explicit JSONL packet trace writer
 
 cli/procesis-body.lua
-  machine-facing JSONL CLI with --fake and --deepseek
+  machine-facing JSONL CLI with --fake, --deepseek, and --mode
 
 tests/
-  JSON, packet, topology, substrate normalization, tool facade, trace store, and CLI smoke tests
+  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, trace store, and CLI smoke tests
+  includes mode path policy tests
 ```
 
 ## Current Git State
@@ -84,10 +94,12 @@ cli: machine_jsonl_fake_and_deepseek
 packet_model: packet.v0_partial
 router: topology.v0_partial
 runtime: budget_inside_packet_only
+sandbox: default_deny_v0
 substrates: fake_and_deepseek
 tools: fake_only
+fs_tool: read_write_guarded
 trace_store: explicit_jsonl
-body_modes: documented_not_implemented
+body_modes: packet_cli_and_path_policy_implemented
 ```
 
 ## Current Commands
@@ -102,6 +114,12 @@ Run fake machine CLI:
 
 ```text
 lua cli/procesis-body.lua run --task "smoke" --fake --jsonl
+```
+
+Run fake machine CLI in chaos mode:
+
+```text
+lua cli/procesis-body.lua run --task "smoke" --fake --jsonl --mode chaos
 ```
 
 Run fake machine CLI with trace file:
@@ -128,10 +146,13 @@ Result:
 
 ```text
 test_json ok
+test_modes ok
+test_sandbox ok
 test_topology ok
 test_packet ok
 test_substrates ok
 test_tools ok
+test_fs_tool ok
 test_trace_store ok
 test_cli ok
 all tests ok
@@ -157,10 +178,11 @@ death cause: complete
 
 ```text
 no real tool facade
-no file editing
+no shell command tool
+no directory creation in fs tool
 no automatic trace persistence
 no TUI or human UI
 no child packet execution
-no mode permission enforcement
+no real file writes; write permissions are dry-run only
 real provider calls are manual, not part of normal test suite
 ```

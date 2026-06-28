@@ -307,3 +307,11 @@ Future process mode gating must follow:
 ```text
 docs/02_crystall/blueprints/body_modes.v0.md
 ```
+
+## Sandbox Policy Link
+
+Host interaction policy must follow:
+
+```text
+docs/02_crystall/blueprints/sandbox_policy.v0.md
+```

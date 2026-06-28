@@ -17,10 +17,21 @@ end
 local p = packet.new("test task", {id = "packet-test"})
 assert_eq(p.protocol_version, "packet.v0", "protocol version")
 assert_eq(p.status, "born", "birth status")
+assert_eq(p.mode, "manifest", "default mode")
 assert_eq(p.operator, "▽", "birth operator")
 assert_eq(#p.trace, 1, "birth event appended")
 
-local ok, err = packet.spend(p, {steps = 1})
+assert_true(packet.validate_mode("chaos"), "chaos mode should validate")
+assert_true(not packet.validate_mode("invalid"), "invalid mode should not validate")
+assert_true(packet.can_write_code(p), "manifest packet can write code")
+
+ok, err = packet.enter_mode(p, "chaos", "test")
+assert_true(ok, err)
+assert_eq(p.mode, "chaos", "mode updated")
+assert_true(not packet.can_write_code(p), "chaos packet cannot write code")
+assert_eq(p.trace[#p.trace].type, "mode_enter", "mode enter event")
+
+ok, err = packet.spend(p, {steps = 1})
 assert_true(ok, err)
 assert_eq(p.budget.steps, 31, "budget spend")
 

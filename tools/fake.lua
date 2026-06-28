@@ -1,4 +1,5 @@
 local contract = require("tools.contract")
+local modes = require("core.modes")
 
 local fake = {}
 
@@ -22,6 +23,39 @@ function fake.run(call)
                 source = "fake_tool",
             },
             metadata = {tool = "fake"},
+        })
+    end
+
+    if call.action == "write_file" then
+        local input = call.input or {}
+        local ok_path, reason = modes.can_write_path(input.mode or "manifest", input.path)
+        if not ok_path then
+            return contract.normalize_result({
+                ok = false,
+                action = call.action,
+                error = reason,
+                metadata = {
+                    tool = "fake",
+                    mode = input.mode,
+                    path = input.path,
+                    write_performed = false,
+                },
+            })
+        end
+
+        return contract.normalize_result({
+            ok = true,
+            action = call.action,
+            output = {
+                path = input.path,
+                bytes = #(input.content or ""),
+                write_performed = false,
+            },
+            metadata = {
+                tool = "fake",
+                mode = input.mode,
+                permission_checked = true,
+            },
         })
     end
 

@@ -41,6 +41,7 @@ id
 parent_id
 task
 status
+mode
 operator
 budget
 pressure
@@ -61,6 +62,36 @@ Test status:
 
 ```text
 unit_test: packet_birth_unit
+```
+
+## Mode Contract
+
+Allowed packet modes:
+
+```text
+chaos
+table
+crystall
+manifest
+```
+
+Default mode:
+
+```text
+manifest
+```
+
+Allowed mode event:
+
+```text
+mode_enter
+```
+
+Test status:
+
+```text
+unit_test: packet mode validation
+unit_test: mode_enter trace event
 ```
 
 ## Status Contract
@@ -115,6 +146,7 @@ tool_call
 tool_result
 validation
 budget_spend
+mode_enter
 unsupported_form
 gap_residue
 choice

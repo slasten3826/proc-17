@@ -3,6 +3,7 @@ local contract = {}
 contract.actions = {
     inspect_task = true,
     read_file = true,
+    write_file = true,
     list_dir = true,
     run_command = true,
 }

@@ -103,11 +103,29 @@ procesis-body run --task <text> --fake --jsonl --trace-file <path>
 
 `--trace-file` writes the same packet event stream plus final envelope to disk.
 
+Optional body mode:
+
+```text
+procesis-body run --task <text> --fake --jsonl --mode chaos
+```
+
+Allowed modes:
+
+```text
+chaos
+table
+crystall
+manifest
+```
+
+Invalid mode exits with code `2`.
+
 Test status:
 
 ```text
 integration_test: machine_cli_fake_run_integration
 integration_test: machine_cli_trace_file_integration
+integration_test: machine_cli_mode_integration
 manual_check: machine_cli_deepseek_smoke
 ```
 
