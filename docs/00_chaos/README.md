@@ -93,6 +93,39 @@ reflection_model_tests_notes.md
 deepseek_next_pressure_notes.md
   DeepSeek next-step reflection and first CHOOSE distortion observation
 
+encode_choose_shape_notes.md
+  raw pressure on ☵ field shape and ☳ collapse level after structured reflection loss
+
+encode_quality_before_choose_notes.md
+  raw pressure that ☵ field quality should improve before making ☳ smarter
+
+cognitive_test_battery_codex_candidate.md
+  Codex's first technical/body-oriented candidate test battery
+
+cognitive_test_battery_user_candidate.md
+  user's older process-koan candidate question list
+
+cognitive_battery_codex_results.md
+  first live-run observations from the technical/body-oriented battery
+
+cognitive_battery_user_results.md
+  first live-run observations from the user/process-koan battery
+
+cognitive_battery_hints_results.md
+  A/B observations after repeating both batteries with operator runtime hints enabled
+
+plan_build_hints_modes.md
+  discovery that no-hints behaves like plan mode and hints behaves like build current
+
+encode_code_only_boundary.md
+  major ☵ boundary: encode code/runtime/engineering structure, not arbitrary prose
+
+operator_runtime_hints_notes.md
+  narrowed hint system: short local operator pressure for substrate/body work
+
+slop_operator_direction_candidate.md
+  selected slop.raw.txt directional snippets for each ProcessLang operator
+
 ignition_tests_notes.md
   live DeepSeek ignition observations and failure shape
 

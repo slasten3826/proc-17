@@ -27,6 +27,7 @@ packet.event_types = {
     tool_result = true,
     validation = true,
     budget_spend = true,
+    hint_pressure = true,
     mode_enter = true,
     unsupported_form = true,
     gap_residue = true,

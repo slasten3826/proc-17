@@ -38,12 +38,44 @@ if not output:find('"kind":"runtime_pressure_snapshot"', 1, true) then
     error("cli output should include runtime pressure snapshot by default")
 end
 
+if not output:find('"type":"hint_pressure"', 1, true) then
+    error("cli output should include operator hint pressure by default")
+end
+
+if not output:find('"operator_hints"', 1, true) then
+    error("cli substrate call should include operator hints payload by default")
+end
+
+if not output:find('"enabled":true', 1, true) then
+    error("cli operator hints should be enabled by default")
+end
+
+if not output:find('"hint_count":32', 1, true) then
+    error("cli operator hints trace should include v0 hint count")
+end
+
+if not output:find("Choice kills alternatives.", 1, true) then
+    error("cli prompt payload should include CHOOSE runtime hint when enabled")
+end
+
 if not output:find('"kind":"choose_collapse"', 1, true) then
     error("cli output should include CHOOSE collapse by default")
 end
 
 if not output:find('"kind":"encoded_field"', 1, true) then
     error("cli output should include ENCODE field by default before CHOOSE")
+end
+
+if not output:find('"shape":"semantic_line_field"', 1, true) then
+    error("cli output should include semantic field shape")
+end
+
+if not output:find('"field_shape":"semantic_line_field"', 1, true) then
+    error("cli CHOOSE pressure should include semantic field shape")
+end
+
+if not output:find('"collapse_level":"item"', 1, true) then
+    error("cli CHOOSE loss should include item collapse level")
 end
 
 if not output:find('"kind":"substrate_result_boundary"', 1, true) then
@@ -68,6 +100,46 @@ end
 
 if no_runtime_output:find('"kind":"runtime_pressure_snapshot"', 1, true) then
     error("cli output should omit runtime pressure snapshot only when disabled")
+end
+
+local no_hints_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-hints')
+local no_hints_output = no_hints_handle:read("*a")
+local no_hints_ok, _, no_hints_code = no_hints_handle:close()
+
+if not no_hints_ok or no_hints_code ~= 0 then
+    error("cli no-hints run exited with non-zero code")
+end
+
+if not no_hints_output:find('"type":"hint_pressure"', 1, true) then
+    error("cli no-hints output should still record hint pressure state")
+end
+
+if not no_hints_output:find('"enabled":false', 1, true) then
+    error("cli no-hints output should mark hints disabled")
+end
+
+if not no_hints_output:find('"hint_count":0', 1, true) then
+    error("cli no-hints output should have zero hint count")
+end
+
+if no_hints_output:find("Choice kills alternatives.", 1, true) then
+    error("cli no-hints prompt payload should not include CHOOSE runtime hint")
+end
+
+local hints_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --hints')
+local hints_output = hints_handle:read("*a")
+local hints_ok, _, hints_code = hints_handle:close()
+
+if not hints_ok or hints_code ~= 0 then
+    error("cli explicit hints run exited with non-zero code")
+end
+
+if not hints_output:find('"enabled":true', 1, true) then
+    error("cli explicit hints output should mark hints enabled")
+end
+
+if not hints_output:find("Do not promote prose into runtime truth.", 1, true) then
+    error("cli explicit hints prompt payload should include ENCODE boundary")
 end
 
 local no_choose_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-choose')
@@ -154,6 +226,14 @@ if not listing_output:find('"repo_listing"', 1, true) then
     error("cli output missing repo_listing payload")
 end
 
+if not listing_output:find('"shape":"repo_path_field"', 1, true) then
+    error("cli repo listing output missing repo path field shape")
+end
+
+if not listing_output:find('"collapse_level":"path"', 1, true) then
+    error("cli repo listing CHOOSE should use path collapse level")
+end
+
 local context_handle = io.popen('lua cli/procesis-body.lua run --task "context task" --fake --jsonl --repo-context README.md')
 local context_output = context_handle:read("*a")
 local context_ok, _, context_code = context_handle:close()
@@ -212,6 +292,14 @@ local bad_ok, _, bad_code = bad_mode_handle:close()
 
 if bad_ok or bad_code ~= 2 then
     error("invalid mode should exit with code 2")
+end
+
+local bad_hints_handle = io.popen('lua cli/procesis-body.lua run --task "bad hints" --fake --jsonl --hints --no-hints 2>/dev/null')
+bad_hints_handle:read("*a")
+local bad_hints_ok, _, bad_hints_code = bad_hints_handle:close()
+
+if bad_hints_ok or bad_hints_code ~= 2 then
+    error("conflicting hints flags should exit with code 2")
 end
 
 print("test_cli ok")

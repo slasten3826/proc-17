@@ -66,6 +66,7 @@ assert_eq(payload.loss.truncated, true, "killed sample truncated")
 assert_eq(#payload.killed_alternatives, 1, "bounded killed alternatives")
 assert_eq(payload.choice_pressure.attention_pressure, "high", "choice pressure copied")
 assert_eq(payload.choice_basis.order, "semantic_ranking_then_field_order", "choice basis")
+assert_eq(payload.loss.collapse_level, "item", "default collapse level")
 
 payload.choice_pressure.attention_pressure = "mutated"
 local payload_again = collapse({
@@ -117,6 +118,36 @@ local value_ranked = collapse({
 
 assert_eq(value_ranked.selected[1].id, "b", "semantic ranking should prefer value over line id")
 assert_eq(value_ranked.selected[1].reason.truth_status, "semantic_proposal", "value rank reason stays semantic")
+
+local structured_field = {
+    shape = "structured_reflection_field",
+    intent = "preserve_reflection",
+    truth_status = "semantic_proposal",
+    items = {
+        {id = "section:1", kind = "section", value = "3 strongest next pressures", role = "container", truth_status = "semantic_proposal"},
+        {id = "line:1", kind = "section_child", value = "pressure A", role = "alternative", parent_id = "section:1", truth_status = "semantic_proposal"},
+        {id = "line:2", kind = "section_child", value = "pressure B", role = "alternative", parent_id = "section:1", truth_status = "semantic_proposal"},
+        {id = "section:2", kind = "section", value = "3 things not to implement yet", role = "container", truth_status = "semantic_proposal"},
+        {id = "line:3", kind = "section_child", value = "router", role = "alternative", parent_id = "section:2", truth_status = "semantic_proposal"},
+    },
+}
+
+local structured = collapse({
+    field = structured_field,
+    limits = {max_selected = 2, max_killed_sample = 8},
+    pressure = {
+        field_shape = "structured_reflection_field",
+        field_intent = "preserve_reflection",
+        collapse_level = "child",
+    },
+})
+
+assert_eq(structured.loss.collapse_level, "child", "structured collapse level")
+assert_eq(#structured.selected, 2, "structured selected count")
+assert_eq(structured.selected[1].id, "line:1", "structured skips section header")
+assert_eq(structured.selected[2].id, "line:2", "structured selects children")
+assert_eq(structured.killed_alternatives[1].id, "line:3", "structured kills only child alternative")
+assert_eq(structured.not_chosen_count, 1, "structured not chosen counts eligible alternatives")
 
 local missing, missing_err = choose.choose({})
 assert_true(not missing, "missing field should fail")

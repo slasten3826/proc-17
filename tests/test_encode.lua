@@ -68,6 +68,37 @@ assert_eq(semantic_payload.field.items[1].value, "alpha", "semantic item value")
 assert_eq(semantic_payload.field.items[1].source_truth_status, "semantic_proposal", "semantic source truth")
 assert_eq(semantic_payload.field.items[1].encoding_truth_status, "runtime_confirmed", "semantic encoding truth")
 assert_eq(semantic_payload.loss.kind, "field_compression", "semantic loss kind")
+assert_eq(semantic_payload.field.shape, "semantic_line_field", "semantic field shape")
+assert_eq(semantic_payload.field.intent, "rank_candidates", "semantic field intent")
+
+local structured_payload = encode_ok({
+    substrate_result = {
+        text = table.concat({
+            "3 strongest next pressures:",
+            "Automatic handoff is missing.",
+            "ENCODE needs section shape.",
+            "",
+            "3 things not to implement yet:",
+            "substrate_router",
+            "real shell tool",
+            "",
+            "2 concrete next tests:",
+            "test encode sections",
+            "test choose sections",
+        }, "\n"),
+    },
+    limits = {max_items = 16},
+})
+
+assert_eq(structured_payload.field.shape, "structured_reflection_field", "structured field shape")
+assert_eq(structured_payload.field.intent, "preserve_reflection", "structured field intent")
+assert_eq(structured_payload.field.items[1].kind, "section", "first structured item kind")
+assert_eq(structured_payload.field.items[1].role, "container", "section role")
+assert_eq(structured_payload.field.items[2].kind, "section_child", "child item kind")
+assert_eq(structured_payload.field.items[2].role, "alternative", "child role")
+assert_eq(structured_payload.field.items[2].parent_id, structured_payload.field.items[1].id, "child parent")
+assert_eq(structured_payload.field.items[4].kind, "section", "second section kind")
+assert_eq(structured_payload.loss.hierarchy_loss, false, "structured hierarchy preserved")
 
 local limited_payload = encode_ok({
     substrate_result = {
@@ -79,6 +110,7 @@ local limited_payload = encode_ok({
 assert_eq(#limited_payload.field.items, 2, "limited output count")
 assert_eq(limited_payload.loss.omitted_count, 1, "limited omitted count")
 assert_eq(limited_payload.loss.truncated, true, "limited truncated")
+assert_eq(limited_payload.field.shape, "semantic_line_field", "limited field shape")
 
 local dissolved_payload = encode_ok({
     dissolved_records = {
@@ -98,6 +130,8 @@ assert_eq(dissolved_payload.field.items[1].kind, "dissolved_residue", "dissolved
 assert_eq(dissolved_payload.field.items[1].source_kind, "dissolved_record", "dissolved source kind")
 assert_eq(dissolved_payload.field.items[1].content_truth_status, "unsupported_residue", "dissolved content truth")
 assert_eq(dissolved_payload.loss.kind, "field_compression", "dissolved loss kind")
+assert_eq(dissolved_payload.field.shape, "residue_field", "dissolved field shape")
+assert_eq(dissolved_payload.field.intent, "carry_residue", "dissolved field intent")
 
 local ranking_items = encode.response_line_items("1. x\n- y\n")
 assert_eq(#ranking_items, 2, "ranking items count")

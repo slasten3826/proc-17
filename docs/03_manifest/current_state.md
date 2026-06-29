@@ -66,16 +66,19 @@ logic/repo_selection.lua
   LOGIC boundary: validates selected paths against runtime-confirmed repo listing
 
 logic/choose.lua
-  CHOOSE collapse: pure deterministic narrowing of a supplied possibility field into selected branch plus attention loss
+  CHOOSE collapse: pure deterministic narrowing of a supplied possibility field into selected branch plus attention loss and collapse level
 
 logic/encode.lua
-  ENCODE field formation: pure deterministic source material to loss-bearing encoded field with source binding
+  ENCODE field formation: pure deterministic source material to loss-bearing encoded field with source binding, field shape, and field intent
 
 logic/cycle.lua
   CYCLE boundary: pure bounded continuation decision module
 
 runtime/pressure_snapshot.lua
   RUNTIME lower pressure eye: pure read-only packet/body pressure snapshot
+
+runtime/operator_hints.lua
+  operator runtime hints: default-on switchable local pressure map for all 10 operators, emitted into trace and substrate calls without truth promotion
 
 organs/repo_context.lua
   first OBSERVE-side eye: explicit file-list repo context payload through fs/sandbox
@@ -87,11 +90,11 @@ runtime/trace_store.lua
   explicit JSONL packet trace writer
 
 cli/procesis-body.lua
-  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, --repo-context, default ENCODE field formation before CHOOSE, default CHOOSE collapse, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
+  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, --repo-context, --hints/--no-hints, default operator runtime hints, default ENCODE field formation before CHOOSE, default CHOOSE collapse, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
 
 tests/
   JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, encode field formation, choose collapse, cycle decision, runtime pressure snapshot, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
-  includes mode path policy tests
+  includes mode path policy tests and operator runtime hints tests
 ```
 
 ## Current Git State
@@ -126,14 +129,17 @@ repo_context_eye: explicit_file_list_read_only
 repo_selection_validator: pure_logic_module
 encode_field: pure_logic_module
 encode_boundary: default_before_choose_cli_boundary
+encode_shape: repo_path_field_semantic_line_field_structured_reflection_field_mixed_context_field_residue_field
 choose_collapse: pure_logic_module
 choose_boundary: default_on_cli_boundary
+choose_collapse_level: item_path_child_section_residue
 logic_boundary: default_on_cli_boundary
 cycle_decision: default_on_cli_boundary
 runtime_pressure_snapshot: default_on_read_only_module
 growth_pipeline: documented_only_pending
 trace_store: explicit_jsonl
 body_modes: packet_cli_and_path_policy_implemented
+operator_hints: default_on_switchable_trace_visible_prompt_pressure
 ```
 
 ## Current Commands
@@ -184,6 +190,18 @@ Run fake machine CLI with default RUNTIME lower pressure snapshot:
 
 ```text
 lua cli/procesis-body.lua run --task "inspect runtime" --fake --jsonl
+```
+
+Run fake machine CLI with default operator runtime hints:
+
+```text
+lua cli/procesis-body.lua run --task "inspect hints" --fake --jsonl --hints
+```
+
+Run fake machine CLI without operator runtime hints:
+
+```text
+lua cli/procesis-body.lua run --task "inspect hints" --fake --jsonl --no-hints
 ```
 
 Run fake machine CLI without LOGIC boundary:

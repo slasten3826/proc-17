@@ -76,6 +76,8 @@ local function normalize_items(field)
             id = item_id(item, index),
             kind = item.kind,
             value = item.value,
+            role = item.role,
+            parent_id = item.parent_id,
             truth_status = item.truth_status or field.truth_status or "unknown",
             original_index = index,
         }
@@ -138,6 +140,8 @@ local function selected_item(item, reason)
         id = item.id,
         kind = item.kind,
         value = item.value,
+        role = item.role,
+        parent_id = item.parent_id,
         source_truth_status = item.truth_status,
         selection_truth_status = "runtime_confirmed",
         reason = reason or {truth_status = "unknown"},
@@ -149,8 +153,47 @@ local function killed_item(item)
         id = item.id,
         kind = item.kind,
         value = item.value,
+        role = item.role,
+        parent_id = item.parent_id,
         source_truth_status = item.truth_status,
     }
+end
+
+local function collapse_level(input)
+    local pressure = input.pressure or {}
+    if pressure.collapse_level then
+        return pressure.collapse_level
+    end
+    local field = input.field or {}
+    if field.shape == "repo_path_field" then
+        return "path"
+    end
+    if field.shape == "structured_reflection_field" then
+        if field.intent == "preserve_reflection" then
+            return "child"
+        end
+        return "section"
+    end
+    if field.shape == "residue_field" then
+        return "residue"
+    end
+    return "item"
+end
+
+local function eligible_for_level(item, level)
+    if level == "path" then
+        return item.kind == "repo_path" or item.role == "alternative"
+    end
+    if level == "section" then
+        return item.kind == "section" or item.role == "container"
+    end
+    if level == "child" then
+        return item.kind == "section_child" or item.role == "child" or item.role == "alternative"
+    end
+    if level == "residue" then
+        return item.kind == "dissolved_residue" or item.kind == "unsupported_residue" or item.role == "residue"
+    end
+    return item.role == nil or item.role == "alternative" or item.role == "residue"
 end
 
 function choose.choose(input)
@@ -165,7 +208,16 @@ function choose.choose(input)
         return nil, items_err
     end
 
-    local ordered, reasons = ranked_order(items, by_id, input.semantic_ranking)
+    local level = collapse_level(input)
+    local ordered_all, reasons = ranked_order(items, by_id, input.semantic_ranking)
+    local ordered = {}
+    local eligible_ids = {}
+    for _, item in ipairs(ordered_all) do
+        if eligible_for_level(item, level) then
+            ordered[#ordered + 1] = item
+            eligible_ids[item.id] = true
+        end
+    end
     local selected = {}
     local selected_ids = {}
     for _, item in ipairs(ordered) do
@@ -182,13 +234,13 @@ function choose.choose(input)
 
     local killed_full = {}
     for _, item in ipairs(items) do
-        if not selected_ids[item.id] then
+        if eligible_ids[item.id] and not selected_ids[item.id] then
             killed_full[#killed_full + 1] = killed_item(item)
         end
     end
 
     local killed_sample = copy_array(killed_full, limits.max_killed_sample)
-    local not_chosen_count = #items - #selected
+    local not_chosen_count = #ordered - #selected
 
     return {
         kind = "choose_collapse_payload",
@@ -202,6 +254,7 @@ function choose.choose(input)
         },
         loss = {
             kind = "attention_collapse",
+            collapse_level = level,
             not_chosen_count = not_chosen_count,
             truncated = #killed_full > #killed_sample,
         },

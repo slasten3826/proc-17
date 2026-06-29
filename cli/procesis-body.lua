@@ -11,11 +11,12 @@ local cycle = require("logic.cycle")
 local repo_selection = require("logic.repo_selection")
 local trace_store = require("runtime.trace_store")
 local runtime_pressure = require("runtime.pressure_snapshot")
+local operator_hints = require("runtime.operator_hints")
 local repo_context = require("organs.repo_context")
 local repo_listing = require("organs.repo_listing")
 
 local function usage()
-    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--deepseek-model <name>] [--repo-list [prefix]] [--repo-context <paths>] [--no-choose] [--no-logic] [--no-cycle] [--no-runtime-snapshot] [--trace-file <path>]\n")
+    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--deepseek-model <name>] [--repo-list [prefix]] [--repo-context <paths>] [--hints|--no-hints] [--no-choose] [--no-logic] [--no-cycle] [--no-runtime-snapshot] [--trace-file <path>]\n")
 end
 
 local function emit(event)
@@ -41,7 +42,7 @@ local function emit_new_events(instance, from_index)
 end
 
 local function parse_args(argv)
-    local parsed = {command = argv[1], choose = true, logic = true, cycle = true, runtime_snapshot = true}
+    local parsed = {command = argv[1], choose = true, logic = true, cycle = true, runtime_snapshot = true, hints = true}
     local index = 2
     while index <= #argv do
         local arg = argv[index]
@@ -79,6 +80,14 @@ local function parse_args(argv)
             index = index + 1
         elseif arg == "--no-runtime-snapshot" then
             parsed.runtime_snapshot = false
+            index = index + 1
+        elseif arg == "--hints" then
+            parsed.hints = true
+            parsed.hints_flag = parsed.hints_flag and "conflict" or "enabled"
+            index = index + 1
+        elseif arg == "--no-hints" then
+            parsed.hints = false
+            parsed.hints_flag = parsed.hints_flag and "conflict" or "disabled"
             index = index + 1
         elseif arg == "--choose" then
             parsed.choose = true
@@ -128,9 +137,20 @@ local function build_choice_input(encoded_payload, repo_listing_payload, respons
     if repo_listing_payload and #ranking_items > 0 then
         max_selected = math.min(max_selected, #ranking_items)
     end
+    local field = encoded_payload and encoded_payload.field
+    local field_shape = field and field.shape
+    local field_intent = field and field.intent
+    local collapse_level = "item"
+    if field_shape == "repo_path_field" then
+        collapse_level = "path"
+    elseif field_shape == "structured_reflection_field" then
+        collapse_level = field_intent == "preserve_reflection" and "child" or "section"
+    elseif field_shape == "residue_field" then
+        collapse_level = "residue"
+    end
 
     return {
-        field = encoded_payload and encoded_payload.field,
+        field = field,
         limits = {
             max_selected = max_selected,
             max_killed_sample = 4,
@@ -139,6 +159,9 @@ local function build_choice_input(encoded_payload, repo_listing_payload, respons
             operator_pressure = repo_listing_payload and "repo_listing_focus" or "substrate_response_lines",
             context_limit_pressure = repo_listing_payload and "repo_listing_entries" or nil,
             encoded_field_kind = encoded_payload and encoded_payload.kind,
+            field_shape = field_shape,
+            field_intent = field_intent,
+            collapse_level = collapse_level,
         },
         semantic_ranking = {
             truth_status = "semantic_proposal",
@@ -176,6 +199,10 @@ local function run(argv)
     if not args.jsonl then
         io.stderr:write("first CLI requires --jsonl\n")
         return 5
+    end
+    if args.hints_flag == "conflict" then
+        io.stderr:write("choose only one hints mode\n")
+        return 2
     end
 
     local mode = args.mode or "manifest"
@@ -271,6 +298,23 @@ local function run(argv)
         prompt_parts[#prompt_parts + 1] = ""
         prompt_parts[#prompt_parts + 1] = repo_context.format_for_substrate(repo_context_payload)
     end
+
+    local hints_payload = operator_hints.payload({enabled = args.hints})
+    packet.append(p, {
+        type = "hint_pressure",
+        operator = "☴",
+        truth_status = "runtime_confirmed",
+        payload = operator_hints.trace_payload(hints_payload, args.hints and "default" or "cli"),
+        cost = {},
+    })
+    next_event = emit_new_events(p, next_event)
+
+    local formatted_hints = operator_hints.format_for_substrate(hints_payload)
+    if formatted_hints then
+        prompt_parts[#prompt_parts + 1] = ""
+        prompt_parts[#prompt_parts + 1] = formatted_hints
+    end
+
     if #prompt_parts > 1 then
         prompt_payload = table.concat(prompt_parts, "\n")
     end
@@ -285,6 +329,7 @@ local function run(argv)
             prompt_payload = prompt_payload,
             repo_listing = repo_listing_payload,
             repo_context = repo_context_payload,
+            operator_hints = hints_payload,
             expected_shape = "semantic_proposal",
         },
         cost = {substrate_calls = 1},
@@ -300,6 +345,7 @@ local function run(argv)
             prompt_payload = prompt_payload,
             repo_listing = repo_listing_payload,
             repo_context = repo_context_payload,
+            operator_hints = hints_payload,
             expected_shape = "semantic_proposal",
         }, {
             model = args.deepseek_model,

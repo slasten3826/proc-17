@@ -94,6 +94,32 @@ local function response_lines(text)
     return items
 end
 
+local function is_section_header(value)
+    value = trim(value)
+    if value == "" then
+        return false
+    end
+    if value:sub(-1) ~= ":" then
+        return false
+    end
+    local label = value:sub(1, -2)
+    if label:match("^%d+%s+[%a_][%w_%s%-]+$") then
+        return true
+    end
+    if label:match("^[%a_][%w_%s%-]+$") then
+        return true
+    end
+    return false
+end
+
+local function section_value(value)
+    value = trim(value)
+    if value:sub(-1) == ":" then
+        return trim(value:sub(1, -2))
+    end
+    return value
+end
+
 local function encode_repo_listing(state, payload)
     if type(payload) ~= "table" or type(payload.entries) ~= "table" then
         return false
@@ -109,6 +135,8 @@ local function encode_repo_listing(state, payload)
                 id = entry.path,
                 kind = "repo_path",
                 value = entry.path,
+                role = "alternative",
+                order = state.input_count,
                 truth_status = entry.truth_status or "runtime_confirmed",
                 source_kind = "repo_listing_entry",
                 source_ref = ref,
@@ -130,14 +158,42 @@ local function encode_substrate_result(state, response)
     end
 
     local lines = response_lines(response.text)
+    local has_sections = false
+    for _, value in ipairs(lines) do
+        if is_section_header(value) then
+            has_sections = true
+            break
+        end
+    end
+    local current_section_id
+    local section_count = 0
     for index, value in ipairs(lines) do
         state.input_count = state.input_count + 1
         local id = "line:" .. tostring(index)
         local ref = source_ref("substrate_response_line", id)
+        local kind = "semantic_line"
+        local role = "alternative"
+        local parent_id
+        local item_value = value
+        if has_sections and is_section_header(value) then
+            section_count = section_count + 1
+            id = "section:" .. tostring(section_count)
+            current_section_id = id
+            kind = "section"
+            role = "container"
+            item_value = section_value(value)
+        elseif has_sections then
+            kind = "section_child"
+            role = "alternative"
+            parent_id = current_section_id
+        end
         local item = {
             id = id,
-            kind = "semantic_line",
-            value = value,
+            kind = kind,
+            value = item_value,
+            role = role,
+            parent_id = parent_id,
+            order = index,
             truth_status = "semantic_proposal",
             source_kind = "substrate_response_line",
             source_ref = ref,
@@ -148,6 +204,10 @@ local function encode_substrate_result(state, response)
         }
         append_item(state, item)
         append_connection(state, connection(ref, id, "result_line_to_candidate", "semantic_proposal"))
+    end
+    if has_sections then
+        state.detected_shape = "structured_reflection_field"
+        state.detected_intent = "preserve_reflection"
     end
     return #lines > 0
 end
@@ -167,6 +227,8 @@ local function encode_repo_context(state, payload)
             id = "context:" .. path,
             kind = "context_block",
             value = path,
+            role = "evidence",
+            order = state.input_count,
             truth_status = file.truth_status or payload.truth_status or "runtime_confirmed",
             source_kind = "repo_context_block",
             source_ref = ref,
@@ -223,6 +285,8 @@ local function carry_dissolved_records(state, records)
             id = id,
             kind = "dissolved_residue",
             value = record.residue or record.target,
+            role = "residue",
+            order = state.input_count,
             truth_status = record.new_status or "unsupported_residue",
             source_kind = "dissolved_record",
             source_ref = ref,
@@ -269,6 +333,8 @@ function encode.encode(input)
         omitted_count = 0,
         truncated = false,
         basis = {},
+        detected_shape = nil,
+        detected_intent = nil,
     }
 
     local used_repo_listing = encode_repo_listing(state, input.repo_listing)
@@ -295,9 +361,28 @@ function encode.encode(input)
     end
 
     local truth = field_truth(state.items)
+    local shape = state.detected_shape
+    local intent = state.detected_intent
+    if not shape then
+        if used_repo_listing then
+            shape = "repo_path_field"
+            intent = "select_focus"
+        elseif type(input.dissolved_records) == "table" and #input.dissolved_records > 0 and #state.basis == 1 then
+            shape = "residue_field"
+            intent = "carry_residue"
+        elseif #state.basis > 1 then
+            shape = "mixed_context_field"
+            intent = "choose_next_context"
+        else
+            shape = "semantic_line_field"
+            intent = "rank_candidates"
+        end
+    end
     return {
         kind = "encoded_field_payload",
         field = {
+            shape = shape,
+            intent = intent,
             truth_status = truth,
             items = state.items,
         },
