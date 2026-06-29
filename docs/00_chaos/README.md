@@ -90,6 +90,9 @@ live_deepseek_default_organs_notes.md
 reflection_model_tests_notes.md
   live DeepSeek reflection tests and model-substrate pressure notes
 
+deepseek_next_pressure_notes.md
+  DeepSeek next-step reflection and first CHOOSE distortion observation
+
 ignition_tests_notes.md
   live DeepSeek ignition observations and failure shape
 
