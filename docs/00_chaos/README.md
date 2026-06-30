@@ -129,6 +129,12 @@ procesis_word_and_organ_routing.md
 procesis_word_live_smoke_results.md
   live DeepSeek smoke results after proc-17 system envelope: mode drift improved, ☵/☳ long-answer collapse and △ manifest gap remain
 
+manifest_operator_notes.md
+  first MANIFEST correction: △ should assemble visible output from existing trace material instead of saying substrate loop complete
+
+tictactoe_ai_speed_test_results.md
+  live plan/build/manifest/runtime test: tic-tac-toe with computer player reached checked working Python code in under two minutes
+
 encode_code_only_boundary.md
   major ☵ boundary: encode code/runtime/engineering structure, not arbitrary prose
 

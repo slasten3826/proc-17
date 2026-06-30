@@ -8,6 +8,7 @@ local fake_tool = require("tools.fake")
 local encode = require("logic.encode")
 local choose = require("logic.choose")
 local cycle = require("logic.cycle")
+local manifest = require("logic.manifest")
 local repo_selection = require("logic.repo_selection")
 local trace_store = require("runtime.trace_store")
 local runtime_pressure = require("runtime.pressure_snapshot")
@@ -249,6 +250,7 @@ local function run(argv)
 
     local p = packet.new(args.task, {mode = mode})
     local next_event = 1
+    local source_events = {}
     next_event = emit_new_events(p, next_event)
 
     packet.enter_mode(p, mode, "cli", {work_mode = work_mode})
@@ -425,6 +427,7 @@ local function run(argv)
         payload = response,
         cost = {},
     })
+    source_events.substrate_result_event = p.trace[#p.trace].id
     next_event = emit_new_events(p, next_event)
 
     packet.enter(p, "☱")
@@ -495,6 +498,7 @@ local function run(argv)
                 },
                 cost = {},
             })
+            source_events.encoded_field_event = p.trace[#p.trace].id
             next_event = emit_new_events(p, next_event)
         end
 
@@ -538,6 +542,7 @@ local function run(argv)
             }
         end
         choose_context.last_choice_event = p.trace[#p.trace].id
+        source_events.choice_event = p.trace[#p.trace].id
         next_event = emit_new_events(p, next_event)
     end
 
@@ -609,6 +614,7 @@ local function run(argv)
             }
         end
         logic_context.last_validation_event = p.trace[#p.trace].id
+        source_events.validation_event = p.trace[#p.trace].id
         next_event = emit_new_events(p, next_event)
     end
 
@@ -672,6 +678,7 @@ local function run(argv)
                 turn_budget_pressure = cycle_payload.decision == "stop_budget" and "cannot_pay" or "payable",
             }
         end
+        source_events.cycle_event = p.trace[#p.trace].id
         next_event = emit_new_events(p, next_event)
     end
 
@@ -691,7 +698,7 @@ local function run(argv)
             logic_context = logic_context,
             cycle_context = cycle_context,
             manifest_context = {
-                pending_output_shape = "substrate loop complete",
+                pending_output_shape = "manifest_payload",
                 output_pressure = "ready",
             },
         })
@@ -717,12 +724,47 @@ local function run(argv)
                 },
                 cost = {},
             })
+            source_events.runtime_snapshot_event = p.trace[#p.trace].id
         end
         next_event = emit_new_events(p, next_event)
     end
 
     packet.enter(p, "△")
-    packet.manifest(p, {truth_status = "runtime_confirmed", result = "substrate loop complete"})
+    local manifest_payload, manifest_err = manifest.assemble({
+        work_mode = work_mode,
+        substrate_result = response,
+        sources = source_events,
+        choose_context = choose_context,
+        logic_context = logic_context,
+        cycle_context = cycle_context,
+    })
+    if not manifest_payload then
+        manifest_payload = {
+            kind = "manifest_payload",
+            truth_status = "runtime_confirmed",
+            output = {
+                type = "residue",
+                text = "manifest assembly failed: " .. tostring(manifest_err),
+            },
+            sources = source_events,
+            assembly = {
+                rule = "deterministic_v0",
+                work_mode = work_mode,
+                error = manifest_err,
+            },
+            residue = {
+                missing = {"manifest_payload"},
+                unsupported = {},
+                assumptions = {},
+            },
+            summary = {
+                type = "residue",
+                text_preview = "manifest assembly failed: " .. tostring(manifest_err),
+                source_event = source_events.substrate_result_event,
+            },
+        }
+    end
+    packet.manifest(p, manifest_payload)
     packet.die(p, "complete")
     next_event = emit_new_events(p, next_event)
 
@@ -738,6 +780,7 @@ local function run(argv)
         packet_id = p.id,
         type = "final",
         status = p.status,
+        manifest = manifest_payload.summary,
         residue = p.residue,
     })
 

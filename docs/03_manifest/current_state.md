@@ -74,6 +74,9 @@ logic/encode.lua
 logic/cycle.lua
   CYCLE boundary: pure bounded continuation decision module
 
+logic/manifest.lua
+  MANIFEST assembler: pure deterministic final output assembly from substrate result, source event ids, choice/logic/cycle context, and residue summary
+
 runtime/pressure_snapshot.lua
   RUNTIME lower pressure eye: pure read-only packet/body pressure snapshot
 
@@ -93,10 +96,10 @@ runtime/trace_store.lua
   explicit JSONL packet trace writer
 
 cli/procesis-body.lua
-  machine-facing JSONL CLI with --fake, --deepseek, --mode, --work-mode plan/build, --repo-list, --repo-context, --hints/--no-hints debug overrides, proc-17 system prompt, work-mode-derived operator word pressure, default ENCODE field formation before CHOOSE, default CHOOSE collapse, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
+  machine-facing JSONL CLI with --fake, --deepseek, --mode, --work-mode plan/build, --repo-list, --repo-context, --hints/--no-hints debug overrides, proc-17 system prompt, work-mode-derived operator word pressure, default ENCODE field formation before CHOOSE, default CHOOSE collapse, default LOGIC boundary, default CYCLE decision, default runtime pressure snapshot, and final MANIFEST payload summary
 
 tests/
-  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, encode field formation, choose collapse, cycle decision, runtime pressure snapshot, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
+  JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, encode field formation, choose collapse, cycle decision, manifest assembly, runtime pressure snapshot, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
   includes mode path policy tests, operator word/system prompt tests, and operator runtime hints compatibility tests
 ```
 
@@ -146,6 +149,7 @@ work_mode: plan_build_cli_contract
 operator_hints: work_mode_derived_switchable_trace_visible_prompt_pressure
 procesis_word: substrate_facing_canonical_orientation_not_runtime_evidence
 system_prompt: proc17_envelope_for_substrate_current
+manifest_assembler: deterministic_v0_output_from_trace_material
 ```
 
 ## Current Commands

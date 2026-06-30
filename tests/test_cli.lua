@@ -110,8 +110,24 @@ if not output:find('"kind":"cycle_decision"', 1, true) then
     error("cli output should include CYCLE decision by default")
 end
 
-if not output:find('"result":"substrate loop complete"', 1, true) then
-    error("cli output missing neutral manifest result")
+if output:find('"result":"substrate loop complete"', 1, true) then
+    error("cli output should not use neutral manifest placeholder")
+end
+
+if not output:find('"kind":"manifest_payload"', 1, true) then
+    error("cli output missing manifest payload")
+end
+
+if not output:find('"text":"fake substrate response"', 1, true) then
+    error("cli manifest should carry substrate response text")
+end
+
+if not output:find('"manifest":{', 1, true) then
+    error("cli final envelope should include manifest summary")
+end
+
+if not output:find('"pending_output_shape":"manifest_payload"', 1, true) then
+    error("runtime snapshot should expose manifest payload pressure")
 end
 
 local no_runtime_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-runtime-snapshot')

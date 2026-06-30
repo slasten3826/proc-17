@@ -12,6 +12,7 @@ local tests = {
     "tests.test_encode",
     "tests.test_choose",
     "tests.test_cycle",
+    "tests.test_manifest",
     "tests.test_runtime_pressure_snapshot",
     "tests.test_operator_hints",
     "tests.test_repo_listing",

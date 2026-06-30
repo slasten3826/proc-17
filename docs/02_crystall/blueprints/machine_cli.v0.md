@@ -72,6 +72,12 @@ death
 final
 ```
 
+The `manifest` event should contain a `manifest_payload`, not a neutral
+completion placeholder.
+
+The `final` envelope should include a compact `manifest` summary so a machine
+reader can find the visible output surface without scanning the whole trace.
+
 Test status:
 
 ```text
