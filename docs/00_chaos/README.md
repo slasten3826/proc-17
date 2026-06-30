@@ -117,6 +117,18 @@ cognitive_battery_hints_results.md
 plan_build_hints_modes.md
   discovery that no-hints behaves like plan mode and hints behaves like build current
 
+plan_build_mode_probe_battery.md
+  wild probe questions for comparing plan/build behavior without fixed expected answers
+
+plan_build_mode_request.md
+  request to turn technical hints/no-hints into --work-mode plan/build
+
+procesis_word_and_organ_routing.md
+  correction after plan/build probes: substrate needs proc-17 system envelope, operator block is procesis word, fixed route is temporary scaffold before body-owned organ router
+
+procesis_word_live_smoke_results.md
+  live DeepSeek smoke results after proc-17 system envelope: mode drift improved, ☵/☳ long-answer collapse and △ manifest gap remain
+
 encode_code_only_boundary.md
   major ☵ boundary: encode code/runtime/engineering structure, not arbitrary prose
 

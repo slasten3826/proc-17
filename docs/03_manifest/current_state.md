@@ -78,7 +78,10 @@ runtime/pressure_snapshot.lua
   RUNTIME lower pressure eye: pure read-only packet/body pressure snapshot
 
 runtime/operator_hints.lua
-  operator runtime hints: default-on switchable local pressure map for all 10 operators, emitted into trace and substrate calls without truth promotion
+  operator word pressure: switchable local pressure map for all 10 operators, derived from work mode, emitted into trace, and formatted for substrate as [procesis word] without truth promotion
+
+runtime/system_prompt.lua
+  proc-17 substrate envelope: places substrate current inside the body, binds plan/build meanings, and preserves runtime truth authority in the body
 
 organs/repo_context.lua
   first OBSERVE-side eye: explicit file-list repo context payload through fs/sandbox
@@ -90,11 +93,11 @@ runtime/trace_store.lua
   explicit JSONL packet trace writer
 
 cli/procesis-body.lua
-  machine-facing JSONL CLI with --fake, --deepseek, --mode, --repo-list, --repo-context, --hints/--no-hints, default operator runtime hints, default ENCODE field formation before CHOOSE, default CHOOSE collapse, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
+  machine-facing JSONL CLI with --fake, --deepseek, --mode, --work-mode plan/build, --repo-list, --repo-context, --hints/--no-hints debug overrides, proc-17 system prompt, work-mode-derived operator word pressure, default ENCODE field formation before CHOOSE, default CHOOSE collapse, default LOGIC boundary, default CYCLE decision, and default runtime pressure snapshot
 
 tests/
   JSON, packet, topology, sandbox, substrate normalization, tool facade, fs tool, encode field formation, choose collapse, cycle decision, runtime pressure snapshot, repo listing organ, repo selection validator, repo context organ, trace store, and CLI smoke tests
-  includes mode path policy tests and operator runtime hints tests
+  includes mode path policy tests, operator word/system prompt tests, and operator runtime hints compatibility tests
 ```
 
 ## Current Git State
@@ -139,7 +142,10 @@ runtime_pressure_snapshot: default_on_read_only_module
 growth_pipeline: documented_only_pending
 trace_store: explicit_jsonl
 body_modes: packet_cli_and_path_policy_implemented
-operator_hints: default_on_switchable_trace_visible_prompt_pressure
+work_mode: plan_build_cli_contract
+operator_hints: work_mode_derived_switchable_trace_visible_prompt_pressure
+procesis_word: substrate_facing_canonical_orientation_not_runtime_evidence
+system_prompt: proc17_envelope_for_substrate_current
 ```
 
 ## Current Commands
@@ -192,7 +198,19 @@ Run fake machine CLI with default RUNTIME lower pressure snapshot:
 lua cli/procesis-body.lua run --task "inspect runtime" --fake --jsonl
 ```
 
-Run fake machine CLI with default operator runtime hints:
+Run fake machine CLI in plan work mode:
+
+```text
+lua cli/procesis-body.lua run --task "inspect plan" --fake --jsonl --work-mode plan
+```
+
+Run fake machine CLI in build work mode:
+
+```text
+lua cli/procesis-body.lua run --task "inspect build" --fake --jsonl --work-mode build
+```
+
+Run fake machine CLI with operator runtime hints override:
 
 ```text
 lua cli/procesis-body.lua run --task "inspect hints" --fake --jsonl --hints

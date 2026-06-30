@@ -158,21 +158,25 @@ function packet.new(task, options)
     return instance
 end
 
-function packet.enter_mode(instance, mode, reason)
+function packet.enter_mode(instance, mode, reason, extra_payload)
     if not modes.is_valid(mode) then
         return nil, "invalid mode"
     end
 
     instance.mode = mode
+    local payload = {
+        mode = mode,
+        reason = reason,
+        permissions = modes.describe(mode),
+    }
+    for key, value in pairs(extra_payload or {}) do
+        payload[key] = value
+    end
     packet.append(instance, {
         type = "mode_enter",
         operator = instance.operator,
         truth_status = "runtime_confirmed",
-        payload = {
-            mode = mode,
-            reason = reason,
-            permissions = modes.describe(mode),
-        },
+        payload = payload,
         cost = {},
     })
 

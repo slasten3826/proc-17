@@ -14,6 +14,10 @@ if not output:find('"type":"mode_enter"', 1, true) then
     error("cli output missing mode_enter event")
 end
 
+if not output:find('"work_mode":"build"', 1, true) then
+    error("cli output should default to build work mode")
+end
+
 if not output:find('"type":"substrate_result"', 1, true) then
     error("cli output missing substrate_result event")
 end
@@ -46,8 +50,24 @@ if not output:find('"operator_hints"', 1, true) then
     error("cli substrate call should include operator hints payload by default")
 end
 
+if not output:find('"system_prompt"', 1, true) then
+    error("cli substrate call should include proc-17 system prompt")
+end
+
+if not output:find("You are substrate current inside proc-17.", 1, true) then
+    error("cli system prompt should place substrate inside proc-17")
+end
+
+if not output:find("Do not use external meanings of 'plan mode' or 'build mode'", 1, true) then
+    error("cli system prompt should bind plan/build meanings")
+end
+
 if not output:find('"enabled":true', 1, true) then
     error("cli operator hints should be enabled by default")
+end
+
+if not output:find('"reason":"work_mode_build"', 1, true) then
+    error("cli operator hints should derive from build work mode by default")
 end
 
 if not output:find('"hint_count":32', 1, true) then
@@ -55,7 +75,11 @@ if not output:find('"hint_count":32', 1, true) then
 end
 
 if not output:find("Choice kills alternatives.", 1, true) then
-    error("cli prompt payload should include CHOOSE runtime hint when enabled")
+    error("cli prompt payload should include CHOOSE procesis word when enabled")
+end
+
+if not output:find("[procesis word]", 1, true) then
+    error("cli prompt payload should label operator block as procesis word")
 end
 
 if not output:find('"kind":"choose_collapse"', 1, true) then
@@ -122,8 +146,12 @@ if not no_hints_output:find('"hint_count":0', 1, true) then
     error("cli no-hints output should have zero hint count")
 end
 
+if not no_hints_output:find('"reason":"cli_override"', 1, true) then
+    error("cli no-hints output should mark cli override")
+end
+
 if no_hints_output:find("Choice kills alternatives.", 1, true) then
-    error("cli no-hints prompt payload should not include CHOOSE runtime hint")
+    error("cli no-hints prompt payload should not include CHOOSE procesis word")
 end
 
 local hints_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --hints')
@@ -138,8 +166,96 @@ if not hints_output:find('"enabled":true', 1, true) then
     error("cli explicit hints output should mark hints enabled")
 end
 
+if not hints_output:find('"reason":"cli_override"', 1, true) then
+    error("cli explicit hints output should mark cli override")
+end
+
 if not hints_output:find("Do not promote prose into runtime truth.", 1, true) then
     error("cli explicit hints prompt payload should include ENCODE boundary")
+end
+
+local plan_handle = io.popen('lua cli/procesis-body.lua run --task "plan task" --fake --jsonl --work-mode plan')
+local plan_output = plan_handle:read("*a")
+local plan_ok, _, plan_code = plan_handle:close()
+
+if not plan_ok or plan_code ~= 0 then
+    error("cli plan work mode run exited with non-zero code")
+end
+
+if not plan_output:find('"work_mode":"plan"', 1, true) then
+    error("cli plan output should expose work mode")
+end
+
+if not plan_output:find('"enabled":false', 1, true) then
+    error("cli plan work mode should disable hints by default")
+end
+
+if not plan_output:find('"reason":"work_mode_plan"', 1, true) then
+    error("cli plan work mode should explain hint pressure reason")
+end
+
+if plan_output:find("Choice kills alternatives.", 1, true) then
+    error("cli plan work mode should not inject hint text by default")
+end
+
+local plan_hints_handle = io.popen('lua cli/procesis-body.lua run --task "plan task" --fake --jsonl --work-mode plan --hints')
+local plan_hints_output = plan_hints_handle:read("*a")
+local plan_hints_ok, _, plan_hints_code = plan_hints_handle:close()
+
+if not plan_hints_ok or plan_hints_code ~= 0 then
+    error("cli plan work mode with hints override exited with non-zero code")
+end
+
+if not plan_hints_output:find('"work_mode":"plan"', 1, true) then
+    error("cli plan hints override should keep plan work mode")
+end
+
+if not plan_hints_output:find('"enabled":true', 1, true) then
+    error("cli plan hints override should enable hints")
+end
+
+if not plan_hints_output:find('"reason":"cli_override"', 1, true) then
+    error("cli plan hints override should mark cli override")
+end
+
+local build_handle = io.popen('lua cli/procesis-body.lua run --task "build task" --fake --jsonl --work-mode build')
+local build_output = build_handle:read("*a")
+local build_ok, _, build_code = build_handle:close()
+
+if not build_ok or build_code ~= 0 then
+    error("cli build work mode run exited with non-zero code")
+end
+
+if not build_output:find('"work_mode":"build"', 1, true) then
+    error("cli build output should expose work mode")
+end
+
+if not build_output:find('"enabled":true', 1, true) then
+    error("cli build work mode should enable hints by default")
+end
+
+if not build_output:find('"reason":"work_mode_build"', 1, true) then
+    error("cli build work mode should explain hint pressure reason")
+end
+
+local build_no_hints_handle = io.popen('lua cli/procesis-body.lua run --task "build task" --fake --jsonl --work-mode build --no-hints')
+local build_no_hints_output = build_no_hints_handle:read("*a")
+local build_no_hints_ok, _, build_no_hints_code = build_no_hints_handle:close()
+
+if not build_no_hints_ok or build_no_hints_code ~= 0 then
+    error("cli build work mode with no-hints override exited with non-zero code")
+end
+
+if not build_no_hints_output:find('"work_mode":"build"', 1, true) then
+    error("cli build no-hints override should keep build work mode")
+end
+
+if not build_no_hints_output:find('"enabled":false', 1, true) then
+    error("cli build no-hints override should disable hints")
+end
+
+if not build_no_hints_output:find('"reason":"cli_override"', 1, true) then
+    error("cli build no-hints override should mark cli override")
 end
 
 local no_choose_handle = io.popen('lua cli/procesis-body.lua run --task "fake task" --fake --jsonl --no-choose')
@@ -300,6 +416,22 @@ local bad_hints_ok, _, bad_hints_code = bad_hints_handle:close()
 
 if bad_hints_ok or bad_hints_code ~= 2 then
     error("conflicting hints flags should exit with code 2")
+end
+
+local bad_work_mode_handle = io.popen('lua cli/procesis-body.lua run --task "bad work mode" --fake --jsonl --work-mode nope 2>/dev/null')
+bad_work_mode_handle:read("*a")
+local bad_work_mode_ok, _, bad_work_mode_code = bad_work_mode_handle:close()
+
+if bad_work_mode_ok or bad_work_mode_code ~= 2 then
+    error("invalid work mode should exit with code 2")
+end
+
+local conflict_work_mode_handle = io.popen('lua cli/procesis-body.lua run --task "bad work mode" --fake --jsonl --work-mode plan --work-mode build 2>/dev/null')
+conflict_work_mode_handle:read("*a")
+local conflict_work_mode_ok, _, conflict_work_mode_code = conflict_work_mode_handle:close()
+
+if conflict_work_mode_ok or conflict_work_mode_code ~= 2 then
+    error("conflicting work modes should exit with code 2")
 end
 
 print("test_cli ok")

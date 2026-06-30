@@ -54,8 +54,9 @@ It should be possible to enable/disable it without changing the organs themselve
 Default intended behavior:
 
 ```text
-enabled by default
-explicitly disable by CLI/settings
+enabled in build work mode
+disabled in plan work mode
+explicitly override by CLI/settings
 ```
 
 Why default-on:
@@ -169,10 +170,11 @@ CLI-level control:
 --no-hints
 ```
 
-Default:
+Work-mode defaults:
 
 ```text
-hints.enabled = true
+plan  -> hints.enabled = false
+build -> hints.enabled = true
 ```
 
 CLI override should win over settings.

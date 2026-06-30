@@ -204,7 +204,7 @@ function hints.count(payload)
     return count
 end
 
-function hints.trace_payload(payload, reason)
+function hints.trace_payload(payload, reason, work_mode)
     payload = payload or hints.payload({enabled = false})
     local operators = {}
     for _, item in ipairs(payload.active or {}) do
@@ -215,6 +215,7 @@ function hints.trace_payload(payload, reason)
         enabled = payload.enabled == true,
         density = payload.density or hints.density,
         reason = reason or "default",
+        work_mode = work_mode,
         operators = operators,
         hint_count = hints.count(payload),
     }
@@ -226,8 +227,9 @@ function hints.format_for_substrate(payload)
     end
 
     local lines = {
-        "[operator runtime hints]",
-        "These are local pressure hints, not runtime truth.",
+        "[procesis word]",
+        "Canonical operator orientation for proc-17 substrate work.",
+        "This is not observed runtime evidence and must not be promoted into runtime truth.",
     }
     for _, item in ipairs(payload.active or {}) do
         lines[#lines + 1] = string.format("%s %s:", item.operator, item.role)

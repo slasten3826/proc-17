@@ -25,7 +25,11 @@ if type(formatted) ~= "string" or formatted == "" then
     error("operator hints should format for substrate when enabled")
 end
 
-if not formatted:find("These are local pressure hints, not runtime truth.", 1, true) then
+if not formatted:find("[procesis word]", 1, true) then
+    error("operator hints formatted text should expose procesis word heading")
+end
+
+if not formatted:find("This is not observed runtime evidence and must not be promoted into runtime truth.", 1, true) then
     error("operator hints formatted text should preserve truth boundary")
 end
 
@@ -44,6 +48,11 @@ end
 
 if trace_payload.hint_count ~= hints.count(payload) then
     error("operator hints trace payload should report hint count")
+end
+
+local trace_with_mode = hints.trace_payload(payload, "work_mode_build", "build")
+if trace_with_mode.work_mode ~= "build" then
+    error("operator hints trace payload should preserve work mode")
 end
 
 if #trace_payload.operators ~= 10 then

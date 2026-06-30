@@ -12,11 +12,12 @@ local repo_selection = require("logic.repo_selection")
 local trace_store = require("runtime.trace_store")
 local runtime_pressure = require("runtime.pressure_snapshot")
 local operator_hints = require("runtime.operator_hints")
+local system_prompt = require("runtime.system_prompt")
 local repo_context = require("organs.repo_context")
 local repo_listing = require("organs.repo_listing")
 
 local function usage()
-    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--deepseek-model <name>] [--repo-list [prefix]] [--repo-context <paths>] [--hints|--no-hints] [--no-choose] [--no-logic] [--no-cycle] [--no-runtime-snapshot] [--trace-file <path>]\n")
+    io.stderr:write("usage: procesis-body run --task <text> (--fake | --deepseek) --jsonl [--mode chaos|table|crystall|manifest] [--work-mode plan|build] [--deepseek-model <name>] [--repo-list [prefix]] [--repo-context <paths>] [--hints|--no-hints] [--no-choose] [--no-logic] [--no-cycle] [--no-runtime-snapshot] [--trace-file <path>]\n")
 end
 
 local function emit(event)
@@ -42,7 +43,7 @@ local function emit_new_events(instance, from_index)
 end
 
 local function parse_args(argv)
-    local parsed = {command = argv[1], choose = true, logic = true, cycle = true, runtime_snapshot = true, hints = true}
+    local parsed = {command = argv[1], choose = true, logic = true, cycle = true, runtime_snapshot = true}
     local index = 2
     while index <= #argv do
         local arg = argv[index]
@@ -110,12 +111,40 @@ local function parse_args(argv)
         elseif arg == "--mode" then
             parsed.mode = argv[index + 1]
             index = index + 2
+        elseif arg == "--work-mode" then
+            parsed.work_mode = argv[index + 1]
+            parsed.work_mode_flag = parsed.work_mode_flag and "conflict" or "set"
+            index = index + 2
         else
             parsed.unknown = arg
             index = index + 1
         end
     end
     return parsed
+end
+
+local function derive_work_mode(args)
+    local work_mode = args.work_mode or "build"
+    if work_mode ~= "plan" and work_mode ~= "build" then
+        return nil, "invalid work mode: " .. tostring(work_mode)
+    end
+    if args.work_mode_flag == "conflict" then
+        return nil, "choose only one work mode"
+    end
+    return work_mode
+end
+
+local function derive_hints(args, work_mode)
+    if args.hints_flag == "enabled" then
+        return true, "cli_override"
+    end
+    if args.hints_flag == "disabled" then
+        return false, "cli_override"
+    end
+    if work_mode == "plan" then
+        return false, "work_mode_plan"
+    end
+    return true, "work_mode_build"
 end
 
 local function build_encode_pressure(repo_listing_payload)
@@ -211,11 +240,18 @@ local function run(argv)
         return 2
     end
 
+    local work_mode, work_mode_err = derive_work_mode(args)
+    if not work_mode then
+        io.stderr:write(work_mode_err .. "\n")
+        return 2
+    end
+    local hints_enabled, hints_reason = derive_hints(args, work_mode)
+
     local p = packet.new(args.task, {mode = mode})
     local next_event = 1
     next_event = emit_new_events(p, next_event)
 
-    packet.enter_mode(p, mode, "cli")
+    packet.enter_mode(p, mode, "cli", {work_mode = work_mode})
     next_event = emit_new_events(p, next_event)
 
     packet.enter(p, "☰")
@@ -299,12 +335,12 @@ local function run(argv)
         prompt_parts[#prompt_parts + 1] = repo_context.format_for_substrate(repo_context_payload)
     end
 
-    local hints_payload = operator_hints.payload({enabled = args.hints})
+    local hints_payload = operator_hints.payload({enabled = hints_enabled})
     packet.append(p, {
         type = "hint_pressure",
         operator = "☴",
         truth_status = "runtime_confirmed",
-        payload = operator_hints.trace_payload(hints_payload, args.hints and "default" or "cli"),
+        payload = operator_hints.trace_payload(hints_payload, hints_reason, work_mode),
         cost = {},
     })
     next_event = emit_new_events(p, next_event)
@@ -318,6 +354,7 @@ local function run(argv)
     if #prompt_parts > 1 then
         prompt_payload = table.concat(prompt_parts, "\n")
     end
+    local substrate_system_prompt = system_prompt.format({work_mode = work_mode})
 
     packet.append(p, {
         type = "substrate_call",
@@ -326,10 +363,12 @@ local function run(argv)
         payload = {
             mode = "mixed",
             operator = "☴",
+            system_prompt = substrate_system_prompt,
             prompt_payload = prompt_payload,
             repo_listing = repo_listing_payload,
             repo_context = repo_context_payload,
             operator_hints = hints_payload,
+            work_mode = work_mode,
             expected_shape = "semantic_proposal",
         },
         cost = {substrate_calls = 1},
@@ -342,10 +381,12 @@ local function run(argv)
             mode = "mixed",
             operator = "☴",
             model = args.deepseek_model,
+            system_prompt = substrate_system_prompt,
             prompt_payload = prompt_payload,
             repo_listing = repo_listing_payload,
             repo_context = repo_context_payload,
             operator_hints = hints_payload,
+            work_mode = work_mode,
             expected_shape = "semantic_proposal",
         }, {
             model = args.deepseek_model,

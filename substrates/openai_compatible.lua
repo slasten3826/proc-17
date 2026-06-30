@@ -30,7 +30,7 @@ function openai.build_messages(call)
     return {
         {
             role = "system",
-            content = "You are substrate current. Return semantic proposal only; runtime truth belongs to the body.",
+            content = call.system_prompt or "You are substrate current. Return semantic proposal only; runtime truth belongs to the body.",
         },
         {
             role = "user",

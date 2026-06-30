@@ -16,7 +16,7 @@ docs/01_table/yellowprints/operator_runtime_hints_yellowprint.v0.md
 
 Operator runtime hints are an optional pressure module.
 
-They are enabled by default.
+Their default enabled state is derived from work mode.
 
 They must be explicitly disabled by settings or CLI.
 
@@ -84,10 +84,18 @@ density
 
 ## Enable Contract
 
-Default:
+Compatibility default through work mode:
 
 ```text
+work_mode = build
 hints.enabled = true
+```
+
+Plan mode default:
+
+```text
+work_mode = plan
+hints.enabled = false
 ```
 
 Settings may set:
@@ -97,7 +105,7 @@ hints.enabled = true
 hints.enabled = false
 ```
 
-CLI override:
+CLI debug override:
 
 ```text
 --hints
@@ -107,7 +115,7 @@ CLI override:
 Precedence:
 
 ```text
-CLI override > settings > default true
+CLI override > work-mode default > compatibility default build
 ```
 
 Invalid combinations:
@@ -339,15 +347,17 @@ lua cli/procesis-body.lua run --task "x" --fake --jsonl --hints
 lua cli/procesis-body.lua run --task "x" --fake --jsonl --no-hints
 ```
 
-Default command should behave like:
+Default command should behave like build mode:
 
 ```text
---hints
+--work-mode build
 ```
 
 unless settings disable it.
 
-`--no-hints` is required for baseline tests.
+`--work-mode plan` is the normal no-hints planning path.
+
+`--no-hints` remains available for debug/baseline tests.
 
 ## Test Obligations For Manifestation
 
