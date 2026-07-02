@@ -45,6 +45,23 @@ packet = {
 }
 ```
 
+Next internal architecture layer may add:
+
+```text
+substrate
+chaos
+boundary
+calm
+tension
+manifest
+```
+
+See:
+
+```text
+packet_internal_architecture_yellowprint.v0.md
+```
+
 The packet has mutable fields, but runtime truth comes primarily from trace.
 
 ```text

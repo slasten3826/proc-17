@@ -4,6 +4,7 @@ contract.actions = {
     inspect_task = true,
     read_file = true,
     write_file = true,
+    make_dir = true,
     list_dir = true,
     run_command = true,
 }

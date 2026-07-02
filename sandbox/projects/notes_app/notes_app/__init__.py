@@ -1,0 +1,1 @@
+# This file makes notes_app a Python package.

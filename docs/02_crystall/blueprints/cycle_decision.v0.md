@@ -38,6 +38,33 @@ manifest final output
 
 Those belong to other operators.
 
+## Netzach Invariant
+
+`☲ CYCLE` is the near-zero-loss continuation valve.
+
+It must not become the workflow engine.
+
+It consumes already-counted pressure:
+
+```text
+needed = N
+done = M
+remaining = N - M
+```
+
+And answers:
+
+```text
+remaining > 0 -> again
+remaining == 0 -> stop_complete
+```
+
+`☱ RUNTIME` counts progress.
+
+`☶ LOGIC` validates the count.
+
+`☲ CYCLE` only decides whether the counted unfinished form gets one more turn.
+
 ## Required Function
 
 ```text
@@ -59,6 +86,19 @@ previous_fingerprints
 manifest_ready
 unsafe
 needs_user_input
+progress
+```
+
+Optional progress input:
+
+```text
+progress = {
+  goal = string | nil,
+  needed_count = number,
+  done_count = number,
+  remaining_count = number,
+  logic_status = "accepted" | "rejected" | "invalid" | nil
+}
 ```
 
 ## Required Payload Fields
@@ -71,17 +111,21 @@ cycle_key
 turn_count
 max_turns
 truth_status = runtime_confirmed
+semantic_loss = near_zero
+runtime_cost = one_turn
 ```
 
 Allowed decisions:
 
 ```text
 continue
+again
 stop_complete
 stop_no_progress
 stop_repetition
 stop_budget
 stop_unsafe
+stop_invalid
 needs_user_input
 ```
 
@@ -96,6 +140,9 @@ manifest_ready
 budget
 max_turns
 repetition
+invalid progress
+progress complete
+progress remaining
 accepted_count
 new_input_count
 continue
@@ -121,6 +168,15 @@ turn_count >= max_turns
 
 state_fingerprint exists in previous_fingerprints
   -> stop_repetition
+
+progress.logic_status is rejected or invalid
+  -> stop_invalid
+
+progress.remaining_count <= 0
+  -> stop_complete
+
+progress.remaining_count > 0
+  -> again
 
 accepted_count <= 0
   -> stop_no_progress
@@ -161,6 +217,10 @@ unit_test: stops when manifest is ready
 unit_test: stops when budget cannot pay required budget
 unit_test: stops when max_turns reached
 unit_test: stops when fingerprint repeats
+unit_test: returns again when progress has remaining work
+unit_test: stops complete when progress remaining_count is zero
+unit_test: stops invalid when progress logic_status is rejected
+unit_test: preserves near-zero semantic loss marker
 unit_test: stops with zero accepted_count
 unit_test: stops with zero new_input_count
 ```

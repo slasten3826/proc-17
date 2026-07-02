@@ -33,6 +33,13 @@ filesystem_write
   deny absolute paths
   deny parent traversal
   require body mode path policy
+  workspace context requires sandbox/ path
+
+directory_create
+  deny absolute paths
+  deny parent traversal
+  body context requires body mode path policy
+  workspace context requires sandbox/ path
 
 shell_command
   deny
@@ -58,8 +65,10 @@ Required functions:
 
 ```text
 check_path(path) -> ok, reason
+is_workspace_path(path) -> ok
 can_read_file(context, path) -> ok, reason
 can_write_file(context, path) -> ok, reason
+can_make_dir(context, path) -> ok, reason
 can_run_command(context, command) -> ok, reason
 ```
 
@@ -67,6 +76,7 @@ Context must include:
 
 ```text
 mode
+context = body | workspace
 ```
 
 ## Test Obligations
@@ -77,7 +87,9 @@ unit_test: sandbox denies parent traversal
 unit_test: sandbox allows relative read
 unit_test: sandbox denies write outside mode policy
 unit_test: sandbox allows write inside mode policy
+unit_test: sandbox workspace context allows sandbox write
+unit_test: sandbox workspace context denies non-sandbox write
+unit_test: sandbox denies hidden control dirs
 unit_test: sandbox denies shell command
 unit_test: fs tool uses sandbox for read/write decisions
 ```
-

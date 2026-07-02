@@ -36,6 +36,28 @@ local function write_all(path, content)
     return true
 end
 
+local function exists(path)
+    local file = io.open(path, "r")
+    if file then
+        file:close()
+        return true
+    end
+    return false
+end
+
+local function make_dir(path)
+    local ok, err = os.rename(path, path)
+    if ok then
+        return true
+    end
+    local command = "mkdir " .. shell_quote(path)
+    local result = os.execute(command)
+    if result == true or result == 0 then
+        return true
+    end
+    return nil, err or "mkdir failed"
+end
+
 local function is_ignored_path(path, ignored)
     for _, name in ipairs(ignored or default_ignored) do
         if path == name or path:sub(1, #name + 1) == name .. "/" then
@@ -146,9 +168,10 @@ function fs.run(call)
 
     local input = call.input or {}
     local path = input.path
+    local context = input.context or "body"
 
     if call.action == "read_file" then
-        local allowed, reason = sandbox.can_read_file({mode = input.mode}, path)
+        local allowed, reason = sandbox.can_read_file({mode = input.mode, context = context}, path)
         if not allowed then
             return contract.normalize_result({
                 ok = false,
@@ -180,7 +203,7 @@ function fs.run(call)
         })
     elseif call.action == "list_dir" then
         local prefix = path or "."
-        local allowed, reason = sandbox.can_read_file({mode = input.mode}, prefix)
+        local allowed, reason = sandbox.can_read_file({mode = input.mode, context = context}, prefix)
         if not allowed then
             return contract.normalize_result({
                 ok = false,
@@ -209,7 +232,7 @@ function fs.run(call)
         })
     elseif call.action == "write_file" then
         local mode = input.mode or "manifest"
-        local allowed, reason = sandbox.can_write_file({mode = mode}, path)
+        local allowed, reason = sandbox.can_write_file({mode = mode, context = context}, path)
         if not allowed then
             return contract.normalize_result({
                 ok = false,
@@ -219,6 +242,38 @@ function fs.run(call)
                     tool = "fs",
                     mode = mode,
                     path = path,
+                    write_performed = false,
+                },
+            })
+        end
+
+        local write_mode = input.write_mode or (context == "workspace" and "create_only" or "overwrite")
+        if write_mode ~= "create_only" and write_mode ~= "overwrite" then
+            return contract.normalize_result({
+                ok = false,
+                action = call.action,
+                error = "invalid write mode",
+                metadata = {
+                    tool = "fs",
+                    mode = mode,
+                    context = context,
+                    path = path,
+                    write_mode = write_mode,
+                    write_performed = false,
+                },
+            })
+        end
+        if write_mode == "create_only" and exists(path) then
+            return contract.normalize_result({
+                ok = false,
+                action = call.action,
+                error = "target already exists",
+                metadata = {
+                    tool = "fs",
+                    mode = mode,
+                    context = context,
+                    path = path,
+                    write_mode = write_mode,
                     write_performed = false,
                 },
             })
@@ -234,7 +289,9 @@ function fs.run(call)
                 metadata = {
                     tool = "fs",
                     mode = mode,
+                    context = context,
                     path = path,
+                    write_mode = write_mode,
                     write_performed = false,
                 },
             })
@@ -250,8 +307,58 @@ function fs.run(call)
             metadata = {
                 tool = "fs",
                 mode = mode,
+                context = context,
                 path = path,
+                write_mode = write_mode,
                 write_performed = true,
+            },
+        })
+    elseif call.action == "make_dir" then
+        local mode = input.mode or "manifest"
+        local allowed, reason = sandbox.can_make_dir({mode = mode, context = context}, path)
+        if not allowed then
+            return contract.normalize_result({
+                ok = false,
+                action = call.action,
+                error = reason,
+                metadata = {
+                    tool = "fs",
+                    mode = mode,
+                    context = context,
+                    path = path,
+                    dir_created = false,
+                },
+            })
+        end
+
+        local ok_dir, dir_err = make_dir(path)
+        if not ok_dir then
+            return contract.normalize_result({
+                ok = false,
+                action = call.action,
+                error = dir_err,
+                metadata = {
+                    tool = "fs",
+                    mode = mode,
+                    context = context,
+                    path = path,
+                    dir_created = false,
+                },
+            })
+        end
+
+        return contract.normalize_result({
+            ok = true,
+            action = call.action,
+            output = {
+                path = path,
+            },
+            metadata = {
+                tool = "fs",
+                mode = mode,
+                context = context,
+                path = path,
+                dir_created = true,
             },
         })
     end

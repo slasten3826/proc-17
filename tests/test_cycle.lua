@@ -101,6 +101,71 @@ if repeated.decision ~= "stop_repetition" or repeated.reason ~= "state_fingerpri
     error("cycle should stop on repeated fingerprint")
 end
 
+local progress_again = decide({
+    cycle_key = "organogenesis",
+    turn_count = 1,
+    max_turns = 5,
+    budget = {steps = 4},
+    required_budget = {steps = 1},
+    progress = {
+        goal = "workspace organs",
+        needed_count = 5,
+        done_count = 1,
+        remaining_count = 4,
+        logic_status = "accepted",
+    },
+})
+
+if progress_again.decision ~= "again" or progress_again.reason ~= "remaining_work" then
+    error("cycle should say again when progress has remaining work")
+end
+
+if progress_again.semantic_loss ~= "near_zero" then
+    error("cycle should expose near-zero semantic loss")
+end
+
+if progress_again.runtime_cost ~= "one_turn" then
+    error("cycle should expose one-turn runtime cost")
+end
+
+if progress_again.progress.remaining_count ~= 4 then
+    error("cycle should copy progress remaining count")
+end
+
+local progress_complete = decide({
+    turn_count = 1,
+    max_turns = 5,
+    budget = {steps = 4},
+    required_budget = {steps = 1},
+    progress = {
+        needed_count = 5,
+        done_count = 5,
+        remaining_count = 0,
+        logic_status = "accepted",
+    },
+})
+
+if progress_complete.decision ~= "stop_complete" or progress_complete.reason ~= "progress_complete" then
+    error("cycle should stop complete when progress is complete")
+end
+
+local progress_invalid = decide({
+    turn_count = 1,
+    max_turns = 5,
+    budget = {steps = 4},
+    required_budget = {steps = 1},
+    progress = {
+        needed_count = 5,
+        done_count = 8,
+        remaining_count = -3,
+        logic_status = "rejected",
+    },
+})
+
+if progress_invalid.decision ~= "stop_invalid" or progress_invalid.reason ~= "progress:rejected" then
+    error("cycle should stop invalid when logic rejects progress")
+end
+
 local no_accepted = decide({
     turn_count = 0,
     max_turns = 3,

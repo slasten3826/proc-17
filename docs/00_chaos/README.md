@@ -27,6 +27,9 @@ eva_inheritance_notes.md
 packet_lifecycle_notes.md
   first raw model of mortal task packet life
 
+packet_chaos_calm_architecture_notes.md
+  raw packet architecture: dirty CHAOS, crystallized CALM, BOUNDARY, TENSION, SUBSTRATE, and corrected OBSERVE/RUNTIME eyes
+
 substrate_and_language_choice.md
   substrate-neutral agent and Lua language decision
 
@@ -71,6 +74,9 @@ operator_readiness_notes.md
 
 cycle_operator_notes.md
   raw pressure for CYCLE as bounded continuation decision, not immortal loop
+
+cycle_netzach_progress_notes.md
+  raw expansion for CYCLE as near-zero-loss Netzach progress gate
 
 two_eyes_runtime_notes.md
   raw thinking on OBSERVE/RUNTIME as two read-only evidence eyes
@@ -134,6 +140,24 @@ manifest_operator_notes.md
 
 tictactoe_ai_speed_test_results.md
   live plan/build/manifest/runtime test: tic-tac-toe with computer player reached checked working Python code in under two minutes
+
+workspace_sandbox_notes.md
+  safety boundary between proc-17 body source and sandbox/ workspace where future agent repo mutation may happen
+
+workspace_sandbox_smoke_results.md
+  first workspace sandbox smoke: direct fs tool safety checks plus manifest code written to sandbox/projects/hello_proc17/main.py and executed
+
+notes_app_multifile_test_plan.md
+  first multi-file notes app test plan: plan/build, FILE blocks, workspace write, unittest, possible fix pass
+
+notes_app_multifile_test_results.md
+  first multi-file workspace project passed on first build: FILE blocks written to sandbox/projects/notes_app, unittest OK, CLI smoke OK
+
+self_gap_organogenesis_test_plan.md
+  test plan for asking proc-17 to identify its own missing organ from the manual notes_app bridge
+
+self_gap_organogenesis_test_results.md
+  self-gap test result: proc-17 named a sandbox-bound deployer as the first missing organ and deferred test runner/fix loop
 
 encode_code_only_boundary.md
   major ☵ boundary: encode code/runtime/engineering structure, not arbitrary prose

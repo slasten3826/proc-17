@@ -33,7 +33,7 @@ core/modes.lua
   body mode permission descriptors and write path policy
 
 core/sandbox.lua
-  default-deny host permission layer for filesystem/shell checks
+  default-deny host permission layer for filesystem/shell checks, with separate body context and sandbox/-rooted workspace context
 
 core/packet.lua
   packet.v0 protocol: birth, mode, trace, budget spend, unsupported form, manifest, death, residue
@@ -60,7 +60,7 @@ tools/fake.lua
   deterministic fake tool facade with write permission dry-run
 
 tools/fs.lua
-  real workspace-relative read_file/write_file/list_dir facade with mode path policy
+  real workspace-relative read_file/write_file/make_dir/list_dir facade with mode path policy and workspace-context sandbox/ boundary
 
 logic/repo_selection.lua
   LOGIC boundary: validates selected paths against runtime-confirmed repo listing

@@ -18,7 +18,7 @@ tools/fake.lua
   deterministic fake tool facade for tests
 
 tools/fs.lua
-  real workspace-relative read_file/write_file/list_dir facade
+  real workspace-relative read_file/write_file/make_dir/list_dir facade
 ```
 
 ## Tool Call Contract
@@ -53,6 +53,8 @@ relative paths only
 absolute paths denied
 parent traversal denied
 write_file must pass mode path policy
+workspace context write_file/make_dir must stay under sandbox/
+workspace write_file defaults to create_only
 list_dir must pass read path policy and bounded listing limits
 ```
 
@@ -109,6 +111,9 @@ unit_test: fs tool denies parent traversal
 unit_test: fs tool denies implementation write outside manifest
 unit_test: fs tool writes allowed layer docs path
 unit_test: fs tool reads written file
+unit_test: fs tool workspace make_dir creates sandbox directory
+unit_test: fs tool workspace create_only writes new file
+unit_test: fs tool workspace create_only denies existing file
 unit_test: fs tool lists workspace files
 integration_test: machine CLI emits tool_call/tool_result
 ```
@@ -117,9 +122,9 @@ integration_test: machine CLI emits tool_call/tool_result
 
 ```text
 no real shell tool yet
-no directory creation yet
+directory creation allowed only through make_dir policy
 no run_command implementation yet
-real write tool is guarded but intentionally minimal
+real write tool is guarded; workspace context is restricted to sandbox/
 list_dir v0 uses internal host find behind sandbox
 list_dir hardening pending
 ```

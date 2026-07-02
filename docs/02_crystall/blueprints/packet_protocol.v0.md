@@ -58,6 +58,16 @@ topology
 metadata
 ```
 
+Internal architecture extension:
+
+```text
+docs/02_crystall/blueprints/packet_internal_architecture.v0.md
+```
+
+The extension adds optional `substrate`, `chaos`, `boundary`, `calm`,
+`tension`, and `manifest` packet areas. It is additive in v0 and must not break
+existing packet protocol tests.
+
 Test status:
 
 ```text
