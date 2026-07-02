@@ -1,12 +1,14 @@
 local cycle = {}
 
 local decisions = {
+    again = true,
     continue = true,
     stop_complete = true,
     stop_no_progress = true,
     stop_repetition = true,
     stop_budget = true,
     stop_unsafe = true,
+    stop_invalid = true,
     needs_user_input = true,
 }
 
@@ -46,8 +48,19 @@ local function budget_can_pay(budget, required)
     return true
 end
 
+local function progress_value(progress, key)
+    if type(progress) ~= "table" then
+        return nil
+    end
+    return progress[key]
+end
+
+local function has_progress(input)
+    return type(input.progress) == "table"
+end
+
 local function payload(input, decision, reason)
-    return {
+    local result = {
         kind = "cycle_decision_payload",
         decision = decision,
         reason = reason,
@@ -55,7 +68,20 @@ local function payload(input, decision, reason)
         turn_count = number_or_zero(input.turn_count),
         max_turns = number_or_zero(input.max_turns),
         truth_status = "runtime_confirmed",
+        semantic_loss = "near_zero",
+        runtime_cost = "one_turn",
     }
+    if has_progress(input) then
+        local progress = input.progress
+        result.progress = {
+            goal = progress.goal,
+            needed_count = number_or_zero(progress.needed_count),
+            done_count = number_or_zero(progress.done_count),
+            remaining_count = number_or_zero(progress.remaining_count),
+            logic_status = progress.logic_status,
+        }
+    end
+    return result
 end
 
 function cycle.is_decision(value)
@@ -92,6 +118,20 @@ function cycle.decide(input)
 
     if has_fingerprint(input.previous_fingerprints, input.state_fingerprint) then
         return payload(input, "stop_repetition", "state_fingerprint")
+    end
+
+    if has_progress(input) then
+        local logic_status = progress_value(input.progress, "logic_status")
+        if logic_status == "rejected" or logic_status == "invalid" then
+            return payload(input, "stop_invalid", "progress:" .. tostring(logic_status))
+        end
+
+        local remaining_count = number_or_zero(progress_value(input.progress, "remaining_count"))
+        if remaining_count <= 0 then
+            return payload(input, "stop_complete", "progress_complete")
+        end
+
+        return payload(input, "again", "remaining_work")
     end
 
     if number_or_zero(input.accepted_count) <= 0 then

@@ -14,60 +14,83 @@ local function assert_eq(left, right, message)
     end
 end
 
-local p = packet.new("test task", {id = "packet-test"})
-assert_eq(p.protocol_version, "packet.v0", "protocol version")
-assert_eq(p.status, "born", "birth status")
-assert_eq(p.mode, "manifest", "default mode")
-assert_eq(p.operator, "▽", "birth operator")
-assert_eq(#p.trace, 1, "birth event appended")
+local p = packet.new("build a small body", {id = "packet-test"})
 
-assert_true(packet.validate_mode("chaos"), "chaos mode should validate")
-assert_true(not packet.validate_mode("invalid"), "invalid mode should not validate")
-assert_true(packet.can_write_code(p), "manifest packet can write code")
+assert_eq(p.protocol_version, "packet.next.v0", "protocol")
+assert_eq(p.status, "born", "status")
+assert_eq(p.operator, "▽", "operator")
+assert_eq(p.chaos.raw_prompt, "build a small body", "dirty prompt in chaos")
+assert_true(type(p.substrate.budget) == "table", "substrate budget exists")
+assert_true(type(p.boundary.crystallizations) == "table", "boundary exists")
+assert_true(type(p.calm.structures) == "table", "calm exists")
+assert_true(type(p.tension) == "table", "tension exists")
+assert_eq(#p.trace, 1, "birth trace")
+assert_eq(p.trace[1].type, "birth", "birth event")
 
-ok, err = packet.enter_mode(p, "chaos", "test")
-assert_true(ok, err)
-assert_eq(p.mode, "chaos", "mode updated")
-assert_true(not packet.can_write_code(p), "chaos packet cannot write code")
-assert_eq(p.trace[#p.trace].type, "mode_enter", "mode enter event")
-
-ok, err = packet.spend(p, {steps = 1})
-assert_true(ok, err)
-assert_eq(p.budget.steps, 31, "budget spend")
-
-packet.record_unsupported(p, {
-    emitted_form = "packet.promote_gap",
-    unsupported_because = "method does not exist",
-    recurrence_key = "packet.promote_gap",
+local ok, event = packet.append_chaos(p, {
+    operator = "☴",
+    kind = "substrate_fragment",
+    text = "candidate structure",
 })
 
-local event = p.trace[#p.trace]
-assert_eq(event.type, "unsupported_form", "unsupported event type")
-assert_eq(event.truth_status, "unsupported", "unsupported truth status")
-assert_eq(event.payload.recurrence_count, 1, "unsupported recurrence count")
+assert_true(ok, "append chaos returns packet")
+assert_eq(event.type, "chaos_append", "chaos append event")
+assert_eq(#p.chaos.fragments, 1, "chaos fragment stored")
+assert_eq(#p.trace, 2, "chaos append traced")
 
-packet.record_unsupported(p, {
-    emitted_form = "packet.promote_gap",
-    recurrence_key = "packet.promote_gap",
+local bad, bad_err = packet.crystallize(p, {
+    calm_delta = {kind = "work_shape"},
 })
 
-event = p.trace[#p.trace]
-assert_eq(event.payload.recurrence_count, 2, "repeated unsupported recurrence count")
+assert_true(not bad, "crystallization without loss must fail")
+assert_eq(bad_err, "crystallization requires loss table", "loss required")
 
-ok, err = packet.decide_gap(p, "packet.promote_gap", "promote")
-assert_true(ok, err)
-assert_eq(p.trace[#p.trace].truth_status, "promoted", "gap promoted")
+local crystal_packet, crystal_event = packet.crystallize(p, {
+    source_chaos_refs = {event.id},
+    calm_delta = {
+        kind = "work_shape",
+        units = {
+            {id = "packet_core", status = "done"},
+        },
+    },
+    loss = {
+        kind = "compression",
+        amount = 0.12,
+    },
+    status = "accepted",
+})
 
-ok, err = packet.manifest(p, {truth_status = "semantic_proposal", result = "bad"})
-assert_true(not ok, "semantic proposal must not manifest as final truth")
+assert_true(crystal_packet, "crystallization succeeds")
+assert_eq(crystal_event.type, "crystallization", "crystallization event")
+assert_eq(crystal_event.operator, "☵", "crystallization operator")
+assert_eq(#p.boundary.crystallizations, 1, "boundary crystallization stored")
+assert_eq(#p.boundary.loss_records, 1, "loss record stored")
+assert_eq(#p.calm.structures, 1, "calm structure stored")
+assert_eq(p.calm.current.kind, "work_shape", "current calm set")
+assert_eq(p.calm.status, "accepted", "calm status")
 
-ok, err = packet.manifest(p, {truth_status = "runtime_confirmed", result = "ok"})
-assert_true(ok, err)
-assert_eq(p.status, "manifested", "manifest status")
+local tension_packet, tension_event = packet.measure_tension(p, {
+    chaos_pressure = 7,
+    calm_rigidity = 3,
+    boundary_load = 2,
+    unresolved_delta = 4,
+    action_pressure = "hold",
+})
 
-ok, err = packet.die(p, "complete")
-assert_true(ok, err)
-assert_eq(p.status, "dead", "death status")
-assert_eq(p.residue.cause, "complete", "death residue cause")
+assert_true(tension_packet, "tension measure succeeds")
+assert_eq(tension_event.type, "tension_measure", "tension event")
+assert_eq(p.tension.unresolved_delta, 4, "tension stored")
+
+local dead, death_event = packet.die(p, "identity_loss", {
+    cause = "identity_loss",
+    do_not_repeat = "continue after semantic drift",
+})
+
+assert_true(dead, "death succeeds")
+assert_eq(death_event.type, "death", "death event")
+assert_eq(p.status, "dead", "dead status")
+assert_eq(p.death.cause, "identity_loss", "death cause")
+assert_eq(p.residue.do_not_repeat, "continue after semantic drift", "death residue")
 
 print("test_packet ok")
+

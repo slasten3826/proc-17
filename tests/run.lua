@@ -12,14 +12,15 @@ local tests = {
     "tests.test_encode",
     "tests.test_choose",
     "tests.test_cycle",
+    "tests.test_body",
+    "tests.test_observe",
+    "tests.test_organs_encode_choose",
     "tests.test_manifest",
-    "tests.test_runtime_pressure_snapshot",
     "tests.test_operator_hints",
-    "tests.test_repo_listing",
     "tests.test_repo_selection",
-    "tests.test_repo_context",
-    "tests.test_trace_store",
-    "tests.test_cli",
+    "tests.test_runner",
+    "tests.test_router",
+    "tests.test_tension_runner",
 }
 
 for _, name in ipairs(tests) do

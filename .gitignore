@@ -1,6 +1,16 @@
 .env
-*.log
-*.tmp
-*.jsonl
+.env.*
 .DS_Store
 
+logs/
+sandbox/
+tmp/
+*.log
+*.jsonl
+*.tmp
+
+__pycache__/
+*.pyc
+
+.agents/
+.codex/
