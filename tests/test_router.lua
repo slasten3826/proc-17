@@ -109,6 +109,74 @@ assert_eq(d.reason, "loss_manifest_pressure", "loss reason")
 assert_eq(d.pressure.loss.kind, "packet_loss", "loss axis")
 assert_eq(d.pressure.budget.kind, "runtime_budget", "budget axis")
 
+local build_packet = packet.new("build route packet", {
+    metadata = {work_mode = "build"},
+    budget = {steps = 8, substrate_calls = 1},
+})
+body.apply_crystallized_work(build_packet, {
+    {id = "a", status = "pending"},
+})
+
+d, err = router.after_tick(build_packet, {
+    operator = "☱",
+    work_mode = "build",
+})
+assert_true(d, err)
+assert_eq(d.to, "☶", "build mode remaining work without evidence routes to logic")
+assert_eq(d.reason, "missing_build_evidence", "build evidence reason")
+
+body.record_cycle(build_packet, {
+    kind = "cycle_decision_payload",
+    decision = "stop_repetition",
+    reason = "max_turns",
+    truth_status = "runtime_confirmed",
+})
+
+d, err = router.after_tick(build_packet, {
+    operator = "☱",
+    work_mode = "build",
+})
+assert_true(d, err)
+assert_eq(d.to, "△", "build mode stop repetition routes to manifest")
+assert_eq(d.reason, "cycle_stop_manifest_pressure", "cycle stop reason")
+
+local plan_packet = packet.new("plan route packet", {
+    metadata = {work_mode = "plan"},
+    budget = {steps = 8, substrate_calls = 1},
+})
+body.apply_crystallized_work(plan_packet, {
+    {id = "a", status = "pending"},
+})
+
+d, err = router.after_tick(plan_packet, {
+    operator = "☱",
+    work_mode = "plan",
+})
+assert_true(d, err)
+assert_eq(d.to, "☲", "plan mode does not require build evidence")
+assert_eq(d.reason, "remaining_work", "plan remains normal")
+
+local rejected_packet = packet.new("build rejected route", {
+    metadata = {work_mode = "build"},
+    budget = {steps = 8, substrate_calls = 1},
+})
+body.apply_crystallized_work(rejected_packet, {
+    {id = "a", status = "pending"},
+})
+body.record_validation(rejected_packet, {
+    kind = "logic_validation_payload",
+    status = "rejected",
+    truth_status = "runtime_confirmed",
+})
+
+d, err = router.after_tick(rejected_packet, {
+    operator = "☱",
+    work_mode = "build",
+})
+assert_true(d, err)
+assert_eq(d.to, "☴", "build rejected validation routes to observe repair")
+assert_eq(d.reason, "validation_rejected_semantic_repair", "rejected repair reason")
+
 local invalid, invalid_err = router.after_tick(p, {operator = "NOPE"})
 assert_true(not invalid, "invalid operator should fail")
 assert_eq(invalid_err, "invalid_operator", "invalid operator error")

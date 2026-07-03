@@ -12,11 +12,6 @@ local function chaos_text(instance)
     local refs = {}
     local chaos = instance.chaos or {}
 
-    if trim(chaos.raw_prompt) ~= "" then
-        parts[#parts + 1] = chaos.raw_prompt
-        refs[#refs + 1] = "chaos:raw_prompt"
-    end
-
     if type(chaos.fragments) == "table" then
         for index, fragment in ipairs(chaos.fragments) do
             local text = fragment.text or fragment.value or fragment.content
@@ -25,6 +20,11 @@ local function chaos_text(instance)
                 refs[#refs + 1] = "chaos:fragment:" .. tostring(index)
             end
         end
+    end
+
+    if #parts == 0 and trim(chaos.raw_prompt) ~= "" then
+        parts[#parts + 1] = chaos.raw_prompt
+        refs[#refs + 1] = "chaos:raw_prompt"
     end
 
     return table.concat(parts, "\n"), refs
@@ -47,11 +47,13 @@ local function work_units_from_field(field)
             units[#units + 1] = {
                 id = item.id,
                 status = "pending",
-                description = item.value,
+                description = item.content or item.value or item.label,
                 source_item_id = item.id,
                 source_truth_status = item.source_truth_status,
                 content_truth_status = item.content_truth_status,
                 kind = item.kind,
+                label = item.label,
+                source_refs = item.source_refs,
             }
         end
     end
@@ -86,6 +88,8 @@ function encode.run(instance, options)
         hierarchy = encoded.hierarchy,
         work_units = work_units,
         encoding_basis = encoded.encoding_basis,
+        structure = encoded.field.structure,
+        encoding = encoded.field.encoding,
     }
 
     local loss = {
@@ -97,6 +101,9 @@ function encode.run(instance, options)
         truncated = encoded.loss.truncated,
         source_detail_loss = encoded.loss.source_detail_loss,
         hierarchy_loss = encoded.loss.hierarchy_loss,
+        encoding_type = encoded.loss.encoding_type,
+        loss_percentage = encoded.loss.loss_percentage,
+        loss_level = encoded.loss.loss_level,
     }
 
     local ok, event_or_err = packet_core.crystallize(instance, {
@@ -126,4 +133,3 @@ function encode.run(instance, options)
 end
 
 return encode
-

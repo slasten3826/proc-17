@@ -52,6 +52,11 @@ assert_eq(repo_payload.loss.input_count, 2, "repo input count")
 assert_eq(repo_payload.loss.output_count, 2, "repo output count")
 assert_eq(repo_payload.loss.omitted_count, 0, "repo omitted count")
 assert_eq(repo_payload.loss.truncated, false, "repo truncated")
+assert_eq(repo_payload.field.structure.kind, "hierarchy", "repo structure kind")
+assert_eq(repo_payload.field.encoding.encoding_type, "hierarchy", "repo encoding type")
+assert_eq(repo_payload.field.encoding.hierarchy_lens_visible, true, "repo hierarchy lens visible")
+assert_eq(repo_payload.field.items[1].content, "logic/encode.lua", "repo item content")
+assert_true(type(repo_payload.field.items[1].source_refs) == "table", "repo item source refs")
 
 local semantic_payload = encode_ok({
     substrate_result = {
@@ -70,6 +75,9 @@ assert_eq(semantic_payload.field.items[1].encoding_truth_status, "runtime_confir
 assert_eq(semantic_payload.loss.kind, "field_compression", "semantic loss kind")
 assert_eq(semantic_payload.field.shape, "semantic_line_field", "semantic field shape")
 assert_eq(semantic_payload.field.intent, "rank_candidates", "semantic field intent")
+assert_eq(semantic_payload.field.structure.kind, "sequence", "numbered semantic structure kind")
+assert_eq(semantic_payload.field.encoding.encoding_type, "sequence", "numbered semantic encoding type")
+assert_eq(semantic_payload.field.encoding.loss_level, "moderate", "sequence loss level")
 
 local structured_payload = encode_ok({
     substrate_result = {
@@ -99,6 +107,8 @@ assert_eq(structured_payload.field.items[2].role, "alternative", "child role")
 assert_eq(structured_payload.field.items[2].parent_id, structured_payload.field.items[1].id, "child parent")
 assert_eq(structured_payload.field.items[4].kind, "section", "second section kind")
 assert_eq(structured_payload.loss.hierarchy_loss, false, "structured hierarchy preserved")
+assert_true(structured_payload.field.structure.kind == "sequence" or structured_payload.field.structure.kind == "teaching", "structured gets v1 structure")
+assert_true(type(structured_payload.field.encoding.loss_percentage) == "number", "structured encoding loss visible")
 
 local limited_payload = encode_ok({
     substrate_result = {
@@ -132,6 +142,25 @@ assert_eq(dissolved_payload.field.items[1].content_truth_status, "unsupported_re
 assert_eq(dissolved_payload.loss.kind, "field_compression", "dissolved loss kind")
 assert_eq(dissolved_payload.field.shape, "residue_field", "dissolved field shape")
 assert_eq(dissolved_payload.field.intent, "carry_residue", "dissolved field intent")
+assert_eq(dissolved_payload.field.structure.kind, "category", "dissolved residue category structure")
+
+local category_payload = encode_ok({
+    substrate_result = {
+        text = "Option A: keep encode simple\nOption B: make choose smarter\nAlternative: stop",
+    },
+    limits = {max_items = 8},
+})
+assert_eq(category_payload.field.structure.kind, "category", "alternatives produce category structure")
+assert_eq(category_payload.field.encoding.encoding_type, "category", "alternatives encoding type")
+
+local language_payload = encode_ok({
+    substrate_result = {
+        text = "blue sky over quiet water",
+    },
+    limits = {max_items = 8},
+})
+assert_eq(language_payload.field.structure.kind, "language", "unstructured prose fallback language")
+assert_eq(language_payload.field.encoding.encoding_type, "language", "language encoding type")
 
 local ranking_items = encode.response_line_items("1. x\n- y\n")
 assert_eq(#ranking_items, 2, "ranking items count")

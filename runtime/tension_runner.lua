@@ -5,6 +5,8 @@ local choose = require("organs.choose")
 local body = require("runtime.body")
 local router = require("runtime.router")
 local manifest = require("logic.manifest")
+local spells = require("logic.spells")
+local foundation = require("runtime.foundation")
 
 local tension_runner = {}
 
@@ -79,10 +81,12 @@ end
 
 local function runtime_eye(instance)
     local progress = body.progress(instance)
+    local foundation_payload = foundation.snapshot(instance)
     local _, event = packet_core.measure_tension(instance, {
         operator = "☱",
         kind = "runtime_eye_payload",
         progress = progress,
+        foundation = foundation_payload,
         budget = instance.substrate and instance.substrate.budget or {},
         loss = {
             records_count = #(instance.boundary and instance.boundary.loss_records or {}),
@@ -96,16 +100,74 @@ local function runtime_eye(instance)
     return {
         kind = "runtime_eye_payload",
         progress = progress,
+        foundation = foundation_payload,
         trace_event_id = event.id,
         truth_status = "runtime_confirmed",
     }
 end
 
-local function logic_placeholder(instance)
+local function logic_placeholder(instance, options)
+    options = options or {}
+    if options.work_mode == "build" then
+        local spell_inputs = options.logic and options.logic.spells or {}
+        local results = {}
+        if type(spell_inputs) ~= "table" or #spell_inputs == 0 then
+            local payload = {
+                kind = "logic_validation_payload",
+                status = "no_spell",
+                reason = "build_mode_requires_spell_evidence",
+                spell_results = {},
+                evidence_count = 0,
+                truth_status = "runtime_confirmed",
+            }
+            body.record_validation(instance, payload)
+            return payload
+        end
+
+        local status = "accepted"
+        for _, spell_input in ipairs(spell_inputs) do
+            local result, err = spells.run(spell_input)
+            if not result then
+                result = {
+                    kind = "spell_result",
+                    name = spell_input.name or spell_input.kind or "invalid_spell",
+                    spell_kind = spell_input.kind or "invalid",
+                    intention_hash = spells.hash(spell_input.intention or spell_input.name or spell_input.kind),
+                    command_or_code = spell_input.command or spell_input.path or "",
+                    executed = false,
+                    success = false,
+                    reality_changed = false,
+                    stdout = "",
+                    stderr = tostring(err),
+                    exit_code = nil,
+                    truth_status = "runtime_confirmed",
+                }
+            end
+            results[#results + 1] = result
+            foundation.reinforce(instance, result)
+            if result.success ~= true then
+                status = "rejected"
+            end
+        end
+
+        local payload = {
+            kind = "logic_validation_payload",
+            status = status,
+            spell_results = results,
+            evidence_count = #results,
+            foundation = foundation.snapshot(instance),
+            truth_status = "runtime_confirmed",
+        }
+        body.record_validation(instance, payload)
+        return payload
+    end
+
     local payload = {
         kind = "logic_validation_payload",
         status = "accepted",
         reason = "placeholder_v0",
+        spell_results = {},
+        evidence_count = 0,
         truth_status = "runtime_confirmed",
     }
     body.record_validation(instance, payload)
@@ -172,7 +234,7 @@ local function run_operator(instance, substrate, operator, options, result)
     end
 
     if operator == "☶" then
-        return logic_placeholder(instance)
+        return logic_placeholder(instance, options)
     end
 
     if operator == "△" then
@@ -217,6 +279,7 @@ function tension_runner.run(prompt, substrate, options)
         local route, route_err = router.after_tick(instance, {
             operator = current,
             payload = payload,
+            work_mode = options.work_mode or "build",
         })
         if not route then
             return nil, stage_error("router", route_err)

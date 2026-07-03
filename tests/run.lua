@@ -9,9 +9,11 @@ local tests = {
     "tests.test_substrates",
     "tests.test_tools",
     "tests.test_fs_tool",
+    "tests.test_spells",
     "tests.test_encode",
     "tests.test_choose",
     "tests.test_cycle",
+    "tests.test_foundation",
     "tests.test_body",
     "tests.test_observe",
     "tests.test_organs_encode_choose",
@@ -21,6 +23,7 @@ local tests = {
     "tests.test_runner",
     "tests.test_router",
     "tests.test_tension_runner",
+    "tests.test_build_mode_lower_triangle",
 }
 
 for _, name in ipairs(tests) do

@@ -154,6 +154,15 @@ local function init_areas(prompt, options)
             unresolved_delta = nil,
             action_pressure = nil,
         },
+        runtime = {
+            foundation = {
+                patterns = {},
+                stability = 0,
+                state = "fluid",
+                reinforcements = 0,
+            },
+            evidence = {},
+        },
         manifest = nil,
     }
 end
@@ -177,6 +186,7 @@ function packet.new(prompt, options)
         boundary = areas.boundary,
         calm = areas.calm,
         tension = areas.tension,
+        runtime = areas.runtime,
         trace = {},
         residue = {},
         death = nil,

@@ -49,16 +49,27 @@ end
 local function pressure_snapshot(instance, tick)
     tick = tick or {}
     local payload_pressure = type(tick.payload) == "table" and tick.payload.pressure or nil
+    local payload = type(tick.payload) == "table" and tick.payload or {}
     local progress = body.progress(instance)
     local calm = instance and instance.calm or {}
+    local runtime = instance and instance.runtime or {}
+    local foundation = runtime.foundation or {}
+    local evidence = runtime.evidence or {}
+    local last_validation = last(instance and instance.boundary and instance.boundary.validations)
+    local last_cycle = last(instance and instance.boundary and instance.boundary.cycles)
     return {
         loss = loss_pressure(instance),
         budget = budget_pressure(instance),
         progress = progress,
         payload = payload_pressure or {},
+        work_mode = payload.work_mode or tick.work_mode or (instance and instance.metadata and instance.metadata.work_mode),
         last_choice = last(instance and instance.boundary and instance.boundary.choices),
-        last_validation = last(instance and instance.boundary and instance.boundary.validations),
-        last_cycle = last(instance and instance.boundary and instance.boundary.cycles),
+        last_validation = last_validation,
+        last_cycle = last_cycle,
+        validation_status = last_validation and last_validation.status,
+        cycle_decision = last_cycle and last_cycle.decision,
+        foundation_state = foundation.state,
+        evidence_count = #evidence,
         calm_status = calm.status,
         has_calm = calm.current ~= nil or progress.needed_count > 0,
     }
@@ -97,6 +108,7 @@ end
 
 local function route_runtime(pressure)
     local payload = pressure.payload or {}
+    local build_mode = pressure.work_mode == "build"
     if payload.semantic_uncertainty == true then
         return "☴", "semantic_uncertainty"
     end
@@ -109,8 +121,23 @@ local function route_runtime(pressure)
     if payload.validation_pressure == true then
         return "☶", "validation_pressure"
     end
+    if build_mode and pressure.validation_status == "rejected" then
+        return "☴", "validation_rejected_semantic_repair"
+    end
+    if build_mode and (
+        pressure.cycle_decision == "stop_repetition"
+        or pressure.cycle_decision == "stop_budget"
+        or pressure.cycle_decision == "stop_invalid"
+        or pressure.cycle_decision == "stop_unsafe"
+        or pressure.cycle_decision == "needs_user_input"
+    ) then
+        return "△", "cycle_stop_manifest_pressure"
+    end
     if payload.manifest_ready == true then
         return "△", "manifest_ready"
+    end
+    if build_mode and pressure.progress.remaining_count > 0 and pressure.evidence_count <= 0 then
+        return "☶", "missing_build_evidence"
     end
     if pressure.progress.remaining_count > 0 then
         return "☲", "remaining_work"

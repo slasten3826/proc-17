@@ -58,11 +58,14 @@ assert_eq(payload.selected[1].selection_truth_status, "runtime_confirmed", "sele
 assert_eq(payload.selected[1].source_truth_status, "runtime_confirmed", "source truth")
 assert_eq(payload.selected[1].reason.truth_status, "semantic_proposal", "semantic reason stays semantic")
 assert_eq(payload.selected[1].reason.text, "substrate ranked c", "semantic reason text")
+assert_eq(payload.chosen.id, "c", "chosen alias first selected")
 
 assert_eq(payload.not_chosen_count, 2, "not chosen count")
 assert_eq(payload.loss.kind, "attention_collapse", "loss kind")
 assert_eq(payload.loss.not_chosen_count, 2, "loss count")
 assert_eq(payload.loss.truncated, true, "killed sample truncated")
+assert_eq(payload.choice_loss.before_count, 4, "choice loss before count")
+assert_eq(payload.choice_loss.after_count, 2, "choice loss after count")
 assert_eq(#payload.killed_alternatives, 1, "bounded killed alternatives")
 assert_eq(payload.choice_pressure.attention_pressure, "high", "choice pressure copied")
 assert_eq(payload.choice_basis.order, "semantic_ranking_then_field_order", "choice basis")
@@ -148,6 +151,46 @@ assert_eq(structured.selected[1].id, "line:1", "structured skips section header"
 assert_eq(structured.selected[2].id, "line:2", "structured selects children")
 assert_eq(structured.killed_alternatives[1].id, "line:3", "structured kills only child alternative")
 assert_eq(structured.not_chosen_count, 1, "structured not chosen counts eligible alternatives")
+
+local sequence_field = {
+    truth_status = "semantic_proposal",
+    structure = {
+        kind = "sequence",
+        steps = {
+            {id = "s1", order = 1},
+            {id = "s2", order = 2},
+        },
+    },
+    items = {
+        {id = "s1", kind = "semantic_line", value = "first step", role = "alternative", truth_status = "semantic_proposal"},
+        {id = "s2", kind = "semantic_line", value = "second step", role = "alternative", truth_status = "semantic_proposal"},
+    },
+}
+
+local sequence_choice = collapse({
+    field = sequence_field,
+    limits = {max_selected = 1, max_killed_sample = 8},
+})
+
+assert_eq(sequence_choice.loss.collapse_level, "step", "sequence collapses by step")
+assert_eq(sequence_choice.collapse_type, "next_step", "sequence collapse type")
+assert_eq(sequence_choice.chosen.id, "s1", "sequence chooses first step")
+assert_eq(sequence_choice.killed_alternatives[1].id, "s2", "sequence kills later step")
+
+local single_choice = collapse({
+    field = {
+        truth_status = "runtime_confirmed",
+        structure = {kind = "language"},
+        items = {
+            {id = "only", kind = "semantic_line", value = "only option", truth_status = "runtime_confirmed"},
+        },
+    },
+    limits = {max_selected = 1, max_killed_sample = 8},
+})
+
+assert_eq(single_choice.collapse_type, "confirmation", "single item is confirmation")
+assert_eq(single_choice.not_chosen_count, 0, "confirmation kills nothing")
+assert_eq(#single_choice.killed_alternatives, 0, "confirmation killed empty")
 
 local missing, missing_err = choose.choose({})
 assert_true(not missing, "missing field should fail")

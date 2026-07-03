@@ -76,8 +76,12 @@ local function normalize_items(field)
             id = item_id(item, index),
             kind = item.kind,
             value = item.value,
+            label = item.label,
+            content = item.content,
             role = item.role,
             parent_id = item.parent_id,
+            potential = item.potential,
+            source_refs = copy_array(item.source_refs),
             truth_status = item.truth_status or field.truth_status or "unknown",
             original_index = index,
         }
@@ -140,8 +144,12 @@ local function selected_item(item, reason)
         id = item.id,
         kind = item.kind,
         value = item.value,
+        label = item.label,
+        content = item.content,
         role = item.role,
         parent_id = item.parent_id,
+        potential = item.potential,
+        source_refs = copy_array(item.source_refs),
         source_truth_status = item.truth_status,
         selection_truth_status = "runtime_confirmed",
         reason = reason or {truth_status = "unknown"},
@@ -153,8 +161,11 @@ local function killed_item(item)
         id = item.id,
         kind = item.kind,
         value = item.value,
+        label = item.label,
+        content = item.content,
         role = item.role,
         parent_id = item.parent_id,
+        source_refs = copy_array(item.source_refs),
         source_truth_status = item.truth_status,
     }
 end
@@ -177,10 +188,41 @@ local function collapse_level(input)
     if field.shape == "residue_field" then
         return "residue"
     end
+    local structure = field.structure or {}
+    if structure.kind == "hierarchy" then
+        return "node"
+    end
+    if structure.kind == "sequence" then
+        return "step"
+    end
+    if structure.kind == "category" then
+        return "category_member"
+    end
+    if structure.kind == "teaching" then
+        return "teaching_unit"
+    end
+    if structure.kind == "language" then
+        return "language_unit"
+    end
     return "item"
 end
 
 local function eligible_for_level(item, level)
+    if level == "node" then
+        return item.role == nil or item.role == "alternative" or item.role == "container" or item.role == "evidence"
+    end
+    if level == "step" then
+        return item.role == nil or item.role == "alternative" or item.kind == "step" or item.kind == "semantic_line" or item.kind == "section_child"
+    end
+    if level == "category_member" then
+        return item.role == nil or item.role == "alternative" or item.role == "residue" or item.kind ~= nil
+    end
+    if level == "teaching_unit" then
+        return item.role == nil or item.role == "alternative" or item.role == "residue" or item.kind == "section_child" or item.kind == "semantic_line"
+    end
+    if level == "language_unit" then
+        return item.role == nil or item.role == "alternative" or item.role == "residue" or item.kind == "semantic_line"
+    end
     if level == "path" then
         return item.kind == "repo_path" or item.role == "alternative"
     end
@@ -241,23 +283,30 @@ function choose.choose(input)
 
     local killed_sample = copy_array(killed_full, limits.max_killed_sample)
     local not_chosen_count = #ordered - #selected
+    local collapse_type = #ordered <= #selected and "confirmation" or (level == "step" and "next_step" or level)
+    local choice_loss = {
+        kind = "attention_collapse",
+        collapse_level = level,
+        before_count = #ordered,
+        after_count = #selected,
+        not_chosen_count = not_chosen_count,
+        truncated = #killed_full > #killed_sample,
+    }
 
     return {
         kind = "choose_collapse_payload",
         selected = selected,
+        chosen = selected[1],
         killed_alternatives = killed_sample,
         not_chosen_count = not_chosen_count,
+        collapse_type = collapse_type,
+        choice_loss = choice_loss,
         choice_pressure = copy_map(input.pressure),
         choice_basis = {
             order = input.semantic_ranking and "semantic_ranking_then_field_order" or "field_order",
             semantic_ranking_truth_status = input.semantic_ranking and (input.semantic_ranking.truth_status or "semantic_proposal") or nil,
         },
-        loss = {
-            kind = "attention_collapse",
-            collapse_level = level,
-            not_chosen_count = not_chosen_count,
-            truncated = #killed_full > #killed_sample,
-        },
+        loss = choice_loss,
         limits = limits,
         truth_status = "runtime_confirmed",
     }

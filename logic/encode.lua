@@ -2,6 +2,14 @@ local encode = {}
 
 local DEFAULT_MAX_ITEMS = 128
 
+local LOSS_BY_ENCODING = {
+    hierarchy = 0.30,
+    sequence = 0.25,
+    category = 0.40,
+    teaching = 0.60,
+    language = 0.50,
+}
+
 local function trim(value)
     return tostring(value or ""):match("^%s*(.-)%s*$")
 end
@@ -76,6 +84,43 @@ end
 
 local function append_connection(state, record)
     state.connections[#state.connections + 1] = record
+end
+
+local function loss_level(loss)
+    if loss < 0.15 then
+        return "minimal"
+    end
+    if loss < 0.45 then
+        return "moderate"
+    end
+    if loss < 0.75 then
+        return "severe"
+    end
+    return "total"
+end
+
+local function item_content(item)
+    return item.content or item.value or item.label or item.id
+end
+
+local function item_refs(item)
+    if type(item.source_refs) == "table" then
+        return clone_array(item.source_refs)
+    end
+    if item.source_ref ~= nil then
+        return {item.source_ref}
+    end
+    return {}
+end
+
+local function enrich_items(items)
+    for index, item in ipairs(items) do
+        item.label = item.label or tostring(item.value or item.id or index)
+        item.content = item.content or item.value or item.label
+        item.source_refs = item_refs(item)
+        item.potential = item.potential or 1.0
+        item.status = item.status or "pending"
+    end
 end
 
 local function response_lines(text)
@@ -157,6 +202,7 @@ local function encode_substrate_result(state, response)
         return false
     end
 
+    state.raw_text = response.text
     local lines = response_lines(response.text)
     local has_sections = false
     for _, value in ipairs(lines) do
@@ -210,6 +256,178 @@ local function encode_substrate_result(state, response)
         state.detected_intent = "preserve_reflection"
     end
     return #lines > 0
+end
+
+local function raw_has_order(text)
+    text = tostring(text or "")
+    if text:match("\n%s*%d+[%.)]%s+") or text:match("^%s*%d+[%.)]%s+") then
+        return true
+    end
+    local lowered = text:lower()
+    return lowered:find("step", 1, true) ~= nil
+        or lowered:find("todo", 1, true) ~= nil
+        or lowered:find("phase", 1, true) ~= nil
+        or lowered:find("stage", 1, true) ~= nil
+        or lowered:find("next", 1, true) ~= nil
+        or lowered:find("before", 1, true) ~= nil
+        or lowered:find("after", 1, true) ~= nil
+        or lowered:find("then", 1, true) ~= nil
+end
+
+local function raw_has_categories(text)
+    local lowered = tostring(text or ""):lower()
+    return lowered:find("option", 1, true) ~= nil
+        or lowered:find("alternative", 1, true) ~= nil
+        or lowered:find("category", 1, true) ~= nil
+        or lowered:find("bucket", 1, true) ~= nil
+        or lowered:find("allowed", 1, true) ~= nil
+        or lowered:find("denied", 1, true) ~= nil
+        or lowered:find(" vs ", 1, true) ~= nil
+end
+
+local function raw_has_teaching(text)
+    local lowered = tostring(text or ""):lower()
+    return lowered:find("rule", 1, true) ~= nil
+        or lowered:find("warning", 1, true) ~= nil
+        or lowered:find("explain", 1, true) ~= nil
+        or lowered:find("because", 1, true) ~= nil
+        or lowered:find("why", 1, true) ~= nil
+        or lowered:find("must", 1, true) ~= nil
+end
+
+local function select_encoding_type(state, shape, used_repo_listing)
+    if used_repo_listing or shape == "repo_path_field" then
+        return "hierarchy"
+    end
+    if shape == "residue_field" then
+        return "category"
+    end
+    if raw_has_order(state.raw_text) then
+        return "sequence"
+    end
+    if raw_has_categories(state.raw_text) then
+        return "category"
+    end
+    if shape == "structured_reflection_field" or raw_has_teaching(state.raw_text) then
+        return "teaching"
+    end
+    return "language"
+end
+
+local function empty_structure(kind)
+    return {
+        kind = kind,
+        entry = nil,
+        root = nil,
+        exit = nil,
+        nodes = {},
+        edges = {},
+        levels = {},
+        steps = {},
+        categories = {},
+        unknowns = {},
+    }
+end
+
+local function build_hierarchy(items)
+    local structure = empty_structure("hierarchy")
+    structure.root = "field"
+    structure.nodes[#structure.nodes + 1] = {id = "field", kind = "root", label = "field"}
+    structure.levels[1] = {"field"}
+    structure.levels[2] = {}
+    for _, item in ipairs(items) do
+        structure.nodes[#structure.nodes + 1] = {id = item.id, kind = item.kind, label = item.label}
+        structure.levels[2][#structure.levels[2] + 1] = item.id
+        structure.edges[#structure.edges + 1] = {from = item.parent_id or "field", to = item.id, relation = "contains"}
+    end
+    return structure
+end
+
+local function build_sequence(items)
+    local structure = empty_structure("sequence")
+    structure.entry = items[1] and items[1].id or nil
+    structure.exit = items[#items] and items[#items].id or nil
+    for index, item in ipairs(items) do
+        structure.steps[#structure.steps + 1] = {id = item.id, order = index, label = item.label}
+        if index > 1 then
+            structure.edges[#structure.edges + 1] = {from = items[index - 1].id, to = item.id, relation = "next"}
+        end
+    end
+    return structure
+end
+
+local function build_category(items)
+    local structure = empty_structure("category")
+    local by_kind = {}
+    for _, item in ipairs(items) do
+        local category = item.kind or "unknown"
+        if not by_kind[category] then
+            by_kind[category] = {id = category, label = category, members = {}}
+            structure.categories[#structure.categories + 1] = by_kind[category]
+        end
+        by_kind[category].members[#by_kind[category].members + 1] = item.id
+    end
+    return structure
+end
+
+local function build_teaching(items)
+    local structure = empty_structure("teaching")
+    structure.claims = {}
+    structure.rules = {}
+    structure.examples = {}
+    structure.warnings = {}
+    structure.residue = {}
+    for _, item in ipairs(items) do
+        local target = structure.claims
+        local text = tostring(item_content(item)):lower()
+        if text:find("must", 1, true) or text:find("rule", 1, true) then
+            target = structure.rules
+        elseif text:find("warning", 1, true) or text:find("risk", 1, true) then
+            target = structure.warnings
+        elseif text:find("example", 1, true) then
+            target = structure.examples
+        elseif item.role == "residue" then
+            target = structure.residue
+        end
+        target[#target + 1] = item.id
+    end
+    return structure
+end
+
+local function build_language(items)
+    local structure = empty_structure("language")
+    structure.utterances = {}
+    structure.claims = {}
+    structure.possible_actions = {}
+    structure.residue = {}
+    for _, item in ipairs(items) do
+        structure.utterances[#structure.utterances + 1] = item.id
+        local text = tostring(item_content(item)):lower()
+        if text:find("do ", 1, true) or text:find("implement", 1, true) or text:find("create", 1, true) then
+            structure.possible_actions[#structure.possible_actions + 1] = item.id
+        elseif item.role == "residue" then
+            structure.residue[#structure.residue + 1] = item.id
+        else
+            structure.claims[#structure.claims + 1] = item.id
+        end
+    end
+    return structure
+end
+
+local function build_structure(kind, items)
+    if kind == "hierarchy" then
+        return build_hierarchy(items)
+    end
+    if kind == "sequence" then
+        return build_sequence(items)
+    end
+    if kind == "category" then
+        return build_category(items)
+    end
+    if kind == "teaching" then
+        return build_teaching(items)
+    end
+    return build_language(items)
 end
 
 local function encode_repo_context(state, payload)
@@ -378,6 +596,30 @@ function encode.encode(input)
             intent = "rank_candidates"
         end
     end
+    enrich_items(state.items)
+    local encoding_type = select_encoding_type(state, shape, used_repo_listing)
+    local encoding_loss = LOSS_BY_ENCODING[encoding_type] or LOSS_BY_ENCODING.language
+    local structure = build_structure(encoding_type, state.items)
+    local encoding_metadata = {
+        encoding_type = encoding_type,
+        loss_percentage = encoding_loss,
+        loss_level = loss_level(encoding_loss),
+        creates_hierarchy = encoding_type == "hierarchy" or encoding_type == "teaching",
+        creates_sequence = encoding_type == "sequence" or encoding_type == "teaching",
+        reversible = encoding_loss < 0.35,
+        hierarchy_lens_visible = encoding_type == "hierarchy",
+        source_refs = {},
+    }
+    local seen_refs = {}
+    for _, item in ipairs(state.items) do
+        for _, ref in ipairs(item.source_refs or {}) do
+            if not seen_refs[ref] then
+                seen_refs[ref] = true
+                encoding_metadata.source_refs[#encoding_metadata.source_refs + 1] = ref
+            end
+        end
+    end
+
     return {
         kind = "encoded_field_payload",
         field = {
@@ -385,6 +627,8 @@ function encode.encode(input)
             intent = intent,
             truth_status = truth,
             items = state.items,
+            structure = structure,
+            encoding = encoding_metadata,
         },
         connections = state.connections,
         source_mix = state.basis,
@@ -396,6 +640,7 @@ function encode.encode(input)
             root = "field",
             item_count = #state.items,
             connection_count = #state.connections,
+            structure_kind = structure.kind,
         },
         loss = {
             kind = used_repo_listing and "source_projection" or "field_compression",
@@ -403,8 +648,11 @@ function encode.encode(input)
             output_count = #state.items,
             omitted_count = state.omitted_count,
             source_detail_loss = state.omitted_count > 0,
-            hierarchy_loss = false,
+            hierarchy_loss = encoding_type == "hierarchy" and not encoding_metadata.hierarchy_lens_visible,
             truncated = state.truncated,
+            encoding_type = encoding_type,
+            loss_percentage = encoding_loss,
+            loss_level = encoding_metadata.loss_level,
         },
         limits = limits,
         truth_status = "runtime_confirmed",
