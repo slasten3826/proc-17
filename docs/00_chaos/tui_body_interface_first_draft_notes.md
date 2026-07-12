@@ -85,6 +85,74 @@ This is not a final layout.
 
 It is only a pressure sketch.
 
+## Concrete Sketch From User
+
+This later sketch is still not a contract, but it is closer to the desired
+shape:
+
+```text
+┌ proc-17 ─────────────────────────────────────────────────────────────────────────────┐
+│ packet-17   RUNNING   mode: build   layer: ⊞   memory: on   tick: 08/12              │
+├ TRACE ────────────────────────────────────────────────────────────────────────────────┤
+│ ▽ ─ ☴ ─ ☵ ─ ☴ ─ ☳ ─ ☴ ─ ☱ ─ ☲ ─ [☱]                                                │
+├──────────────────────────────────────────────────────────┬────────────────────────────┤
+│                                                          │                            │
+│                         CHAT                             │       CURRENT OPERATOR       │
+│                                                          │                            │
+│  USER                                                    │             ☱              │
+│  Посмотри репозиторий и подумай, как лучше                │          RUNTIME           │
+│  построить интерфейс.                                    │                            │
+│                                                          │  came from: ☲ CYCLE        │
+│  PROC-17                                                 │  reason: mandatory eye     │
+│  Сейчас в теле существует несколько независимых          │  next: ☶ LOGIC             │
+│  областей состояния. Их можно вывести в интерфейс        │  pressure: no evidence     │
+│  без обращения к substrate...                            │                            │
+│                                                          ├────────────────────────────┤
+│  PROC-17                                                 │ BODY                       │
+│  Сначала я проверю текущее состояние packet core...      │ chaos       3 fragments    │
+│                                                          │ calm        5 work units   │
+│                                                          │ choices     1              │
+│                                                          │ validations 0              │
+│                                                          │ cycles      1              │
+│                                                          │ residue     0              │
+│                                                          ├────────────────────────────┤
+│                                                          │ PRESSURE                   │
+│                                                          │ budget      56 / 64        │
+│                                                          │ loss        25% moderate   │
+│                                                          │ foundation  fluid          │
+│                                                          │ evidence    0              │
+│                                                          ├────────────────────────────┤
+│                                                          │                            │
+│                                                          │       FREE SLOT            │
+│                                                          │                            │
+│                                                          │   future organ / map /     │
+│                                                          │   memory / tools / files   │
+│                                                          │                            │
+├──────────────────────────────────────────────────────────┼────────────────────────────┤
+│ INPUT                                                    │ EVENTS                     │
+│ > Тут многострочный ввод.                                │ 06 ☵ encoded 5 units       │
+│   Можно видеть несколько строк перед отправкой.          │ 07 ☳ selected line:1       │
+│                                                          │ 08 ☱ requested evidence    │
+├──────────────────────────────────────────────────────────┴────────────────────────────┤
+│ Tab focus   PgUp/PgDn chat   Enter send   F1 body   F2 trace   F3 slot   Ctrl+C detach │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Useful pressure from the sketch:
+
+```text
+chat is large but not sovereign
+trace is always visible
+current operator is always visible
+body state is visible without asking substrate
+pressure is visible without asking substrate
+events are separated from chat
+input is multiline
+there is room for future organ/map/memory/tool panels
+```
+
+This is a cockpit, not a messenger.
+
 ## Possible Panels
 
 ```text
@@ -215,7 +283,33 @@ JSON bridge
 
 This may be acceptable if the boundary is clean.
 
-No decision yet.
+Python/Textual was considered, but rejected as first choice for now:
+
+```text
+too many dependencies
+rich/textual stack may become heavier than the body
+packaging pressure
+face becomes larger than body
+```
+
+Go is now the preferred TUI language:
+
+```text
+single compiled binary
+good terminal UI ecosystem
+simple enough for machines and humans
+no Python runtime/dependency pile
+safer and faster to build than C for terminal state
+less ceremony than Rust for first cockpit
+```
+
+The current leaning:
+
+```text
+Lua = body
+Lua CLI = machine interface
+Go TUI = human cockpit
+```
 
 ## Possible Architecture
 
@@ -263,6 +357,12 @@ JSON bridge becomes contract
 possible drift between face and body
 ```
 
+Status:
+
+```text
+rejected as first TUI direction
+```
+
 Option C:
 
 ```text
@@ -278,6 +378,83 @@ CLI gives mouth, not body visibility
 ```
 
 It may still be useful as a fallback or test runner.
+
+Option D:
+
+```text
+Lua body + Go TUI cockpit
+```
+
+Pros:
+
+```text
+single binary face
+good TUI libraries
+clean body/face split
+stable JSON/JSONL bridge
+human interface can be beautiful without bloating Lua body
+```
+
+Risks:
+
+```text
+second language
+bridge becomes real protocol
+TUI may drift if it starts interpreting instead of displaying
+```
+
+Rule:
+
+```text
+Go TUI must not route.
+Go TUI must not validate.
+Go TUI must not decide.
+Go TUI only displays body state and sends user input/commands.
+```
+
+## CLI vs TUI Boundary
+
+The interface split is now clearer:
+
+```text
+CLI = machine interface
+TUI = human cockpit
+```
+
+CLI should remain boring and stable:
+
+```text
+json/jsonl output
+exit codes
+trace validation commands
+packet/memory commands
+test/smoke commands
+no decorative rendering required
+```
+
+TUI should be informative and readable:
+
+```text
+body panels
+trace panel
+current operator panel
+pressure panel
+events panel
+chat/input panel
+future organ/map/tool slots
+```
+
+The machine should not parse the TUI.
+
+The human should not need to parse raw JSON.
+
+This preserves both surfaces:
+
+```text
+machines get contracts
+humans get visibility
+body remains sovereign
+```
 
 ## Snapshot Pressure
 
@@ -340,7 +517,12 @@ Can Lua handle this without too much UI tech debt?
 
 Do not code TUI yet.
 
-Do not choose language yet.
+Language direction is chosen enough for planning:
+
+```text
+Go for TUI
+Lua remains body and CLI
+```
 
 Do not design final layout yet.
 
@@ -348,4 +530,10 @@ This document only preserves the first pressure:
 
 ```text
 proc-17 needs a face that shows the body, not just a chat.
+```
+
+Next pressure:
+
+```text
+define the snapshot/event protocol before drawing the real Go cockpit
 ```
