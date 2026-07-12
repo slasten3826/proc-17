@@ -51,8 +51,23 @@ assert_eq(p.calm.current.source_refs[1], "chaos:fragment:1", "first source ref")
 assert_eq(#p.calm.work_units, 3, "chaos fragment lines become units without raw prompt")
 assert_eq(#p.boundary.crystallizations, 1, "crystallization stored")
 assert_eq(#p.boundary.loss_records, 1, "loss stored")
+assert_eq(#p.boundary.loss_records[1].loss.loss_log, 0, "non-truncated organ loss log empty")
 assert_eq(p.trace[#p.trace].type, "crystallization", "encode trace event")
 assert_true(not contains_secret(p.calm.current), "encode must not encode substrate secret")
+
+local limited = packet.new("limit encode", {
+    budget = {steps = 8, encode_items = 2},
+})
+packet.append_chaos(limited, {
+    operator = "☴",
+    text = "a\nb\nc",
+    truth_status = "semantic_proposal",
+})
+local limited_packet, limited_payload = encode_organ.run(limited)
+assert_true(limited_packet, "limited encode organ should return packet")
+assert_eq(#limited_payload.loss.loss_log, 1, "organ payload carries loss log")
+assert_eq(#limited.boundary.loss_records[1].loss.loss_log, 1, "packet boundary stores loss log")
+assert_eq(limited.calm.current.loss_log[1].content_preview, "c", "calm delta carries loss preview")
 
 local before_units = p.calm.work_units
 local chosen_packet, choice_payload = choose_organ.run(p, {

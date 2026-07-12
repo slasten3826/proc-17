@@ -90,6 +90,7 @@ function encode.run(instance, options)
         encoding_basis = encoded.encoding_basis,
         structure = encoded.field.structure,
         encoding = encoded.field.encoding,
+        loss_log = encoded.loss.loss_log or encoded.field.loss_log or {},
     }
 
     local loss = {
@@ -104,6 +105,7 @@ function encode.run(instance, options)
         encoding_type = encoded.loss.encoding_type,
         loss_percentage = encoded.loss.loss_percentage,
         loss_level = encoded.loss.loss_level,
+        loss_log = encoded.loss.loss_log or {},
     }
 
     local ok, event_or_err = packet_core.crystallize(instance, {

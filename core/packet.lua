@@ -116,6 +116,11 @@ end
 
 local function init_areas(prompt, options)
     local budget = shallow_copy(options.budget or default_budget())
+    local memory_options = options.memory or {}
+    local memory_enabled = options.memory_enabled
+    if memory_enabled == nil then
+        memory_enabled = memory_options.enabled == true
+    end
     return {
         substrate = {
             budget = budget,
@@ -162,6 +167,10 @@ local function init_areas(prompt, options)
                 reinforcements = 0,
             },
             evidence = {},
+            memory = {
+                enabled = memory_enabled == true,
+                inherited_residue = memory_enabled == true and (options.inherited_residue or {}) or {},
+            },
         },
         manifest = nil,
     }
@@ -202,6 +211,7 @@ function packet.new(prompt, options)
             raw_prompt = prompt,
             packet_id = instance.id,
             parent_id = instance.parent_id,
+            inherited_residue_count = #(instance.runtime.memory.inherited_residue or {}),
         },
         cost = {},
     })

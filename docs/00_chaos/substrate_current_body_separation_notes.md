@@ -116,3 +116,25 @@ Packet carries pressure.
 Router chooses the next operator from packet pressure.
 
 No substrate response is truth until the body makes it runtime-confirmed.
+
+## Channel Boundary
+
+Some substrate responses may contain structured candidates such as traces.
+
+That does not give the substrate validation authority.
+
+For trace work:
+
+```text
+substrate may fill trace_channel with candidates
+substrate may fill semantic_channel with purpose
+body fills runtime_channel with validation
+```
+
+The substrate should not be asked:
+
+```text
+is this trace valid?
+```
+
+The body should answer that locally.

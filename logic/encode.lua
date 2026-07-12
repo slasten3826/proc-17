@@ -77,6 +77,15 @@ local function append_item(state, item)
     if #state.items >= state.limits.max_items then
         state.omitted_count = state.omitted_count + 1
         state.truncated = true
+        state.loss_log[#state.loss_log + 1] = {
+            kind = "omitted_item",
+            source_kind = item.source_kind or "unknown",
+            source_ref = item.source_ref or item.id or "unknown",
+            item_id = item.id or ("omitted:" .. tostring(state.omitted_count)),
+            reason = "max_items",
+            content_preview = tostring(item.content or item.value or item.label or ""):sub(1, 160),
+            truth_status = item.content_truth_status or item.truth_status or "unknown",
+        }
         return
     end
     state.items[#state.items + 1] = item
@@ -553,6 +562,7 @@ function encode.encode(input)
         basis = {},
         detected_shape = nil,
         detected_intent = nil,
+        loss_log = {},
     }
 
     local used_repo_listing = encode_repo_listing(state, input.repo_listing)
@@ -609,6 +619,7 @@ function encode.encode(input)
         reversible = encoding_loss < 0.35,
         hierarchy_lens_visible = encoding_type == "hierarchy",
         source_refs = {},
+        loss_log = clone_array(state.loss_log),
     }
     local seen_refs = {}
     for _, item in ipairs(state.items) do
@@ -629,6 +640,7 @@ function encode.encode(input)
             items = state.items,
             structure = structure,
             encoding = encoding_metadata,
+            loss_log = clone_array(state.loss_log),
         },
         connections = state.connections,
         source_mix = state.basis,
@@ -653,6 +665,7 @@ function encode.encode(input)
             encoding_type = encoding_type,
             loss_percentage = encoding_loss,
             loss_level = encoding_metadata.loss_level,
+            loss_log = clone_array(state.loss_log),
         },
         limits = limits,
         truth_status = "runtime_confirmed",

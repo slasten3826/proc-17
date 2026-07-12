@@ -149,11 +149,80 @@ local function check_command_exit_code(input)
     })
 end
 
+local function loss_threshold(input)
+    local loss = input.loss
+    if type(loss) ~= "table" then
+        return result(input, {
+            command_or_code = "loss_threshold",
+            executed = true,
+            success = false,
+            reality_changed = false,
+            stdout = "",
+            stderr = "loss table required",
+            exit_code = 1,
+        })
+    end
+
+    local threshold = input.threshold
+    if threshold == nil then
+        threshold = 0.50
+    end
+    if type(threshold) ~= "number" then
+        return result(input, {
+            command_or_code = "loss_threshold",
+            executed = true,
+            success = false,
+            reality_changed = false,
+            stdout = "",
+            stderr = "numeric threshold required",
+            exit_code = 1,
+        })
+    end
+
+    local percentage = loss.loss_percentage
+    if type(percentage) ~= "number" then
+        return result(input, {
+            command_or_code = "loss_threshold",
+            executed = true,
+            success = false,
+            reality_changed = false,
+            stdout = "",
+            stderr = "loss.loss_percentage required",
+            exit_code = 1,
+        })
+    end
+
+    local acceptable = percentage <= threshold
+    local omitted = loss.omitted_count or 0
+    local loss_log_count = #(loss.loss_log or {})
+    return result(input, {
+        command_or_code = {
+            "loss_threshold",
+            "loss_percentage=" .. tostring(percentage),
+            "threshold=" .. tostring(threshold),
+        },
+        executed = true,
+        success = acceptable,
+        reality_changed = false,
+        stdout = string.format(
+            "loss_percentage=%.2f threshold=%.2f omitted_count=%s loss_log_count=%s verdict=%s",
+            percentage,
+            threshold,
+            tostring(omitted),
+            tostring(loss_log_count),
+            acceptable and "acceptable" or "unacceptable"
+        ),
+        stderr = acceptable and "" or "loss threshold exceeded",
+        exit_code = acceptable and 0 or 1,
+    })
+end
+
 local runners = {
     py_compile_python_file = py_compile,
     check_file_exists = check_file_exists,
     validate_json_file = validate_json_file,
     check_command_exit_code = check_command_exit_code,
+    loss_threshold = loss_threshold,
 }
 
 function spells.run(input)

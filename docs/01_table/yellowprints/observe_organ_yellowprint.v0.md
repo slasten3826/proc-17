@@ -58,6 +58,10 @@ The substrate response remains:
 truth_status = semantic_proposal
 ```
 
+If the response contains trace candidates, `☴` still does not validate them.
+
+Trace candidates remain proposals until a body validator writes runtime truth.
+
 ## Must Not
 
 ```text
@@ -69,3 +73,9 @@ decide continuation
 manifest output
 ```
 
+It also must not:
+
+```text
+accept substrate trace validity claims
+turn trace candidates into validated traces
+```

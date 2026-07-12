@@ -121,6 +121,14 @@ assert_eq(#limited_payload.field.items, 2, "limited output count")
 assert_eq(limited_payload.loss.omitted_count, 1, "limited omitted count")
 assert_eq(limited_payload.loss.truncated, true, "limited truncated")
 assert_eq(limited_payload.field.shape, "semantic_line_field", "limited field shape")
+assert_eq(#limited_payload.loss.loss_log, 1, "limited loss log count")
+assert_eq(limited_payload.loss.loss_log[1].kind, "omitted_item", "limited loss log kind")
+assert_eq(limited_payload.loss.loss_log[1].reason, "max_items", "limited loss reason")
+assert_eq(limited_payload.loss.loss_log[1].content_preview, "c", "limited loss preview")
+assert_eq(#limited_payload.field.loss_log, 1, "field carries loss log")
+assert_eq(#limited_payload.field.encoding.loss_log, 1, "encoding carries loss log")
+
+assert_eq(#semantic_payload.loss.loss_log, 0, "non-truncated semantic loss log empty")
 
 local dissolved_payload = encode_ok({
     dissolved_records = {
