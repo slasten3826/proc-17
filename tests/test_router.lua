@@ -170,7 +170,7 @@ local attached = assert(grave.attach(karma_packet, {
     death = {cause = "budget_exhausted"},
     residue = {
         do_not_repeat = "loop consumed budget without progress",
-        last_operator = "☲",
+        last_operator = "☱",
     },
 }))
 assert_eq(attached.warning_count, 1, "karma warning attached")

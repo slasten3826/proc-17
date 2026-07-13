@@ -1,6 +1,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local tension_runner = require("runtime.tension_runner")
+local grave = require("runtime.grave")
 local fake = require("substrates.fake")
 
 local function assert_true(value, message)
@@ -89,23 +90,30 @@ assert_eq(default_death_result.stop_reason, "budget_exhausted", "default max_tic
 assert_eq(default_death.death.cause, "budget_exhausted", "default run budget death")
 assert_eq(default_death.runtime.budget.spent.steps, 16, "default run spends configured steps")
 
+local ancestor, ancestor_result = tension_runner.run("build notes app", fake, {
+    work_mode = "plan",
+    max_ticks = 20,
+    packet_options = {
+        budget = {steps = 8, substrate_calls = 8, encode_items = 8, loss = 10},
+    },
+    choose = {
+        limits = {max_selected = 1, max_killed_sample = 8},
+    },
+})
+
+assert_true(ancestor, ancestor_result)
+assert_eq(ancestor_result.stop_reason, "budget_exhausted", "ancestor dies by real budget exhaustion")
+assert_eq(ancestor.residue.last_operator, "☱", "real loop death lands on runtime eye")
+local ancestor_grave = assert(grave.classify(ancestor))
+assert_eq(ancestor_grave.grave_kind, "warning", "real ancestor death becomes warning grave")
+
 local inherited, inherited_result = tension_runner.run("build notes app", fake, {
     work_mode = "plan",
     max_ticks = 9,
     packet_options = {
         budget = {steps = 32, substrate_calls = 8, encode_items = 8, loss = 10},
     },
-    inherited_graves = {
-        {
-            packet_id = "ancestor-loop",
-            status = "dead",
-            death = {cause = "budget_exhausted"},
-            residue = {
-                do_not_repeat = "loop consumed budget without progress",
-                last_operator = "☲",
-            },
-        },
-    },
+    inherited_graves = {ancestor_grave},
     choose = {
         limits = {max_selected = 1, max_killed_sample = 8},
     },

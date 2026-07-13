@@ -57,6 +57,7 @@ Return warning when:
 last_cycle exists
 last_cycle.decision == "again" or last_cycle.reason == "remaining_work"
 warning.warning.pattern.last_operator == "☲"
+or warning.warning.pattern.last_operator == "☱"
 warning.warning.do_not_repeat != nil
 ```
 
@@ -84,6 +85,7 @@ Add router unit tests:
 first ☱ with inherited warning still routes to ☲
 after one cycle says again, ☱ routes to △
 pressure exposes karma warning count
+real ancestor budget death produces a grave that changes descendant route
 ```
 
 Update tension runner inherited warning test:

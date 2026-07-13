@@ -61,7 +61,7 @@ A warning matches repeated cycle when:
 
 ```text
 warning.grave_kind == "warning"
-warning.warning.pattern.last_operator == "☲"
+warning.warning.pattern.last_operator == "☲" or "☱"
 warning.warning.do_not_repeat exists
 current router source == "☱"
 normal route would be "☲"
@@ -95,4 +95,17 @@ bequest routing
 grave semantic similarity
 cemetery persistence
 compost
+```
+
+## Integration Lesson
+
+Do not rely only on hand-written warning fixtures.
+
+At least one test must grow the warning from a real budget death:
+
+```text
+ancestor dies
+grave.classify(ancestor)
+descendant inherits grave
+descendant avoids repeated ☱☲ loop
 ```

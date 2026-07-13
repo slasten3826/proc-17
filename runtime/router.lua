@@ -145,7 +145,9 @@ local function repeated_cycle_warning(pressure)
     for _, warning in ipairs(warnings) do
         local warning_body = warning.warning or {}
         local pattern = warning_body.pattern or {}
-        if pattern.last_operator == "☲" and warning_body.do_not_repeat ~= nil then
+        if (pattern.last_operator == "☲" or pattern.last_operator == "☱")
+            and warning_body.do_not_repeat ~= nil
+        then
             return warning
         end
     end
