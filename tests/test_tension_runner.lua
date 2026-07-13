@@ -74,6 +74,21 @@ assert_true(#dying.residue.exhausted_keys > 0, "death residue exposes exhausted 
 assert_eq(dying.runtime.budget.exhausted, true, "runtime budget exhausted")
 assert_eq(dying.runtime.budget.spent.steps, 8, "small budget spent all steps")
 
+local default_death, default_death_result = tension_runner.run("build notes app", fake, {
+    work_mode = "plan",
+    packet_options = {
+        budget = {steps = 16, substrate_calls = 32, encode_items = 8, loss = 10},
+    },
+    choose = {
+        limits = {max_selected = 1, max_killed_sample = 8},
+    },
+})
+
+assert_true(default_death, default_death_result)
+assert_eq(default_death_result.stop_reason, "budget_exhausted", "default max_ticks should allow internal death")
+assert_eq(default_death.death.cause, "budget_exhausted", "default run budget death")
+assert_eq(default_death.runtime.budget.spent.steps, 16, "default run spends configured steps")
+
 local missing, err = tension_runner.run("build notes app", nil, {
     max_ticks = 2,
 })

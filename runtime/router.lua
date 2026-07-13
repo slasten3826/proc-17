@@ -29,7 +29,8 @@ local function budget_pressure(instance)
         }
     end
 
-    local budget = instance and instance.substrate and instance.substrate.budget or {}
+    local physis = instance and (instance.physis or instance.substrate) or {}
+    local budget = physis.budget or {}
     local exhausted = false
     for _, key in ipairs({"steps", "substrate_calls", "tool_calls", "file_writes", "test_runs"}) do
         if type(budget[key]) == "number" and budget[key] <= 0 then

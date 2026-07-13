@@ -122,7 +122,7 @@ local function init_areas(prompt, options)
         memory_enabled = memory_options.enabled == true
     end
     return {
-        substrate = {
+        physis = {
             budget = budget,
             clock = {ticks = 0},
             sandbox = options.sandbox or {},
@@ -190,7 +190,8 @@ function packet.new(prompt, options)
         status = "born",
         operator = "▽",
         topology = topology.version,
-        substrate = areas.substrate,
+        physis = areas.physis,
+        substrate = areas.physis,
         chaos = areas.chaos,
         boundary = areas.boundary,
         calm = areas.calm,

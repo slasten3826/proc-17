@@ -69,7 +69,8 @@ end
 
 function budget.init(instance)
     local runtime_budget = ensure(instance)
-    local limits = copy_numeric_axes(instance.substrate and instance.substrate.budget or {})
+    local physis = instance.physis or instance.substrate or {}
+    local limits = copy_numeric_axes(physis.budget or {})
     for axis, limit in pairs(limits) do
         if runtime_budget.spent[axis] == nil then
             runtime_budget.spent[axis] = 0

@@ -278,6 +278,16 @@ local function die_from_mortality(instance, result, current)
     return false
 end
 
+local function default_max_ticks(instance)
+    local physis = instance and (instance.physis or instance.substrate) or {}
+    local configured_budget = physis.budget or {}
+    local steps = configured_budget.steps
+    if type(steps) == "number" and steps > 0 then
+        return steps * 4
+    end
+    return 256
+end
+
 local function run_operator(instance, substrate, operator, options, result)
     if operator == "☴" then
         local ok, payload_or_err = observe.run(instance, substrate, {
@@ -353,7 +363,7 @@ function tension_runner.run(prompt, substrate, options)
     }
 
     local current = options.start_operator or "☴"
-    local max_ticks = options.max_ticks or 12
+    local max_ticks = options.max_ticks or default_max_ticks(instance)
 
     while #result.ticks < max_ticks do
         local payload, err = run_operator(instance, substrate, current, options, result)

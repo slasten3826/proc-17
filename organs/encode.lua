@@ -35,7 +35,8 @@ local function substrate_limits(instance, options)
     if options.limits then
         return options.limits
     end
-    local budget = instance.substrate and instance.substrate.budget or {}
+    local physis = instance.physis or instance.substrate or {}
+    local budget = physis.budget or {}
     local max_items = budget.encode_items or budget.work_units or 128
     return {max_items = max_items}
 end

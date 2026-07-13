@@ -44,10 +44,11 @@ local function work_units(instance)
 end
 
 local function budget(instance)
-    if type(instance) ~= "table" or type(instance.substrate) ~= "table" then
+    if type(instance) ~= "table" then
         return {}
     end
-    return instance.substrate.budget or {}
+    local physis = instance.physis or instance.substrate or {}
+    return physis.budget or {}
 end
 
 function body.progress(instance, options)

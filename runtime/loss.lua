@@ -40,7 +40,8 @@ local function ensure(instance, options)
     options = options or {}
     instance.tension = instance.tension or {}
     local tension = instance.tension
-    local budget_loss = instance.substrate and instance.substrate.budget and instance.substrate.budget.loss
+    local physis = instance.physis or instance.substrate or {}
+    local budget_loss = physis.budget and physis.budget.loss
     tension.loss_max = tension.loss_max or options.max_loss or budget_loss or 1.0
     tension.loss_near_death_at = tension.loss_near_death_at or options.near_death_at or 0.2
     tension.loss = tension.loss or 0
