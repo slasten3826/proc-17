@@ -7,6 +7,8 @@ local router = require("runtime.router")
 local manifest = require("logic.manifest")
 local spells = require("logic.spells")
 local foundation = require("runtime.foundation")
+local budget = require("runtime.budget")
+local loss = require("runtime.loss")
 
 local tension_runner = {}
 
@@ -82,19 +84,15 @@ end
 local function runtime_eye(instance)
     local progress = body.progress(instance)
     local foundation_payload = foundation.snapshot(instance)
+    local budget_payload = budget.snapshot(instance)
+    local loss_payload = loss.snapshot(instance)
     local _, event = packet_core.measure_tension(instance, {
         operator = "☱",
         kind = "runtime_eye_payload",
         progress = progress,
         foundation = foundation_payload,
-        budget = instance.substrate and instance.substrate.budget or {},
-        loss = {
-            records_count = #(instance.boundary and instance.boundary.loss_records or {}),
-            current = instance.tension and instance.tension.loss or nil,
-            remaining = instance.tension and instance.tension.loss_remaining or nil,
-            near_death = instance.tension and instance.tension.loss_near_death == true,
-            exhausted = instance.tension and instance.tension.loss_exhausted == true,
-        },
+        budget_snapshot = budget_payload,
+        loss_snapshot = loss_payload,
         truth_status = "runtime_confirmed",
     })
     return {
@@ -187,6 +185,99 @@ local function manifest_packet(instance, options, result)
     return payload
 end
 
+local function charge_substrate_usage(instance, observe_payload)
+    observe_payload = observe_payload or {}
+    local response = observe_payload.response or {}
+    local call = observe_payload.call or {}
+
+    budget.charge(instance, {
+        operator = "☴",
+        event_id = observe_payload.trace_event_id,
+        cost = {substrate_calls = 1},
+        source = "substrate_call",
+        truth_status = "runtime_confirmed",
+    })
+
+    local usage_cost = budget.from_usage(response.usage or {})
+    if next(usage_cost) ~= nil then
+        budget.charge(instance, {
+            operator = "☴",
+            event_id = observe_payload.trace_event_id,
+            cost = usage_cost,
+            source = "substrate_usage",
+            truth_status = "runtime_confirmed",
+        })
+        return
+    end
+
+    local estimated = budget.estimate_tokens((call.prompt_payload or "") .. "\n" .. (response.text or ""))
+    if estimated > 0 then
+        budget.charge(instance, {
+            operator = "☴",
+            event_id = observe_payload.trace_event_id,
+            cost = {estimated_tokens = estimated},
+            source = "local_estimator",
+            truth_status = "estimated",
+        })
+    end
+end
+
+local function apply_operator_physics(instance, operator, payload)
+    if operator == "☴" then
+        charge_substrate_usage(instance, payload)
+        return
+    end
+
+    if operator == "☵" and type(payload.loss) == "table" then
+        loss.apply(instance, {
+            operator = "☵",
+            event_id = payload.trace_event_id,
+            amount = loss.from_encode_loss(payload.loss),
+            kind = payload.loss.kind,
+            source = "encode_loss",
+            detail = payload.loss,
+            truth_status = "runtime_confirmed",
+        })
+        return
+    end
+
+    if operator == "☳" and type(payload.loss) == "table" then
+        loss.apply(instance, {
+            operator = "☳",
+            event_id = payload.trace_event_id,
+            amount = loss.from_choose_loss(payload.loss),
+            kind = payload.loss.kind,
+            source = "choice_loss",
+            detail = payload.loss,
+            truth_status = "runtime_confirmed",
+        })
+    end
+end
+
+local function die_from_mortality(instance, result, current)
+    if loss.is_exhausted(instance) then
+        packet_core.die(instance, "identity_loss", loss.identity_residue(instance, {
+            last_operator = current,
+        }))
+        result.stop_reason = "identity_loss"
+        result.final_status = instance.status
+        return true
+    end
+
+    local exhausted = budget.is_exhausted(instance)
+    if exhausted then
+        packet_core.die(instance, "budget_exhausted", budget.exhaustion_residue(instance, {
+            last_operator = current,
+            progress = body.progress(instance),
+        }))
+        result.stop_reason = "budget_exhausted"
+        result.final_status = instance.status
+        return true
+    end
+
+    return false
+end
+
 local function run_operator(instance, substrate, operator, options, result)
     if operator == "☴" then
         local ok, payload_or_err = observe.run(instance, substrate, {
@@ -249,6 +340,8 @@ function tension_runner.run(prompt, substrate, options)
 
     local instance = packet_core.new(prompt, options.packet_options or {})
     instance.status = "running"
+    budget.init(instance)
+    loss.init(instance, options.loss or {})
 
     local result = {
         kind = "tension_runner_result",
@@ -269,10 +362,21 @@ function tension_runner.run(prompt, substrate, options)
         end
 
         append_tick(result, current, payload)
+        budget.charge(instance, {
+            operator = current,
+            cost = {steps = 1},
+            source = "body_tick",
+            truth_status = "runtime_confirmed",
+        })
+        apply_operator_physics(instance, current, payload)
 
         if current == "△" then
             result.stop_reason = "manifested"
             result.final_status = instance.status
+            return instance, result
+        end
+
+        if die_from_mortality(instance, result, current) then
             return instance, result
         end
 

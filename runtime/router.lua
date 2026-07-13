@@ -18,6 +18,17 @@ local function last(list)
 end
 
 local function budget_pressure(instance)
+    local runtime_budget = instance and instance.runtime and instance.runtime.budget
+    if type(runtime_budget) == "table" then
+        return {
+            kind = "runtime_budget",
+            exhausted = runtime_budget.exhausted == true,
+            exhausted_keys = runtime_budget.exhausted_keys or {},
+            values = runtime_budget.remaining or {},
+            spent = runtime_budget.spent or {},
+        }
+    end
+
     local budget = instance and instance.substrate and instance.substrate.budget or {}
     local exhausted = false
     for _, key in ipairs({"steps", "substrate_calls", "tool_calls", "file_writes", "test_runs"}) do
@@ -29,6 +40,7 @@ local function budget_pressure(instance)
     return {
         kind = "runtime_budget",
         exhausted = exhausted,
+        exhausted_keys = {},
         values = budget,
     }
 end
