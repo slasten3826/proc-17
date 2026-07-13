@@ -89,6 +89,37 @@ assert_eq(default_death_result.stop_reason, "budget_exhausted", "default max_tic
 assert_eq(default_death.death.cause, "budget_exhausted", "default run budget death")
 assert_eq(default_death.runtime.budget.spent.steps, 16, "default run spends configured steps")
 
+local inherited, inherited_result = tension_runner.run("build notes app", fake, {
+    work_mode = "plan",
+    max_ticks = 9,
+    packet_options = {
+        budget = {steps = 32, substrate_calls = 8, encode_items = 8, loss = 10},
+    },
+    inherited_graves = {
+        {
+            packet_id = "ancestor-loop",
+            status = "dead",
+            death = {cause = "budget_exhausted"},
+            residue = {
+                do_not_repeat = "loop consumed budget without progress",
+                last_operator = "☲",
+            },
+        },
+    },
+    choose = {
+        limits = {max_selected = 1, max_killed_sample = 8},
+    },
+})
+
+assert_true(inherited, inherited_result)
+assert_eq(inherited_result.grave.kind, "grave_attach_payload", "runner grave payload")
+assert_eq(inherited_result.grave.warning_count, 1, "runner warning attached")
+assert_eq(#inherited.runtime.karma.warnings, 1, "runner packet has warning grave")
+assert_eq(#inherited.chaos.unresolved_pressure, 0, "warning does not create chaos pressure")
+assert_true(operators(inherited_result):find("☴☵☴☳☴☱☲☱△", 1, true) == 1, "warning inheritance manifests on repeated cycle")
+assert_eq(inherited_result.routes[#inherited_result.routes].reason, "karma_warning_manifest_pressure", "runner karma warning route")
+assert_eq(inherited_result.stop_reason, "manifested", "runner manifests after inherited warning")
+
 local missing, err = tension_runner.run("build notes app", nil, {
     max_ticks = 2,
 })

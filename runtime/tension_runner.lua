@@ -9,6 +9,7 @@ local spells = require("logic.spells")
 local foundation = require("runtime.foundation")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
+local grave = require("runtime.grave")
 
 local tension_runner = {}
 
@@ -361,6 +362,14 @@ function tension_runner.run(prompt, substrate, options)
         stop_reason = nil,
         final_status = instance.status,
     }
+
+    if options.inherited_graves ~= nil then
+        local grave_payload, grave_err = grave.attach(instance, options.inherited_graves)
+        if not grave_payload then
+            return nil, stage_error("grave", grave_err)
+        end
+        result.grave = grave_payload
+    end
 
     local current = options.start_operator or "☴"
     local max_ticks = options.max_ticks or default_max_ticks(instance)

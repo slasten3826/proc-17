@@ -59,6 +59,18 @@ local function loss_pressure(instance)
     }
 end
 
+local function karma_pressure(instance)
+    local runtime = instance and instance.runtime or {}
+    local karma = runtime.karma or {}
+    return {
+        kind = "grave_karma",
+        warning_count = #(karma.warnings or {}),
+        bequest_count = #(karma.bequests or {}),
+        neutral_count = #(karma.neutral or {}),
+        warnings = karma.warnings or {},
+    }
+end
+
 local function pressure_snapshot(instance, tick)
     tick = tick or {}
     local payload_pressure = type(tick.payload) == "table" and tick.payload.pressure or nil
@@ -73,6 +85,7 @@ local function pressure_snapshot(instance, tick)
     return {
         loss = loss_pressure(instance),
         budget = budget_pressure(instance),
+        karma = karma_pressure(instance),
         progress = progress,
         payload = payload_pressure or {},
         work_mode = payload.work_mode or tick.work_mode or (instance and instance.metadata and instance.metadata.work_mode),
@@ -119,6 +132,26 @@ local function route_observe(pressure)
     return "☵", "missing_calm"
 end
 
+local function repeated_cycle_warning(pressure)
+    local last_cycle = pressure.last_cycle
+    if type(last_cycle) ~= "table" then
+        return nil
+    end
+    if last_cycle.decision ~= "again" and last_cycle.reason ~= "remaining_work" then
+        return nil
+    end
+
+    local warnings = pressure.karma and pressure.karma.warnings or {}
+    for _, warning in ipairs(warnings) do
+        local warning_body = warning.warning or {}
+        local pattern = warning_body.pattern or {}
+        if pattern.last_operator == "☲" and warning_body.do_not_repeat ~= nil then
+            return warning
+        end
+    end
+    return nil
+end
+
 local function route_runtime(pressure)
     local payload = pressure.payload or {}
     local build_mode = pressure.work_mode == "build"
@@ -148,6 +181,9 @@ local function route_runtime(pressure)
     end
     if payload.manifest_ready == true then
         return "△", "manifest_ready"
+    end
+    if pressure.progress.remaining_count > 0 and repeated_cycle_warning(pressure) ~= nil then
+        return "△", "karma_warning_manifest_pressure"
     end
     if build_mode and pressure.progress.remaining_count > 0 and pressure.evidence_count <= 0 then
         return "☶", "missing_build_evidence"

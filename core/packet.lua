@@ -171,6 +171,11 @@ local function init_areas(prompt, options)
                 enabled = memory_enabled == true,
                 inherited_residue = memory_enabled == true and (options.inherited_residue or {}) or {},
             },
+            karma = {
+                warnings = {},
+                bequests = {},
+                neutral = {},
+            },
         },
         manifest = nil,
     }

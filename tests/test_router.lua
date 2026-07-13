@@ -2,6 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local packet = require("core.packet")
 local body = require("runtime.body")
+local grave = require("runtime.grave")
 local router = require("runtime.router")
 
 local function assert_true(value, message)
@@ -155,6 +156,48 @@ d, err = router.after_tick(plan_packet, {
 assert_true(d, err)
 assert_eq(d.to, "☲", "plan mode does not require build evidence")
 assert_eq(d.reason, "remaining_work", "plan remains normal")
+
+local karma_packet = packet.new("karma route packet", {
+    metadata = {work_mode = "plan"},
+    budget = {steps = 8, substrate_calls = 1},
+})
+body.apply_crystallized_work(karma_packet, {
+    {id = "a", status = "pending"},
+})
+local attached = assert(grave.attach(karma_packet, {
+    packet_id = "ancestor-loop",
+    status = "dead",
+    death = {cause = "budget_exhausted"},
+    residue = {
+        do_not_repeat = "loop consumed budget without progress",
+        last_operator = "☲",
+    },
+}))
+assert_eq(attached.warning_count, 1, "karma warning attached")
+
+d, err = router.after_tick(karma_packet, {
+    operator = "☱",
+    work_mode = "plan",
+})
+assert_true(d, err)
+assert_eq(d.to, "☲", "karma warning allows first cycle")
+assert_eq(d.reason, "remaining_work", "first cycle still normal")
+assert_eq(d.pressure.karma.warning_count, 1, "karma pressure visible")
+
+body.record_cycle(karma_packet, {
+    kind = "cycle_decision_payload",
+    decision = "again",
+    reason = "remaining_work",
+    truth_status = "runtime_confirmed",
+})
+
+d, err = router.after_tick(karma_packet, {
+    operator = "☱",
+    work_mode = "plan",
+})
+assert_true(d, err)
+assert_eq(d.to, "△", "karma warning blocks repeated dead cycle")
+assert_eq(d.reason, "karma_warning_manifest_pressure", "karma warning reason")
 
 local rejected_packet = packet.new("build rejected route", {
     metadata = {work_mode = "build"},
