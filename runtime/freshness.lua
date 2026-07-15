@@ -14,6 +14,17 @@ local function verdict(zone, effective, reason, age)
     }
 end
 
+function freshness.evidence_fingerprint(instance)
+    local evidence = instance and instance.runtime
+        and instance.runtime.evidence or {}
+    local parts = {tostring(#evidence)}
+    for _, item in ipairs(evidence) do
+        parts[#parts + 1] = tostring(item.intention_hash) .. ":"
+            .. tostring(item.cast_tick) .. ":" .. tostring(item.success)
+    end
+    return spells.hash(table.concat(parts, "|"))
+end
+
 function freshness.read(record, opts)
     opts = opts or {}
     if type(record) ~= "table" then

@@ -1,5 +1,6 @@
 local topology = require("core.topology")
 local body = require("runtime.body")
+local freshness = require("runtime.freshness")
 
 local router = {}
 
@@ -96,6 +97,8 @@ local function pressure_snapshot(instance, tick)
         cycle_decision = last_cycle and last_cycle.decision,
         foundation_state = foundation.state,
         evidence_count = #evidence,
+        logic_stamp = runtime.logic_stamp,
+        evidence_fingerprint = freshness.evidence_fingerprint(instance),
         calm_status = calm.status,
         has_calm = calm.current ~= nil or progress.needed_count > 0,
     }
@@ -188,6 +191,10 @@ local function route_runtime(pressure)
         return "△", "karma_warning_manifest_pressure"
     end
     if build_mode and pressure.progress.remaining_count > 0 and pressure.evidence_count <= 0 then
+        local stamp = pressure.logic_stamp
+        if stamp and stamp.evidence_fingerprint == pressure.evidence_fingerprint then
+            return "△", "logic_stamp_no_new_evidence"
+        end
         return "☶", "missing_build_evidence"
     end
     if pressure.progress.remaining_count > 0 then

@@ -134,9 +134,15 @@ bequest reader           pressure seeded, nobody routes on it
 compost pattern reader   patterns written, nobody consumes them
 REVIEW_PROTOCOL.md       seven rules still live only in Entry 005
 PROC17_GOAL              still not a file in this repo
-real end-to-end task     the body has never closed a real task
-                         on a live substrate (физика ~70%, работник ~25%)
+hands                    the body cannot write its manifests to
+                         disk or mint spells from its own work
+                         (pipeline A, next big move)
 ```
+
+Closed 2026-07-15: first end-to-end delivery on a live substrate —
+coding battery 5/5 reality_confirmed through the manifest after
+the logic stamp collapsed the ☱☶ evidence loop
+(trace ☴☵☴☳☴☱☶☱△, 9 ticks, stop=manifested).
 
 ## One-Line Shape
 

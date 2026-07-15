@@ -224,4 +224,42 @@ local invalid, invalid_err = router.after_tick(p, {operator = "NOPE"})
 assert_true(not invalid, "invalid operator should fail")
 assert_eq(invalid_err, "invalid_operator", "invalid operator error")
 
+-- logic stamp: one court visit per evidence state
+local freshness = require("runtime.freshness")
+
+local stamp_packet = packet.new("logic stamp packet", {
+    metadata = {work_mode = "build"},
+    budget = {steps = 8, substrate_calls = 1},
+})
+body.apply_crystallized_work(stamp_packet, {
+    {id = "unit", status = "pending"},
+})
+
+d, err = router.after_tick(stamp_packet, {operator = "☱", work_mode = "build"})
+assert_true(d, err)
+assert_eq(d.to, "☶", "no stamp: court open")
+assert_eq(d.reason, "missing_build_evidence", "no stamp reason")
+
+stamp_packet.runtime.logic_stamp = {
+    kind = "logic_stamp",
+    verdict = "no_spell",
+    evidence_fingerprint = freshness.evidence_fingerprint(stamp_packet),
+    truth_status = "runtime_confirmed",
+}
+d, err = router.after_tick(stamp_packet, {operator = "☱", work_mode = "build"})
+assert_true(d, err)
+assert_eq(d.to, "△", "fresh stamp: court closed, manifest pressure")
+assert_eq(d.reason, "logic_stamp_no_new_evidence", "fresh stamp reason")
+
+stamp_packet.runtime.evidence[#stamp_packet.runtime.evidence + 1] = {
+    kind = "spell_result",
+    intention_hash = "newproof",
+    cast_tick = 5,
+    success = true,
+    truth_status = "runtime_confirmed",
+}
+d, err = router.after_tick(stamp_packet, {operator = "☱", work_mode = "build"})
+assert_true(d, err)
+assert_true(d.reason ~= "logic_stamp_no_new_evidence", "new evidence stales the stamp")
+
 print("test_router ok")

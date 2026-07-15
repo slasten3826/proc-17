@@ -81,4 +81,15 @@ assert_eq(unclocked.reason, "no_clock", "unclocked reason")
 
 os.remove(scratch)
 
+-- evidence fingerprint: deterministic, changes with evidence
+local instance = {runtime = {evidence = {}}}
+local empty_fp = freshness.evidence_fingerprint(instance)
+assert_true(empty_fp ~= nil, "empty evidence has a fingerprint")
+assert_eq(empty_fp, freshness.evidence_fingerprint(instance), "fingerprint deterministic")
+
+instance.runtime.evidence[1] = {intention_hash = "abc", cast_tick = 3, success = true}
+local one_fp = freshness.evidence_fingerprint(instance)
+assert_true(one_fp ~= empty_fp, "fingerprint changes when evidence appended")
+assert_eq(one_fp, freshness.evidence_fingerprint(instance), "fingerprint stable for same evidence")
+
 print("test_freshness ok")

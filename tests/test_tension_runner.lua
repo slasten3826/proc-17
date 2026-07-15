@@ -134,4 +134,24 @@ local missing, err = tension_runner.run("build notes app", nil, {
 assert_true(not missing, "missing substrate should fail")
 assert_eq(err, "☴:missing_substrate", "missing substrate error")
 
+-- logic stamp collapses the ☱☶ evidence loop into an honest manifest
+local stamped, stamped_result = tension_runner.run("build without evidence", fake, {
+    work_mode = "build",
+    max_ticks = 14,
+    packet_options = {
+        budget = {steps = 32, substrate_calls = 8, encode_items = 8, loss = 10},
+    },
+    choose = {
+        limits = {max_selected = 1, max_killed_sample = 8},
+    },
+})
+assert_true(stamped, stamped_result)
+assert_eq(stamped_result.stop_reason, "manifested", "stamped run manifests instead of looping")
+local stamped_trace = operators(stamped_result)
+local _, logic_visits = stamped_trace:gsub("☶", "")
+assert_eq(logic_visits, 1, "exactly one court visit per evidence state")
+assert_true(stamped.runtime.logic_stamp ~= nil, "logic stamp written")
+assert_eq(stamped.runtime.logic_stamp.verdict, "no_spell", "stamp carries verdict")
+assert_true(stamped.manifest ~= nil, "manifest payload exists")
+
 print("test_tension_runner ok")

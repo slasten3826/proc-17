@@ -7,6 +7,7 @@ local router = require("runtime.router")
 local manifest = require("logic.manifest")
 local spells = require("logic.spells")
 local foundation = require("runtime.foundation")
+local freshness = require("runtime.freshness")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
 local grave = require("runtime.grave")
@@ -105,6 +106,19 @@ local function runtime_eye(instance)
     }
 end
 
+local function stamp_logic_verdict(instance, verdict)
+    instance.runtime = instance.runtime or {}
+    instance.runtime.logic_stamp = {
+        kind = "logic_stamp",
+        verdict = verdict,
+        evidence_fingerprint = freshness.evidence_fingerprint(instance),
+        stamped_at_tick = instance.physis and instance.physis.clock
+            and instance.physis.clock.ticks or nil,
+        truth_status = "runtime_confirmed",
+    }
+    return instance.runtime.logic_stamp
+end
+
 local function logic_placeholder(instance, options)
     options = options or {}
     if options.work_mode == "build" then
@@ -119,6 +133,7 @@ local function logic_placeholder(instance, options)
                 evidence_count = 0,
                 truth_status = "runtime_confirmed",
             }
+            stamp_logic_verdict(instance, payload.status)
             body.record_validation(instance, payload)
             return payload
         end
@@ -161,6 +176,7 @@ local function logic_placeholder(instance, options)
             foundation = foundation.snapshot(instance),
             truth_status = "runtime_confirmed",
         }
+        stamp_logic_verdict(instance, payload.status)
         body.record_validation(instance, payload)
         return payload
     end
