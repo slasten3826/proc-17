@@ -9,6 +9,17 @@ for: codex + machinist (implementation owners)
 frame confirmed by machinist 2026-07-15
 context: docs/00_chaos/full_tree_rebuild_notes.md
          docs/00_chaos/full_project_audit_2026-07-15_notes.md
+
+PARTIALLY SUPERSEDED 2026-07-16 by
+  packet_lineage_reentry_architecture_notes.md:
+  - phase order replaced (field -> organs -> shadow router ->
+    promotion; no direct router v2 swap)
+  - eye-tick law reframed as temporary scaffolding with a defined
+    removal path (shadow evidence), consistent with «stays for now»
+  - Z-model insertion now goes through the task-shaped field
+    contract, not straight from PACKET_MODEL
+  keep this doc as audit inventory and archaeology; do not execute
+  phases 2-4 from here without the newer boundary model
 ```
 
 ## Mission
