@@ -125,6 +125,10 @@ local function logic_placeholder(instance, options)
 
         local status = "accepted"
         for _, spell_input in ipairs(spell_inputs) do
+            if spell_input.tick == nil then
+                spell_input.tick = instance.physis and instance.physis.clock
+                    and instance.physis.clock.ticks or nil
+            end
             local result, err = spells.run(spell_input)
             if not result then
                 result = {
@@ -381,6 +385,10 @@ function tension_runner.run(prompt, substrate, options)
         end
 
         append_tick(result, current, payload)
+        local clock = instance.physis and instance.physis.clock
+        if clock then
+            clock.ticks = (clock.ticks or 0) + 1
+        end
         budget.charge(instance, {
             operator = current,
             cost = {steps = 1},

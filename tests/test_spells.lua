@@ -112,4 +112,24 @@ local loss_missing = assert(spells.run({
 }))
 assert_eq(loss_missing.success, false, "missing loss fails")
 
+local clocked = assert(spells.run({
+    kind = "py_compile_python_file",
+    name = "clocked_probe",
+    path = "sandbox/proc17_spell_valid.py",
+    tick = 7,
+}))
+assert_eq(clocked.cast_tick, 7, "spell result carries cast tick")
+assert_eq(clocked.referent, "sandbox/proc17_spell_valid.py", "spell result carries referent")
+assert_true(clocked.referent_hash ~= nil, "file spell carries referent hash")
+assert_eq(clocked.referent_hash, spells.referent_hash("sandbox/proc17_spell_valid.py"), "reader hash matches cast hash")
+
+local command_clocked = assert(spells.run({
+    kind = "check_command_exit_code",
+    name = "clocked_command",
+    command = {"true"},
+    tick = 7,
+}))
+assert_eq(command_clocked.cast_tick, 7, "command result carries cast tick")
+assert_eq(command_clocked.referent_hash, nil, "command result has no referent hash")
+
 print("test_spells ok")

@@ -1,3 +1,5 @@
+local freshness = require("runtime.freshness")
+
 local foundation = {}
 
 local function ensure_runtime(instance)
@@ -80,11 +82,15 @@ function foundation.reinforce(instance, spell_result)
     return pattern
 end
 
-function foundation.snapshot(instance)
+function foundation.snapshot(instance, opts)
+    opts = opts or {}
     local store = ensure_runtime(instance)
+    local clock = instance.physis and instance.physis.clock
+    local current_tick = opts.tick or (clock and clock.ticks)
     local patterns = {}
+    local stale_count = 0
     for key, pattern in pairs(store.patterns) do
-        patterns[key] = {
+        local entry = {
             spell_hash = pattern.spell_hash,
             name = pattern.name,
             repetition_count = pattern.repetition_count,
@@ -93,7 +99,22 @@ function foundation.snapshot(instance)
             strength = pattern.strength,
             stability = pattern.stability,
         }
+        if pattern.last_result ~= nil then
+            local read = freshness.read(pattern.last_result, {
+                tick = current_tick,
+                warm_window = opts.warm_window,
+            })
+            entry.freshness = read.zone
+            entry.effective_truth_status = read.effective_truth_status
+            entry.freshness_reason = read.reason
+            if read.effective_truth_status ~= "runtime_confirmed" then
+                stale_count = stale_count + 1
+            end
+        end
+        patterns[key] = entry
     end
+    -- the aggregate stamp certifies the counters and the snapshot act;
+    -- each pattern carries its own effective status
     return {
         kind = "foundation_snapshot",
         state = store.state,
@@ -101,6 +122,8 @@ function foundation.snapshot(instance)
         reinforcements = store.reinforcements,
         evidence_count = #(instance.runtime and instance.runtime.evidence or {}),
         patterns = patterns,
+        stale_count = stale_count,
+        contains_stale = stale_count > 0,
         truth_status = "runtime_confirmed",
     }
 end

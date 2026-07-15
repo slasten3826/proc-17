@@ -61,8 +61,19 @@ local function result(input, fields)
         stdout = fields.stdout or "",
         stderr = fields.stderr or "",
         exit_code = fields.exit_code,
+        cast_tick = input.tick,
+        referent = fields.referent,
+        referent_hash = fields.referent_hash,
         truth_status = "runtime_confirmed",
     }
+end
+
+local function hash_file_content(path)
+    local content = read_all(path)
+    if content == nil then
+        return nil
+    end
+    return stable_hash(content)
 end
 
 local function checked_path(input)
@@ -89,6 +100,8 @@ local function py_compile(input)
         stdout = stdout,
         stderr = stderr,
         exit_code = exit_code,
+        referent = path,
+        referent_hash = hash_file_content(path),
     })
 end
 
@@ -106,6 +119,8 @@ local function check_file_exists(input)
         stdout = exists and "exists" or "",
         stderr = exists and "" or "missing",
         exit_code = exists and 0 or 1,
+        referent = path,
+        referent_hash = hash_file_content(path),
     })
 end
 
@@ -124,6 +139,8 @@ local function validate_json_file(input)
         stdout = stdout,
         stderr = stderr,
         exit_code = exit_code,
+        referent = path,
+        referent_hash = hash_file_content(path),
     })
 end
 
@@ -239,6 +256,17 @@ end
 
 function spells.hash(value)
     return stable_hash(value)
+end
+
+function spells.referent_hash(path)
+    if type(path) ~= "string" or path == "" then
+        return nil
+    end
+    local ok = sandbox.check_path(path)
+    if not ok then
+        return nil
+    end
+    return hash_file_content(path)
 end
 
 return spells

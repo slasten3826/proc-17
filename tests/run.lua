@@ -15,6 +15,7 @@ local tests = {
     "tests.test_tools",
     "tests.test_fs_tool",
     "tests.test_spells",
+    "tests.test_freshness",
     "tests.test_trace_validator",
     "tests.test_encode",
     "tests.test_choose",
