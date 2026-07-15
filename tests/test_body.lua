@@ -94,4 +94,34 @@ local invalid = body.decide_cycle(p, {
 
 assert_eq(invalid.decision, "stop_invalid", "cycle should stop invalid progress")
 
+local corpse = packet.new("corpse record test")
+packet.die(corpse, "identity_loss", {do_not_repeat = "original residue"})
+local choices_at_death = #corpse.boundary.choices
+local trace_at_death = #corpse.trace
+
+local dead_choice, dead_choice_err = body.record_choice(corpse, {
+    kind = "choice_payload",
+    selected = {"posthumous"},
+})
+assert_true(not dead_choice, "posthumous choice rejected")
+assert_eq(dead_choice_err, "dead packet cannot record choice", "posthumous choice error")
+assert_eq(#corpse.boundary.choices, choices_at_death, "no half-write to choices")
+
+local dead_validation, dead_validation_err = body.record_validation(corpse, {
+    kind = "validation_payload",
+    status = "accepted",
+})
+assert_true(not dead_validation, "posthumous validation rejected")
+assert_eq(dead_validation_err, "dead packet cannot record validation", "posthumous validation error")
+assert_eq(#corpse.boundary.validations, 0, "no half-write to validations")
+
+local dead_cycle, dead_cycle_err = body.record_cycle(corpse, {
+    kind = "cycle_payload",
+    decision = "again",
+})
+assert_true(not dead_cycle, "posthumous cycle rejected")
+assert_eq(dead_cycle_err, "dead packet cannot record cycle", "posthumous cycle error")
+assert_eq(#corpse.boundary.cycles, 0, "no half-write to cycles")
+assert_eq(#corpse.trace, trace_at_death, "ledger frozen through body channel")
+
 print("test_body ok")

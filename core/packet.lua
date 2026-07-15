@@ -78,6 +78,16 @@ local function normalize_cost(cost)
     }
 end
 
+local function dead_guard(instance, operation)
+    if type(instance) ~= "table" then
+        return nil, "packet instance required"
+    end
+    if instance.status == "dead" then
+        return nil, "dead packet cannot " .. operation
+    end
+    return true
+end
+
 local function validate_event(event)
     if type(event) ~= "table" then
         return false, "event must be table"
@@ -226,6 +236,10 @@ function packet.new(prompt, options)
 end
 
 function packet.append_chaos(instance, fragment)
+    local alive, alive_err = dead_guard(instance, "append chaos")
+    if not alive then
+        return nil, alive_err
+    end
     fragment = fragment or {}
     instance.chaos.fragments[#instance.chaos.fragments + 1] = fragment
     local event = append_trace(instance, {
@@ -239,6 +253,10 @@ function packet.append_chaos(instance, fragment)
 end
 
 function packet.crystallize(instance, record)
+    local alive, alive_err = dead_guard(instance, "crystallize")
+    if not alive then
+        return nil, alive_err
+    end
     record = record or {}
     if type(record.loss) ~= "table" then
         return nil, "crystallization requires loss table"
@@ -284,6 +302,10 @@ function packet.crystallize(instance, record)
 end
 
 function packet.measure_tension(instance, record)
+    local alive, alive_err = dead_guard(instance, "measure tension")
+    if not alive then
+        return nil, alive_err
+    end
     record = record or {}
     for key, value in pairs(record) do
         instance.tension[key] = value
@@ -299,6 +321,10 @@ function packet.measure_tension(instance, record)
 end
 
 function packet.manifest_packet(instance, payload)
+    local alive, alive_err = dead_guard(instance, "manifest")
+    if not alive then
+        return nil, alive_err
+    end
     payload = payload or {}
     instance.manifest = payload
     instance.status = "manifested"
@@ -313,6 +339,10 @@ function packet.manifest_packet(instance, payload)
 end
 
 function packet.die(instance, cause, residue)
+    local alive, alive_err = dead_guard(instance, "die")
+    if not alive then
+        return nil, alive_err
+    end
     if not packet.death_causes[cause] then
         return nil, "invalid death cause"
     end
@@ -336,6 +366,10 @@ function packet.die(instance, cause, residue)
 end
 
 function packet.append_trace(instance, event)
+    local alive, alive_err = dead_guard(instance, "append trace")
+    if not alive then
+        return nil, alive_err
+    end
     return append_trace(instance, event)
 end
 

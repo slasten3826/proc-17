@@ -83,6 +83,9 @@ function body.progress(instance, options)
 end
 
 function body.record_choice(instance, choice_payload)
+    if type(instance) == "table" and instance.status == "dead" then
+        return nil, "dead packet cannot record choice"
+    end
     choice_payload = choice_payload or {}
     local choices = ensure_list(instance.boundary, "choices")
     choices[#choices + 1] = choice_payload
@@ -97,6 +100,9 @@ function body.record_choice(instance, choice_payload)
 end
 
 function body.record_validation(instance, validation_payload)
+    if type(instance) == "table" and instance.status == "dead" then
+        return nil, "dead packet cannot record validation"
+    end
     validation_payload = validation_payload or {}
     local validations = ensure_list(instance.boundary, "validations")
     validations[#validations + 1] = validation_payload
@@ -111,6 +117,9 @@ function body.record_validation(instance, validation_payload)
 end
 
 function body.record_cycle(instance, cycle_payload)
+    if type(instance) == "table" and instance.status == "dead" then
+        return nil, "dead packet cannot record cycle"
+    end
     cycle_payload = cycle_payload or {}
     local cycles = ensure_list(instance.boundary, "cycles")
     cycles[#cycles + 1] = cycle_payload

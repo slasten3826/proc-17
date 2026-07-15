@@ -93,4 +93,51 @@ assert_eq(p.status, "dead", "dead status")
 assert_eq(p.death.cause, "identity_loss", "death cause")
 assert_eq(p.residue.do_not_repeat, "continue after semantic drift", "death residue")
 
+local second_death, second_death_err = packet.die(p, "budget_exhausted", {
+    cause = "budget_exhausted",
+    do_not_repeat = "overwrite first death",
+})
+assert_true(not second_death, "second death rejected")
+assert_eq(second_death_err, "dead packet cannot die", "second death error")
+assert_eq(p.death.cause, "identity_loss", "first death preserved")
+assert_eq(p.residue.do_not_repeat, "continue after semantic drift", "first residue preserved")
+
+local post_manifest, post_manifest_err = packet.manifest_packet(p, {
+    output = {type = "text", content = "corpse output"},
+})
+assert_true(not post_manifest, "posthumous manifest rejected")
+assert_eq(post_manifest_err, "dead packet cannot manifest", "posthumous manifest error")
+assert_eq(p.status, "dead", "corpse stays dead")
+
+local post_chaos, post_chaos_err = packet.append_chaos(p, {
+    operator = "☴",
+    kind = "posthumous",
+})
+assert_true(not post_chaos, "posthumous chaos rejected")
+assert_eq(post_chaos_err, "dead packet cannot append chaos", "posthumous chaos error")
+
+local post_crystal, post_crystal_err = packet.crystallize(p, {
+    calm_delta = {kind = "posthumous"},
+    loss = {kind = "posthumous", amount = 0.1},
+})
+assert_true(not post_crystal, "posthumous crystallization rejected")
+assert_eq(post_crystal_err, "dead packet cannot crystallize", "posthumous crystallization error")
+
+local post_tension, post_tension_err = packet.measure_tension(p, {
+    chaos_pressure = 99,
+})
+assert_true(not post_tension, "posthumous tension rejected")
+assert_eq(post_tension_err, "dead packet cannot measure tension", "posthumous tension error")
+
+local trace_length_at_death = #p.trace
+local post_trace, post_trace_err = packet.append_trace(p, {
+    type = "cycle",
+    operator = "☲",
+    truth_status = "semantic_proposal",
+    payload = {kind = "posthumous"},
+})
+assert_true(not post_trace, "posthumous trace rejected")
+assert_eq(post_trace_err, "dead packet cannot append trace", "posthumous trace error")
+assert_eq(#p.trace, trace_length_at_death, "ledger frozen after death")
+
 print("test_packet ok")
