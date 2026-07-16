@@ -19,13 +19,13 @@ local rail_definitions = {
         id = "rail.cycle_runtime",
         from = "☲",
         eye = "☱",
-        debt_kind = "lower_observation_debt",
+        debt_kind = "runtime_reconciliation_debt",
     },
     {
         id = "rail.logic_runtime",
         from = "☶",
         eye = "☱",
-        debt_kind = "lower_observation_debt",
+        debt_kind = "runtime_reconciliation_debt",
     },
 }
 

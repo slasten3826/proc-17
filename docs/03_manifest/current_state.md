@@ -145,8 +145,17 @@ old tension snapshot remains a compatibility projection.
 the current revision vector and returns `fresh`, `stale`, or `missing`. It does
 not mutate history. Potential, CALM, constraints, evidence, history, budget,
 and loss writers now advance their owned revision axes where those mutations
-already exist. Eye freshness is recorded and testable but remains shadow-only;
-the legacy router does not consume it yet.
+already exist. Upper-eye freshness remains shadow-only; the legacy router does
+not consume it yet.
+
+The lower routing interpretation now has an L1 shadow treatment. The runner
+captures one immutable `runtime_frame` after each completed tick's cost and
+loss physics without adding another tick or charge. `☱` reads significant
+pending frames, appends a `runtime_reconciliation`, and advances a monotonic
+watermark. Routine clock/budget telemetry remains visible but does not create
+`runtime_reconciliation_debt`; a CALM, choice, validation, cycle, active
+relation, evidence, history, momentum, or scalar consequence can. The sampled
+lower-eye policy remains available only as an explicit L0 diagnostic control.
 
 ### Epistemics
 
@@ -201,15 +210,19 @@ mutation loop.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    39 suites passed
+lua tests/run.lua                    41 suites passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
+lua tests/smoke_runtime_camera_treatment.lua passed
+lua tests/smoke_deepseek_tension_runner.lua passed through ☱ twice
 luac -p over all Lua sources         passed
 ```
 
-A local eight-tick fake-substrate ablation confirms that enabling shadow mode
-does not alter the live route, step/substrate budget, or identity loss. The
-control trace currently contains both agreements and divergences, so the shadow
-policy is not merely copying legacy decisions.
+A local L0/L1 fake-substrate treatment confirms that the continuous camera does
+not alter the live route, step/substrate budget, or identity loss. In both plan
+and build lives, sampled lower pressure produced six lower debts and five
+duplicate mismatches. L1 produced five bounded reconciliation debts and zero
+sampled lower debts or duplicate mismatches. The final one or two pending frames
+were routine telemetry with zero significant debt.
 
 The first merged plan/build edge corpus records:
 
@@ -220,9 +233,10 @@ The first merged plan/build edge corpus records:
 ```
 
 Upper eye debt was bypassed by the shadow prediction in every observed
-`☵ -> ☴` and `☳ -> ☴` rail case. Lower eye debt recreated both observed lower
-rails. All rail promotion states remain `insufficient_evidence`. The complete
-matrix is preserved in
+`☵ -> ☴` and `☳ -> ☴` rail case. Historical L0 lower debt selected both lower
+rails because ☱ was counted twice. L1 now grows one real reconciliation witness
+after ☲ and ☶, but tied binary pressure may select a different neighbor. All
+rail promotion states remain `insufficient_evidence`. The historical matrix is preserved in
 [`full_tree_edge_evidence.v0.md`](full_tree_edge_evidence.v0.md).
 
 The grave generation experiment has a control line:
@@ -249,9 +263,9 @@ the checks outside the body.
    weakening, dissolution, and residue are canonical and tested. ☰/☷ now have
    registry contracts, but the legacy router cannot select them and ☱ does not
    yet apply relation momentum.
-4. **Freshness does not yet govern live routing.** Both eyes now expose revision
-   freshness and the shadow router consumes it as named debt, while the legacy
-   router still counts raw records; stale inputs can influence its real route.
+4. **Camera pressure does not yet govern live routing.** Lower sampled freshness
+   has been replaced in L1 shadow by significant-frame reconciliation debt, but
+   binary ties are uncalibrated and the legacy router still owns movement.
 5. **The sandbox is not ready for hands.** Shell execution exists in spells,
    while the public sandbox command policy denies all commands. Filesystem path
    checks are lexical and need protection against symlink escape.
@@ -277,12 +291,13 @@ migration without switching the live router prematurely. The shared eye
 envelope, operator registry, and first shadow router are complete. The remaining
 sequence is:
 
-1. grow destination execution for shadow-selected E05, E12, and E15;
-2. grow the reverse E11 direction and dedicated E01/E02/E04 lives;
-3. promote field consumers only after old/new behavior comparisons are green;
-4. make evidence freshness affect live routing and validation;
-5. promote tree authority only through an explicit reviewed record;
-6. replace the shell-shaped sandbox boundary with explicit capabilities.
+1. derive a real independent CALM/runtime mismatch instead of freshness aliasing;
+2. make normal completion Packet-local and give △ Packet-owned material;
+3. connect ☷ readiness to the exact rigidity witness that selected it;
+4. grow paired lower-rail recall/bypass lives and the reverse E11 direction;
+5. promote field consumers only after old/new behavior comparisons are green;
+6. promote tree authority only through an explicit reviewed record;
+7. replace the shell-shaped sandbox boundary with explicit capabilities.
 
 Then close the first real work loop:
 

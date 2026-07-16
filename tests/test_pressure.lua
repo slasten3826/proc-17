@@ -56,6 +56,7 @@ local snapshot = assert(pressure.derive(p, {operator = "☴", work_mode = "plan"
 assert_eq(snapshot.kind, "edge_pressure_snapshot", "pressure snapshot kind")
 assert_eq(snapshot.derivation_version, "pressure.binary.v0", "pressure policy version")
 assert_eq(snapshot.calibration_status, "vibed_control", "binary control is not claimed measured")
+assert_eq(snapshot.runtime_policy, "camera_reconciliation", "camera policy is the default shadow treatment")
 assert_eq(snapshot.current_operator, "☴", "snapshot uses post-tick position")
 assert_eq(#p.trace, trace_before, "pressure derivation is pure before router records it")
 for key, value in pairs(revisions_before) do
@@ -71,9 +72,18 @@ local encoding = assert(find_kind(snapshot, "encoding_debt"), "encoding debt sho
 assert_eq(encoding.target_operator, "☵", "encoding debt targets ENCODE")
 assert_eq(encoding.source_truth_status, "runtime_confirmed", "derivation source status is explicit")
 
-local lower = assert(find_kind(snapshot, "lower_observation_debt"), "missing lower eye should be pressure")
-assert_eq(lower.target_operator, "☱", "lower debt targets RUNTIME")
-assert_eq(lower.freshness, "missing", "missing eye is distinguished from stale eye")
+assert_eq(find_kind(snapshot, "lower_observation_debt"), nil,
+    "missing sampled lower eye is not camera reconciliation pressure")
+assert_eq(find_kind(snapshot, "runtime_mismatch"), nil,
+    "runtime mismatch requires an independent comparator")
+
+local sampled = assert(pressure.derive(p, {operator = "☴", work_mode = "plan"}, {
+    options = {work_mode = "plan", pressure_policy = "sampled"},
+}))
+local lower = assert(find_kind(sampled, "lower_observation_debt"),
+    "sampled control preserves historical lower-eye pressure")
+assert_eq(lower.target_operator, "☱", "sampled lower debt targets RUNTIME")
+assert_eq(lower.freshness, "missing", "sampled control distinguishes missing sight")
 
 local seen = {}
 for _, value in ipairs(snapshot.contributions) do

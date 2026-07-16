@@ -3,24 +3,35 @@ local body = require("runtime.body")
 local budget = require("runtime.budget")
 local foundation = require("runtime.foundation")
 local loss = require("runtime.loss")
+local camera = require("runtime.camera")
+local reconciliation = require("runtime.reconciliation")
 
 local runtime_organ = {}
 
 function runtime_organ.readiness(instance)
-    local source_refs = {}
-    if instance and instance.calm and instance.calm.current ~= nil then
-        source_refs[#source_refs + 1] = "calm:current"
+    if type(instance) ~= "table" then
+        return {
+            operator = "☱",
+            ready = false,
+            reason = "runtime_view_empty",
+            source_refs = {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
     end
-    if instance and instance.runtime and #(instance.runtime.evidence or {}) > 0 then
-        source_refs[#source_refs + 1] = "runtime:evidence"
+    local inspection, inspection_err = reconciliation.inspect(instance)
+    if not inspection then
+        return nil, inspection_err
     end
-    source_refs[#source_refs + 1] = "physis:budget"
-    source_refs[#source_refs + 1] = "tension:loss"
     return {
         operator = "☱",
-        ready = type(instance) == "table",
-        reason = type(instance) == "table" and "ready" or "runtime_view_empty",
-        source_refs = source_refs,
+        ready = inspection.has_debt,
+        reason = inspection.has_debt and "runtime_reconciliation_debt"
+            or "nothing_to_reconcile",
+        source_refs = inspection.source_refs,
+        pending_frame_count = inspection.pending_frame_count,
+        significant_frame_count = inspection.significant_frame_count,
         required_capabilities = {},
         missing_capabilities = {},
         event_truth_status = "runtime_confirmed",
@@ -31,6 +42,20 @@ function runtime_organ.run(instance)
     local mutable, mutable_err = packet_core.assert_mutable(instance, "run runtime eye")
     if not mutable then
         return nil, mutable_err
+    end
+
+    local inspection, inspection_err = reconciliation.inspect(instance)
+    if not inspection then
+        return nil, inspection_err
+    end
+    local reconciliation_record, reconciliation_err = camera.reconcile(instance, {
+        through_seq = inspection.through_seq,
+        resolved_refs = inspection.resolved_refs,
+        unresolved_refs = inspection.unresolved_refs,
+        completion_state = inspection.completion_state,
+    })
+    if not reconciliation_record then
+        return nil, reconciliation_err
     end
 
     local progress = body.progress(instance)
@@ -49,20 +74,26 @@ function runtime_organ.run(instance)
         foundation = foundation_payload,
         budget_snapshot = budget_payload,
         loss_snapshot = loss_payload,
+        reconciliation = reconciliation_record,
         truth_status = "runtime_confirmed",
     })
     if not measured then
         return nil, tension_event
     end
 
+    local scope_refs = {}
+    for _, ref in ipairs(inspection.frame_refs or {}) do
+        scope_refs[#scope_refs + 1] = ref
+    end
+    if #scope_refs == 0 then
+        scope_refs[1] = "runtime:camera:head:" .. tostring(inspection.through_seq)
+    end
+    local source_refs = {tension_event.id}
+    if reconciliation_record.trace_event_id then
+        source_refs[#source_refs + 1] = reconciliation_record.trace_event_id
+    end
     local observation, observation_err = body.record_observation(instance, "lower", {
-        scope_refs = {
-            "calm:current",
-            "runtime:evidence",
-            "runtime:foundation",
-            "physis:budget",
-            "tension:loss",
-        },
+        scope_refs = scope_refs,
         read_revisions = read_revisions,
         payload = {
             kind = "runtime_eye_payload",
@@ -70,15 +101,18 @@ function runtime_organ.run(instance)
             foundation = foundation_payload,
             budget_snapshot = budget_payload,
             loss_snapshot = loss_payload,
+            reconciliation = reconciliation_record,
         },
         metrics = {
             needed_count = progress.needed_count,
             done_count = progress.done_count,
             remaining_count = progress.remaining_count,
             evidence_count = foundation_payload.evidence_count,
+            pending_frame_count = inspection.pending_frame_count,
+            significant_frame_count = inspection.significant_frame_count,
         },
-        source_refs = {tension_event.id},
-        sensor_output_refs = {tension_event.id},
+        source_refs = source_refs,
+        sensor_output_refs = source_refs,
         content_truth_status = "runtime_confirmed",
         fidelity = "body_snapshot",
     })
@@ -92,6 +126,8 @@ function runtime_organ.run(instance)
         foundation = foundation_payload,
         budget_snapshot = budget_payload,
         loss_snapshot = loss_payload,
+        reconciliation = reconciliation_record,
+        runtime_camera = assert(camera.reconciliation_state(instance)),
         trace_event_id = observation.trace_event_id,
         tension_trace_event_id = tension_event.id,
         observation_id = observation.id,

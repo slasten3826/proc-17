@@ -19,6 +19,7 @@ local packet, result = tension_runner.run(prompt, deepseek, {
             steps = 8,
             substrate_calls = 4,
             encode_items = 16,
+            loss = 10,
         },
     },
     substrate_options = {
@@ -54,4 +55,6 @@ print("chaos_fragments=" .. tostring(#packet.chaos.fragments))
 print("work_units=" .. tostring(#packet.calm.work_units))
 print("choices=" .. tostring(#packet.boundary.choices))
 print("cycles=" .. tostring(#packet.boundary.cycles))
+print("runtime_frames=" .. tostring(packet.runtime.camera.head_seq))
+print("reconciled_through=" .. tostring(packet.runtime.camera.reconciled_through))
 print("last_route=" .. tostring(result.routes[#result.routes] and result.routes[#result.routes].reason))

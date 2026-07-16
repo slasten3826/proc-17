@@ -4,6 +4,7 @@ local body = require("runtime.body")
 local freshness = require("runtime.freshness")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
+local reconciliation = require("runtime.reconciliation")
 
 local pressure = {
     derivation_version = "pressure.binary.v0",
@@ -21,7 +22,22 @@ local reader_order = {
     "upper_observation_debt",
     "encoding_debt",
     "choice_pressure",
+    "runtime_reconciliation_debt",
     "runtime_mismatch",
+    "validation_debt",
+    "continuation",
+    "manifest",
+    "karma_help",
+    "karma_resistance",
+}
+
+local sampled_reader_order = {
+    "relation_debt",
+    "rigidity",
+    "upper_observation_debt",
+    "encoding_debt",
+    "choice_pressure",
+    "sampled_runtime_mismatch",
     "lower_observation_debt",
     "validation_debt",
     "continuation",
@@ -326,7 +342,40 @@ readers.choice_pressure = function(instance, context)
     ))
 end
 
-readers.runtime_mismatch = function(instance, context)
+readers.runtime_reconciliation_debt = function(instance, context)
+    local state, state_err = reconciliation.inspect(instance)
+    if not state then
+        return nil, state_err
+    end
+    if not state.has_debt then
+        return {}
+    end
+    return one(contribution(
+        "runtime_reconciliation_debt",
+        instance,
+        context,
+        "☱",
+        "help",
+        "significant_runtime_frames_not_reconciled",
+        state.source_refs,
+        {
+            freshness = "unreconciled",
+            from_seq = state.from_seq,
+            through_seq = state.through_seq,
+            pending_frame_count = state.pending_frame_count,
+            significant_frame_count = state.significant_frame_count,
+            significant_frames = copy_array(state.significant_frames),
+        }
+    ))
+end
+
+readers.runtime_mismatch = function()
+    -- No independent CALM/runtime comparator exists in v0. A missing witness
+    -- must remain absent instead of aliasing lower-eye freshness.
+    return {}
+end
+
+readers.sampled_runtime_mismatch = function(instance, context)
     if not (instance.calm and instance.calm.current) then
         return {}
     end
@@ -508,9 +557,14 @@ function pressure.derive(instance, tick_result, options)
         return nil, "invalid current operator"
     end
 
+    local policy = context.options.pressure_policy or "camera_reconciliation"
+    if policy ~= "camera_reconciliation" and policy ~= "sampled" then
+        return nil, "invalid pressure policy"
+    end
+    local active_reader_order = policy == "sampled" and sampled_reader_order or reader_order
     local contributions = {}
     local seen = {}
-    for _, kind in ipairs(reader_order) do
+    for _, kind in ipairs(active_reader_order) do
         local values, err = pressure.read(kind, instance, context)
         if not values then
             return nil, err
@@ -533,6 +587,7 @@ function pressure.derive(instance, tick_result, options)
         current_operator = current,
         derivation_version = pressure.derivation_version,
         calibration_status = pressure.calibration_status,
+        runtime_policy = policy,
         source_revisions = copy_map(instance.revisions),
         contributions = contributions,
         event_truth_status = "runtime_confirmed",
@@ -540,5 +595,6 @@ function pressure.derive(instance, tick_result, options)
 end
 
 pressure.reader_order = copy_array(reader_order)
+pressure.sampled_reader_order = copy_array(sampled_reader_order)
 
 return pressure

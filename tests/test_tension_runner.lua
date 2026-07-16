@@ -3,6 +3,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local tension_runner = require("runtime.tension_runner")
 local grave = require("runtime.grave")
 local fake = require("substrates.fake")
+local reconciliation = require("runtime.reconciliation")
 
 local function assert_true(value, message)
     if not value then
@@ -70,6 +71,8 @@ assert_true(#result.routes >= 6, "runner should record routes")
 assert_eq(p.operator, result.routes[#result.routes].to, "live packet position follows committed route")
 assert_eq(trace_count(p, "route"), #result.routes + 1, "trace includes entry and every committed route")
 assert_eq(trace_count(p, "operator_tick"), #result.ticks, "every executed tick is body-traced")
+assert_eq(trace_count(p, "runtime_frame"), #result.ticks, "every completed tick receives one runtime frame")
+assert_eq(p.runtime.camera.head_seq, #result.ticks, "camera head follows completed body ticks")
 for _, tick in ipairs(result.ticks) do
     assert_eq(tick.registry, "operator-registry.v0", "every live organ is dispatched by the registry")
     assert_true(tick.readiness and tick.readiness.ready, "every live organ runs from a readiness witness")
@@ -93,6 +96,8 @@ assert_eq(#p.boundary.choices, 1, "choose recorded once before runtime")
 assert_true(#p.boundary.cycles >= 1, "cycle recorded")
 assert_eq(p.runtime.budget.spent.steps, #result.ticks, "runner charges one step per tick")
 assert_true(#p.runtime.budget.events >= #result.ticks, "budget events recorded")
+assert_eq(assert(reconciliation.inspect(p)).has_debt, false,
+    "final RUNTIME frame is telemetry and does not recreate reconciliation debt")
 
 local dying, death_result = tension_runner.run("build notes app", fake, {
     work_mode = "plan",

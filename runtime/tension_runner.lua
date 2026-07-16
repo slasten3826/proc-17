@@ -6,6 +6,8 @@ local edge_stats = require("runtime.edge_stats")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
 local grave = require("runtime.grave")
+local camera = require("runtime.camera")
+local freshness = require("runtime.freshness")
 
 local tension_runner = {}
 
@@ -148,6 +150,25 @@ local function default_max_ticks(instance)
     return 256
 end
 
+local function event_refs(instance, first_index)
+    local refs = {}
+    for index = first_index, #(instance.trace or {}) do
+        local event = instance.trace[index]
+        if event and event.id then
+            refs[#refs + 1] = event.id
+        end
+    end
+    return refs
+end
+
+local function ledger_refs(prefix, first_index, last_index)
+    local refs = {}
+    for index = first_index, last_index do
+        refs[#refs + 1] = prefix .. tostring(index)
+    end
+    return refs
+end
+
 function tension_runner.run(prompt, substrate, options)
     options = options or {}
 
@@ -220,6 +241,19 @@ function tension_runner.run(prompt, substrate, options)
     local pending_arrival = entry_decision
 
     while #result.ticks < max_ticks do
+        local revisions_before, revisions_err = camera.revision_snapshot(instance)
+        if not revisions_before then
+            return nil, stage_error("camera", revisions_err)
+        end
+        local budget_before = budget.snapshot(instance)
+        local loss_before = loss.snapshot(instance)
+        local progress_before = body.progress(instance)
+        local evidence_fingerprint_before = freshness.evidence_fingerprint(instance)
+        local trace_start = #instance.trace + 1
+        local budget_event_start = #(instance.runtime and instance.runtime.budget
+            and instance.runtime.budget.events or {}) + 1
+        local loss_event_start = #(instance.tension and instance.tension.loss_events or {}) + 1
+
         local tick_event, tick_err = packet_core.begin_tick(instance, current, {})
         if not tick_event then
             return nil, stage_error("tick", tick_err)
@@ -259,6 +293,34 @@ function tension_runner.run(prompt, substrate, options)
             truth_status = "runtime_confirmed",
         })
         apply_operator_physics(instance, current, payload)
+
+        local source_event_refs = event_refs(instance, trace_start)
+        local runtime_frame, frame_err = camera.capture(instance, {
+            operator = current,
+            revisions_before = revisions_before,
+            source_event_refs = source_event_refs,
+            effect_refs = source_event_refs,
+            budget_event_refs = ledger_refs(
+                "budget:event:",
+                budget_event_start,
+                #(instance.runtime and instance.runtime.budget
+                    and instance.runtime.budget.events or {})
+            ),
+            loss_event_refs = ledger_refs(
+                "loss:event:",
+                loss_event_start,
+                #(instance.tension and instance.tension.loss_events or {})
+            ),
+            budget_before = budget_before,
+            loss_before = loss_before,
+            progress_before = progress_before,
+            evidence_fingerprint_before = evidence_fingerprint_before,
+        })
+        if not runtime_frame then
+            return nil, stage_error("camera", frame_err)
+        end
+        result_tick.runtime_frame_ref = runtime_frame.trace_event_id
+        result_tick.runtime_frame_seq = runtime_frame.seq
 
         if current == "△" then
             local manifested, manifest_err = packet_core.manifest_packet(instance, payload, {

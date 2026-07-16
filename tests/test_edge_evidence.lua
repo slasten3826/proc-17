@@ -88,9 +88,9 @@ assert_true(corpus.rails["rail.encode_observe"].debt_bypass_proposals > 0,
     "current shadow attempts an unresolved upper-eye bypass after ENCODE")
 assert_true(corpus.rails["rail.choose_observe"].debt_bypass_proposals > 0,
     "current shadow attempts an unresolved upper-eye bypass after CHOOSE")
-assert_true(corpus.rails["rail.cycle_runtime"].required_eye_recall > 0,
-    "lower freshness recreates the CYCLE-RUNTIME eye rail")
-assert_true(corpus.rails["rail.logic_runtime"].required_eye_recall > 0,
-    "lower freshness recreates the LOGIC-RUNTIME eye rail")
+assert_true(corpus.rails["rail.cycle_runtime"].eye_debt_cases > 0,
+    "cycle consequence creates bounded runtime reconciliation debt")
+assert_true(corpus.rails["rail.logic_runtime"].eye_debt_cases > 0,
+    "logic consequence creates bounded runtime reconciliation debt")
 
 print("test_edge_evidence ok")

@@ -770,3 +770,213 @@ Packet operator and route trace cannot disagree
 death freezes every public mutation surface
 all existing tests and the new field/finality tests pass
 ```
+
+## Amendment A1: Runtime Camera Body Contract
+
+Status:
+
+```text
+CAMERA CONFIRMED IN SHADOW / TREATMENT PARTIALLY CONFIRMED
+source chaos: docs/00_chaos/runtime_camera_reconciliation_hypothesis_notes.md
+source table: docs/01_table/yellowprints/packet_body_physics_yellowprint.v0.md Amendment A1
+current lower observation implementation remains live
+this amendment grants no route authority
+initial treatment status was PENDING; outcome is appended below
+```
+
+### A1.1 Scope of supersession
+
+If confirmed, this amendment supersedes only these lower-routing assumptions:
+
+```text
+every lower body revision change requires a sampled ☱ refresh
+the sampled lower observation is the current runtime camera
+budget/loss freshness difference is sufficient generic ☱ pressure
+```
+
+It does not supersede:
+
+```text
+upper observation records
+strict historical freshness
+revision monotonicity
+☱ ownership of momentum
+trace/evidence truth rules
+```
+
+### A1.2 Candidate module boundary
+
+Treatment phase may add:
+
+```text
+runtime/camera.lua
+```
+
+Candidate API:
+
+```lua
+camera.capture(instance, input) -> frame | nil, err
+camera.latest(instance) -> frame | nil
+camera.pending(instance, opts) -> frame[] | nil, err
+camera.reconcile(instance, input) -> reconciliation | nil, err
+camera.reconciliation_state(instance) -> snapshot
+```
+
+The first diagnostic C0/A/B/AB experiment must not require this module.
+
+### A1.3 Candidate storage
+
+Preferred v0 storage reuses immutable trace as the authoritative event store:
+
+```lua
+instance.runtime.camera = {
+  protocol_version = "runtime.camera.v0-shadow",
+  head_seq = 0,
+  reconciled_through = 0,
+  latest_frame_id = nil,
+  latest_reconciliation_id = nil,
+}
+```
+
+Frames and reconciliations are immutable trace payload snapshots. The table
+above is an index/watermark only, not a second history.
+
+Candidate frame:
+
+```lua
+{
+  kind = "runtime_frame",
+  seq = integer,
+  tick = integer,
+  operator = glyph,
+  source_event_refs = {string},
+  revisions_before = {component = integer},
+  revisions_after = {component = integer},
+  changed_components = {
+    {
+      component = string,
+      before = integer,
+      after = integer,
+      cause = string,
+      source_event_refs = {string},
+    },
+  },
+  budget = table,
+  loss = table,
+  progress = table,
+  evidence_fingerprint = string,
+  effect_refs = {string},
+  event_truth_status = "runtime_confirmed",
+}
+```
+
+Candidate reconciliation:
+
+```lua
+{
+  kind = "runtime_reconciliation",
+  from_seq = integer,
+  through_seq = integer,
+  frame_refs = {string},
+  resolved_refs = {string},
+  unresolved_refs = {string},
+  momentum_updates = table,
+  foundation_updates = table,
+  completion_state = "incomplete" | "complete" | "usable_partial" | "blocked",
+  event_truth_status = "runtime_confirmed",
+}
+```
+
+### A1.4 Capture ordering
+
+Candidate integration point in `runtime/tension_runner.lua`:
+
+```text
+operator_registry.run
+arrival evidence
+clock advance
+budget charge
+operator loss/physics
+camera.capture                 new, no additional step
+mortality
+pressure/router
+```
+
+Capture receives bounded before/after revisions and exact event refs from the
+same tick. It cannot infer semantic meaning or mutate organ-owned regions.
+
+### A1.5 Mutation rights
+
+| Action | Allowed writer | Revision/effect |
+|---|---|---|
+| append runtime frame | body runner through camera API | append immutable trace; advance camera head only |
+| append reconciliation | ☱ through camera API | append immutable trace |
+| advance `reconciled_through` | successful ☱ reconciliation only | monotonic through consumed head |
+| update momentum/foundation | ☱ existing bounded APIs | existing owning revisions |
+| classify pressure | nobody in camera module | forbidden |
+| call substrate | nobody in camera module or ☱ | forbidden |
+
+The camera index must reject mutation after Packet death/manifest finality.
+
+### A1.6 Trace immutability prerequisite
+
+Before L1 treatment evidence is accepted:
+
+```text
+core/packet.lua append_trace snapshots payload recursively
+caller mutation after append cannot alter stored event
+trace_event_id is added before append or returned separately
+```
+
+Camera frames cannot become evidence while trace payload aliases remain mutable.
+
+### A1.7 Reconciliation relevance contract
+
+`camera.pending` may return all frames after a watermark. The pressure reader,
+not the camera store, determines relevance.
+
+Minimum v0 classification inputs:
+
+```text
+changed component
+change cause
+source operator
+source event refs
+economic threshold transition
+work/evidence fingerprint transition
+whether a completed reconciliation already names the effect ref
+```
+
+Routine budget charge remains visible in the frame but is not sufficient by
+itself for `runtime_reconciliation_debt`.
+
+### A1.8 Required treatment tests
+
+```text
+every completed non-terminal tick captures exactly one frame
+capture adds no operator tick and no separate steps charge
+frame contains post-cost/post-loss revisions
+frame payload remains immutable after caller mutation
+routine budget-only frame creates no reconciliation debt
+budget exhaustion remains visible to mortality
+new unattached effect evidence creates reconciliation debt
+☱ reconciliation advances watermark monotonically
+☱ own routine frame does not immediately recreate debt
+unresolved refs survive reconciliation and remain readable
+dead/manifested Packet rejects frame and reconciliation mutation
+legacy and L1-shadow lives have identical route, budget, calls, and loss
+```
+
+### A1.9 Outcome journal
+
+Append results here; never rewrite the hypothesis silently.
+
+```text
+status: CAMERA CONFIRMED IN SHADOW / TREATMENT PARTIALLY CONFIRMED
+C0/A/B/AB diagnosis: docs/00_chaos/pressure_ablation_diagnostic_results_2026-07-16.md
+L0/L1 treatment: docs/00_chaos/runtime_camera_treatment_results_2026-07-16.md
+confirmed clauses: immutable frame per completed tick; no extra step; routine budget-only frame is not debt; reconciliation is monotonic and discharges significant frames
+rejected clauses: routine budget/loss deltas explain all lower debt
+open clauses: independent mismatch; semantic uncertainty reader; lower-rail calibration
+evidence refs: runtime/camera.lua, runtime/reconciliation.lua, tests/test_runtime_camera.lua, tests/smoke_runtime_camera_treatment.lua
+```

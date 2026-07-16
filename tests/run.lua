@@ -7,6 +7,8 @@ local tests = {
     "tests.test_topology",
     "tests.test_operator_registry",
     "tests.test_pressure",
+    "tests.test_pressure_ablation",
+    "tests.test_runtime_camera",
     "tests.test_tree_router",
     "tests.test_edge_evidence",
     "tests.test_packet",

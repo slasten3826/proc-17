@@ -39,6 +39,8 @@ packet.event_types = {
     choice = true,
     validation = true,
     cycle = true,
+    runtime_frame = true,
+    runtime_reconciliation = true,
     tension_measure = true,
     manifest = true,
     death = true,
@@ -65,6 +67,22 @@ local function shallow_copy(source)
     local result = {}
     for key, value in pairs(source or {}) do
         result[key] = value
+    end
+    return result
+end
+
+local function deep_copy(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[deep_copy(key, seen)] = deep_copy(child, seen)
     end
     return result
 end
@@ -233,7 +251,7 @@ local function append_trace(instance, event)
         tick = instance.physis and instance.physis.clock and instance.physis.clock.ticks or 0,
         type = event.type,
         operator = topology.resolve(event.operator),
-        payload = event.payload or {},
+        payload = deep_copy(event.payload or {}),
         truth_status = event.truth_status,
         cost = normalize_cost(event.cost),
         time = event.time or os.time(),
@@ -309,6 +327,13 @@ local function init_areas(prompt, options)
                 warnings = {},
                 bequests = {},
                 neutral = {},
+            },
+            camera = {
+                protocol_version = "runtime.camera.v0-shadow",
+                head_seq = 0,
+                reconciled_through = 0,
+                latest_frame_id = nil,
+                latest_reconciliation_id = nil,
             },
         },
         manifest = nil,

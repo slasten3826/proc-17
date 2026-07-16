@@ -6,8 +6,11 @@ Status:
 runtime-confirmed local control corpus
 date: 2026-07-16
 policy: pressure.binary.v0 / vibed_control
+lower policy: L0 sampled freshness (historical control)
 authority: shadow only
 substrate: fake
+lower interpretation superseded by runtime_camera_treatment_results_2026-07-16.md;
+retain this matrix as the pre-treatment baseline
 ```
 
 ## Method

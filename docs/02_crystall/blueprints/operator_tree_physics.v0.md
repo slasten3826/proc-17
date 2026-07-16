@@ -843,3 +843,231 @@ hard eye rails are removed only by measured freshness behavior
 legacy/shadow/tree authority is explicit and reversible
 the full integration battery and existing tests pass
 ```
+
+## Amendment A1: Lower Pressure Diagnosis And Camera Treatment
+
+Status:
+
+```text
+CAMERA CONFIRMED / PRESSURE PARTIALLY CONFIRMED / SHADOW ONLY
+source chaos: docs/00_chaos/runtime_camera_reconciliation_hypothesis_notes.md
+source table: docs/01_table/yellowprints/operator_tree_physics_yellowprint.v0.md Amendment A1
+body crystall: packet_body_physics.v0.md Amendment A1
+tree authority remains forbidden
+all four mandatory rails remain live
+initial treatment status was PENDING; outcome is appended below
+```
+
+### A1.1 Confirmed implementation defect to isolate
+
+Current `runtime/pressure.lua` derives both:
+
+```text
+lower_observation_debt
+runtime_mismatch
+```
+
+from the same stale lower observation. `runtime_mismatch` has no independent
+CALM/runtime comparator. The diagnostic must preserve current C0 behavior while
+allowing pure counterfactual recomputation.
+
+### A1.2 Diagnostic module
+
+Add only for the diagnostic manifestation:
+
+```text
+runtime/pressure_ablation.lua
+```
+
+Candidate pure API:
+
+```lua
+pressure_ablation.apply(snapshot, profile) -> derived_snapshot | nil, err
+```
+
+Profiles:
+
+```text
+C0  copy current contribution set unchanged
+A   remove runtime_mismatch contributions
+B   remove budget/loss changed components from lower_observation_debt;
+    remove the contribution only when no relevant changed component remains
+AB  apply A and B
+```
+
+Laws:
+
+```text
+input snapshot is not mutated
+Packet is not read or mutated
+strict freshness history is not changed
+source refs for surviving components remain exact
+profile id and removed contribution refs are recorded
+amounts are not reweighted
+```
+
+This module tests the diagnosis. It is not a production pressure policy.
+
+### A1.3 Counterfactual selection
+
+For each authoritative legacy tick already producing one C0 shadow snapshot:
+
+```text
+derive A/B/AB snapshots from the same C0 record
+run the same tree candidate/readiness filters
+select one counterfactual prediction per profile
+record results outside live Packet authority
+```
+
+No counterfactual decision may be committed to Packet trace as if it occurred.
+The experiment report may store it as external analysis or a clearly typed
+`counterfactual_shadow` record that does not affect revisions/economics.
+
+### A1.4 Diagnostic report
+
+Minimum aggregate per profile:
+
+```lua
+{
+  profile = "C0" | "A" | "B" | "AB",
+  ticks = integer,
+  contribution_kind_counts = table,
+  varying_reader_count = integer,
+  constant_reader_count = integer,
+  prediction_counts = table,
+  agreement_count = integer,
+  divergence_count = integer,
+  no_viable_edge_count = integer,
+  prediction_error_count = integer,
+  rail_metrics = table,
+  edge_metrics = table,
+}
+```
+
+Required explicit comparisons:
+
+```text
+E05 selection by profile
+E12 selection by profile
+E15 selection by profile
+☵ -> ☴ rail cases
+☳ -> ☴ rail cases
+☲ -> ☱ rail cases
+☶ -> ☱ rail cases
+normal legacy manifest tick shadow prediction
+```
+
+### A1.5 Diagnostic acceptance
+
+```text
+C0 exactly reproduces existing shadow predictions
+all profiles consume identical source lives
+all profiles leave live routes/economics/loss untouched
+prediction_error_count is asserted as zero, not inferred from a misspelled field
+instrument failure is separate from no viable edge
+report exposes every removed contribution and component
+```
+
+Diagnosis is confirmed if A/B/AB materially remove the apparent E05/E12/E15 or
+lower-rail evidence as predicted. This confirms witness degeneration, not the
+camera treatment.
+
+### A1.6 L1 treatment reader
+
+Only after diagnostic review, candidate reader:
+
+```lua
+readers.runtime_reconciliation_debt = function(instance, context)
+  -- reads immutable runtime frames after the last reconciliation
+  -- emits at most one binary.v0 contribution to ☱
+  -- only when a significant unintegrated effect exists
+end
+```
+
+Minimum source witness:
+
+```text
+runtime frame ref
+changed component/effect ref
+reason it requires reconciliation
+latest covering reconciliation ref or missing marker
+```
+
+Forbidden implementations:
+
+```text
+head_seq > reconciled_through alone
+budget revision changed alone
+loss revision changed alone
+CALM exists alone
+LLM classification
+duplicate contribution from the same frame/reason
+```
+
+### A1.7 Real runtime mismatch
+
+Candidate `runtime_mismatch` must compare two independently represented states:
+
+```text
+CALM expected work/effect/relationship state
+versus
+runtime-confirmed frame/evidence state
+```
+
+If no comparator is available, reader returns no contribution. It cannot fall
+back to lower freshness or reconciliation debt.
+
+### A1.8 Candidate ☱ readiness
+
+L1 readiness becomes true only when at least one bounded witness exists:
+
+```text
+runtime reconciliation debt
+real CALM/runtime mismatch
+momentum/foundation recurrence update
+attached history requires current applicability derivation
+unresolved runtime semantic fact needs a bounded ☱ record before ☴
+```
+
+Routine availability of budget/loss ledgers is not readiness.
+
+### A1.9 Manifest and DISSOLVE remain separate blockers
+
+Passing the lower-camera treatment does not authorize promotion. Before tree
+authority:
+
+```text
+normal completion must be Packet-local and create manifest pressure
+△ must assemble material from Packet, not options.result tick memory
+☷ readiness must consume the rigidity/dissolve witness that selected it
+```
+
+These defects require their own amendments or confirmed fixes.
+
+### A1.10 Treatment battery
+
+```text
+routine budget-only life: L1 does not predict repeated ☱
+new effect life: L1 predicts ☱ until effect is reconciled
+reconciled effect life: direct adjacent edge remains available
+runtime contradiction life: independent mismatch predicts ☱
+budget-near-death life: mortality/manifest pressure survives without eye debt
+semantic runtime uncertainty: ☱ -> ☴ is possible, no LLM call occurs in ☱
+lower rail paired cases: one recall and one justified bypass per rail
+legacy/L1 shadow ablation: route, calls, budget, loss identical
+```
+
+### A1.11 Outcome journal
+
+Append experiment outcomes here.
+
+```text
+status: CAMERA CONFIRMED IN SHADOW / TREATMENT PARTIALLY CONFIRMED
+diagnostic profile result: docs/00_chaos/pressure_ablation_diagnostic_results_2026-07-16.md
+treatment result: docs/00_chaos/runtime_camera_treatment_results_2026-07-16.md
+promotion decision: KEEP LEGACY / KEEP ALL RAILS
+confirmed clauses: D1 removed in L1; routine frames create no debt; significant frames create and discharge bounded debt; normal manifest gap
+rejected clauses: E05 disappears; all E12 disappears; budget/loss exclusion collapses most lower debt
+open clauses: independent mismatch; semantic uncertainty; calibrated lower-rail selection
+evidence refs: runtime/camera.lua, runtime/reconciliation.lua, tests/test_runtime_camera.lua, tests/smoke_runtime_camera_treatment.lua
+```

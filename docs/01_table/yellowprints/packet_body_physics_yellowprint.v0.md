@@ -574,3 +574,149 @@ semantic proposals cannot become runtime truth through structure alone
 death makes every living region immutable
 current Lua mappings are descriptive, not treated as final schema
 ```
+
+## Amendment A1: Continuous Runtime Camera Hypothesis
+
+Status:
+
+```text
+CAMERA CONFIRMED IN SHADOW / TREATMENT PARTIALLY CONFIRMED
+added after checkpoint 7616292 cold shadow audit
+source: docs/00_chaos/runtime_camera_reconciliation_hypothesis_notes.md
+does not rewrite or silently supersede sections 3, 9, 17, 18, or 19
+live authority consequence: none
+initial treatment status was PENDING; outcome is appended below
+```
+
+### A1.1 Defect annotation
+
+The current lower half of `O` is implemented and described as a sampled ☱
+observation whose `read_revisions` include budget and loss. A normal body tick
+changes budget after the ☱ organ records that sample. The sample is therefore
+stale before route derivation.
+
+The historical observation remains truthful. The defect is treating every such
+revision difference as pressure for another ☱ tick.
+
+Rows affected if this hypothesis is confirmed:
+
+```text
+section 3:  O currently groups upper samples and lower runtime sight together
+section 9:  lower eye cadence is described as sampled rather than continuous
+section 17: ☱ momentum update invalidates its own lower snapshot
+section 18: observation record is the only named lower causal reader surface
+section 19: lower runtime snapshot is treated as the current lower implementation
+```
+
+### A1.2 Proposed temporal split
+
+| Runtime record | Cadence | Writer | Meaning | Required readers | Route authority |
+|---|---|---|---|---|---|
+| upper observation | sampled ☴ tick | ☴ through body API | bounded semantic/external sight | freshness, field organs, pressure | none directly |
+| runtime frame | every completed body tick | Packet runner/body camera | immutable effect/economics telemetry | mortality, pressure, ☱, trace | none directly |
+| runtime reconciliation | explicit ☱ tick | ☱ through body API | significant frames integrated into CALM/foundation/momentum | pressure, lower organs, △ | none directly |
+| reconciliation watermark | explicit successful ☱ reconciliation | ☱ only | highest runtime frame considered by that act | reconciliation-debt reader | none directly |
+
+The runtime camera is body infrastructure under the ☱ region. Capturing a frame
+does not create a second operator tick.
+
+### A1.3 Candidate body addresses
+
+Conceptual only; crystall chooses concrete Lua containers:
+
+```text
+O.upper_samples
+T.runtime_frames
+Q.runtime_reconciliations
+I.runtime_head
+I.reconciled_through
+```
+
+`T.runtime_frames` may be represented inside the existing immutable trace rather
+than becoming a second event store. `I.runtime_head` may be derived from trace.
+No duplicate mutable truth store is authorized by this amendment.
+
+### A1.4 Runtime frame table
+
+| Field class | Required content |
+|---|---|
+| identity | packet, generation, tick, operator, monotonic frame sequence |
+| provenance | tick/organ/effect/cost/loss event refs |
+| before/after | bounded revision vectors or component deltas |
+| economics | current budget/loss states and threshold transitions |
+| work reality | progress/evidence fingerprints and changed work refs |
+| truth | body-confirmed event status; represented semantic content keeps its own status |
+| mutation | immutable after append |
+
+Frame law:
+
+```text
+camera records facts and causes
+camera does not classify semantic meaning
+camera does not select routes
+camera does not add identity loss
+camera work is paid inside the body tick being recorded
+```
+
+### A1.5 Reconciliation table
+
+| Field | Meaning | Owner |
+|---|---|---|
+| `from_seq` / `through_seq` | bounded frame interval considered | ☱ |
+| `frame_refs` | exact runtime frames read | ☱ |
+| `resolved_refs` | effects installed into current body state | ☱ |
+| `unresolved_refs` | effects still requiring another organ | ☱ append-only record |
+| `momentum_updates` | recurrence-derived relation changes | ☱ only |
+| `foundation_updates` | runtime-confirmed pattern changes | ☱ only |
+| `completion_state` | incomplete, complete, usable partial, blocked | body-derived through ☱ rules |
+| `truth_status` | confirmation that reconciliation occurred | body runtime |
+
+### A1.6 Relevance law
+
+Pending frames are not automatically reconciliation debt.
+
+| Delta class | Default treatment hypothesis |
+|---|---|
+| expected one-step budget charge | telemetry only |
+| clock increment | telemetry only |
+| budget/loss threshold transition | direct mortality/manifest witness |
+| new unattached effect evidence | runtime reconciliation debt |
+| CALM/effect contradiction | runtime mismatch with independent comparator |
+| recurrence requiring momentum | runtime reconciliation debt |
+| already attached accepted evidence | direct downstream pressure may remain legal |
+| unclassifiable runtime content | reconciliation may expose semantic uncertainty toward ☴ |
+
+### A1.7 Revised named reader candidates
+
+| Written record | Required reader | Read moment | If unread |
+|---|---|---|---|
+| runtime frame | mortality, pressure, and ☱ reconciliation | after every completed tick and at ☱ | camera is decorative telemetry |
+| reconciliation record | pressure, lower operators, △ | after a ☱ tick | ☱ has no causal effect |
+| reconciliation watermark | reconciliation-debt reader | before route derivation | constant lower-eye pressure returns |
+| unresolved reconciliation refs | adjacent repair/observe/logic readers | next eligible route | runtime uncertainty is silently lost |
+
+### A1.8 Falsification and history law
+
+Mark this amendment `REJECTED` or `PARTIALLY REJECTED` in this section if:
+
+```text
+camera capture hides unpaid work
+runtime frames duplicate or contradict trace
+reconciliation debt remains constant on routine ticks
+significant effects are missed
+☱ cannot recreate lower rails when integration is genuinely required
+```
+
+Do not delete this amendment. Add outcome, test refs, and replacement pressure
+below.
+
+Outcome:
+
+```text
+status: CAMERA CONFIRMED IN SHADOW / TREATMENT PARTIALLY CONFIRMED
+diagnostic: docs/00_chaos/pressure_ablation_diagnostic_results_2026-07-16.md
+treatment comparison: docs/00_chaos/runtime_camera_treatment_results_2026-07-16.md
+confirmed: immutable per-tick frames, monotonic reconciliation, no routine self-debt
+rejected: budget/loss deltas alone explain the lower-pressure degeneration
+open: unresolved-ref consumers, independent mismatch, calibrated selection
+```

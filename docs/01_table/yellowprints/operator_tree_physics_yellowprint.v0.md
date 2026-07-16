@@ -489,3 +489,174 @@ pressure records name T1 sources and readers
 current hard rails are marked scaffolding with a measured removal path
 lineage recurrence is absent from the 22-edge walk
 ```
+
+## Amendment A1: Runtime Camera And Reconciliation Routing
+
+Status:
+
+```text
+CAMERA CONFIRMED IN SHADOW / TREATMENT PARTIALLY CONFIRMED
+source: docs/00_chaos/runtime_camera_reconciliation_hypothesis_notes.md
+body amendment: packet_body_physics_yellowprint.v0.md Amendment A1
+old rows remain as historical pre-audit design
+no rail removal or router promotion authorized
+initial treatment status was PENDING; outcome is appended below
+```
+
+### A1.1 Defect annotation
+
+The current table maps any stale lower progress/evidence/budget/loss/foundation
+sample to `lower_observation_debt -> ☱`. Runtime code also maps the same stale
+sample to `runtime_mismatch -> ☱` when CALM exists.
+
+Observed consequences:
+
+```text
+routine body cost makes lower freshness stale every tick
+one stale source contributes twice to ☱
+☱ receives total 2 while most candidates receive 0 or 1
+shadow lower-rail recall is therefore not valid promotion evidence
+```
+
+This amendment does not dispute strict historical freshness. It disputes the
+direct mapping from every lower revision change to route pressure.
+
+### A1.2 Candidate tick protocol amendment
+
+Insert a body-owned camera stage after all current tick economics/effects and
+before mortality/pressure:
+
+| Order | Stage | Owner | Required result |
+|---:|---|---|---|
+| 7 | cost/loss application | budget/loss physics | append-only records |
+| 8 | operator physics and revision effects | body | final post-tick state |
+| 9 | runtime camera capture | Packet runner/body | immutable frame, no extra step |
+| 10 | mortality and safety guards | body | die now or remain alive |
+| 11 | pressure derivation | named readers | current contributions |
+| 12 | candidate filtering/selection | router | one audited movement |
+
+Exact numbering supersedes section 3 only if the treatment experiment passes.
+
+### A1.3 Candidate ☱ contract amendment
+
+| Operator | Required input | Distinguishing write | Explicit no-op | Forbidden |
+|---|---|---|---|---|
+| `☱ RUNTIME` | significant unintegrated runtime frames, actual CALM/runtime mismatch, recurrence, or bounded history pressure | reconciliation record, watermark, `M`, active `E`, foundation/completion integration | `nothing_to_reconcile` | LLM call, semantic rewrite, route choice, generic snapshot-only tick |
+
+Routine current runtime availability is no longer sufficient readiness by
+itself. `physis:budget` existing does not justify a ☱ tick.
+
+### A1.4 Pressure vocabulary amendment
+
+| Current kind | Defect status | Treatment candidate |
+|---|---|---|
+| `lower_observation_debt` | sampled lower view is stale from routine body economics | replace route use with `runtime_reconciliation_debt` |
+| `runtime_mismatch` | implementation duplicates lower freshness | require independent CALM/runtime comparator or emit nothing |
+| `manifest` | normal legacy completion is not represented Packet-locally | derive from reconciliation/completion and manifestable Packet material |
+| `continuation` | may already be directly body-confirmed | do not force ☱ unless recurrence consequence needs integration |
+
+Candidate new kind:
+
+| Kind | Minimum witness | Primary target | Discharge |
+|---|---|---|---|
+| `runtime_reconciliation_debt` | at least one significant body-confirmed runtime frame after the last applicable reconciliation | ☱ | successful ☱ reconciliation covering exact frame refs |
+
+Non-witnesses by default:
+
+```text
+clock advanced
+one expected step was charged
+trace appended an already-accounted event
+```
+
+Threshold transitions remain evidence, but may target mortality or △ directly.
+
+### A1.5 Lower rail interpretation
+
+Current rails stay authoritative:
+
+```text
+☲ -> ☱
+☶ -> ☱
+```
+
+The treatment must grow both classes before either rail can be reconsidered:
+
+| Case | Expected shadow behavior |
+|---|---|
+| cycle/logic produced significant unintegrated runtime consequence | select or strongly support ☱ |
+| cycle/logic effect is already attached and direct next condition is confirmed | permit a non-☱ adjacent edge |
+| routine budget-only change | do not select ☱ solely for that change |
+| CALM contradicts actual effect | select ☱ from independent mismatch evidence |
+
+### A1.6 E11 interpretation
+
+The `☴-☱` edge gains a precise candidate reading:
+
+```text
+☱ -> ☴
+  reconciled runtime still contains semantic uncertainty
+  ☱ records bounded unresolved runtime refs
+  ☴ may show those refs to the substrate as semantic context
+
+☴ -> ☱
+  semantic proposal refers to runtime state but has not been reconciled
+  ☱ compares body facts without promoting proposal truth
+```
+
+LLM access remains inside ☴. The amendment does not add substrate calls to ☱.
+
+### A1.7 Diagnostic before treatment
+
+First diagnostic matrix:
+
+```text
+C0 current policy
+A  disable duplicate runtime_mismatch
+B  ignore routine budget/loss deltas only for lower routing debt
+AB combine A and B
+```
+
+Second treatment comparison, only after diagnosis:
+
+```text
+L0 sampled lower-eye routing debt
+L1 continuous runtime camera + reconciliation debt, shadow only
+```
+
+Required measurements:
+
+```text
+per-reader variation
+candidate totals
+rail recall/bypass
+E05/E12/E15 predictions
+normal manifest prediction
+prediction errors
+live route/economics equality
+```
+
+### A1.8 Promotion impact
+
+Step 10 remains blocked until at minimum:
+
+```text
+duplicate lower contribution is absent
+routine ticks do not create constant ☱ pressure
+real unintegrated effects recreate ☱ pressure
+normal completion creates a Packet-local path to △
+trace frames are immutable
+shadow failures are typed separately from physical no-edge outcomes
+```
+
+Outcome:
+
+```text
+status: CAMERA CONFIRMED IN SHADOW / TREATMENT PARTIALLY CONFIRMED
+diagnostic evidence: docs/00_chaos/pressure_ablation_diagnostic_results_2026-07-16.md
+treatment evidence: docs/00_chaos/runtime_camera_treatment_results_2026-07-16.md
+old lower-eye rows: retained, disputed for routing use
+confirmed: current runtime_mismatch removed from L1; routine frames create no debt; significant frames do
+rejected: E05 and all E12 selections disappear under A/AB
+open: tied binary pressure can support ☱ without selecting it; independent mismatch and manifest remain absent
+```
