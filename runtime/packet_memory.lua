@@ -1,5 +1,6 @@
 local json = require("core.json")
 local sandbox = require("core.sandbox")
+local packet_core = require("core.packet")
 
 local packet_memory = {}
 
@@ -118,8 +119,15 @@ function packet_memory.capsule(instance, options)
         kind = "packet_memory_capsule",
         protocol_version = instance.protocol_version,
         packet_id = instance.id,
+        lineage_id = instance.lineage_id,
+        generation = instance.generation,
         parent_id = instance.parent_id,
+        parent_corpse_id = instance.parent_corpse_id,
+        birth_kind = instance.birth_kind,
+        carrier_id = instance.carrier_id,
+        substrate_session_id = instance.substrate_session_id,
         status = instance.status,
+        terminal = instance.terminal,
         death = instance.death,
         residue = instance.residue or {},
         manifest = instance.manifest,
@@ -198,7 +206,11 @@ function packet_memory.inherit(capsule, options)
     return {
         kind = "inherited_packet_residue",
         source_packet_id = capsule.packet_id,
+        source_lineage_id = capsule.lineage_id,
+        source_generation = capsule.generation,
+        source_parent_corpse_id = capsule.parent_corpse_id,
         source_status = capsule.status,
+        source_terminal = capsule.terminal,
         source_death = capsule.death,
         residue = capsule.residue or {},
         manifest = capsule.manifest,
@@ -211,8 +223,9 @@ end
 function packet_memory.attach(instance, inherited_residue, options)
     options = options or {}
     local memory_enabled = enabled(options)
-    if type(instance) ~= "table" then
-        return nil, "packet instance required"
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "attach memory")
+    if not mutable then
+        return nil, mutable_err
     end
     if memory_enabled ~= true and not (instance.runtime and instance.runtime.memory and instance.runtime.memory.enabled == true) then
         return nil, "packet memory is disabled"
@@ -225,6 +238,9 @@ function packet_memory.attach(instance, inherited_residue, options)
     instance.runtime.memory.enabled = true
     instance.runtime.memory.inherited_residue = instance.runtime.memory.inherited_residue or {}
     instance.runtime.memory.inherited_residue[#instance.runtime.memory.inherited_residue + 1] = inherited_residue
+    if instance.revisions then
+        instance.revisions.history = (instance.revisions.history or 0) + 1
+    end
     return instance
 end
 

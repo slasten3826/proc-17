@@ -1,3 +1,5 @@
+local packet_core = require("core.packet")
+
 local loss = {}
 
 local function clamp(value, min, max)
@@ -59,6 +61,10 @@ local function refresh(tension)
 end
 
 function loss.init(instance, options)
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "initialize loss")
+    if not mutable then
+        return nil, mutable_err
+    end
     local tension = ensure(instance, options)
     refresh(tension)
     return instance
@@ -85,11 +91,18 @@ function loss.from_choose_loss(choice_loss)
 end
 
 function loss.apply(instance, input)
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "apply loss")
+    if not mutable then
+        return nil, mutable_err
+    end
     input = input or {}
     local tension = ensure(instance)
     local amount = clamp(input.amount, 0, tension.loss_max or 1.0)
     tension.loss = (tension.loss or 0) + amount
     refresh(tension)
+    if instance.revisions then
+        instance.revisions.loss = (instance.revisions.loss or 0) + 1
+    end
 
     local record = {
         kind = "loss_accumulation",
@@ -110,36 +123,38 @@ function loss.apply(instance, input)
 end
 
 function loss.snapshot(instance)
-    local tension = ensure(instance)
-    refresh(tension)
+    local tension = instance and instance.tension or {}
+    local physis = instance and (instance.physis or instance.substrate) or {}
+    local loss_max = tension.loss_max or (physis.budget and physis.budget.loss) or 1.0
+    local current_loss = tension.loss or 0
+    local loss_remaining = loss_max - current_loss
+    local near_death_at = tension.loss_near_death_at or 0.2
     return {
         kind = "packet_loss_snapshot",
-        loss = tension.loss,
-        loss_max = tension.loss_max,
-        loss_remaining = tension.loss_remaining,
-        near_death = tension.loss_near_death,
-        exhausted = tension.loss_exhausted,
+        loss = current_loss,
+        loss_max = loss_max,
+        loss_remaining = loss_remaining,
+        near_death = loss_remaining <= near_death_at,
+        exhausted = loss_remaining <= 0,
         event_count = #(tension.loss_events or {}),
         truth_status = "runtime_confirmed",
     }
 end
 
 function loss.is_exhausted(instance)
-    local tension = ensure(instance)
-    refresh(tension)
-    return tension.loss_exhausted == true
+    return loss.snapshot(instance).exhausted == true
 end
 
 function loss.identity_residue(instance, options)
     options = options or {}
-    local tension = ensure(instance)
-    refresh(tension)
+    local tension = instance and instance.tension or {}
+    local snapshot = loss.snapshot(instance)
     return {
         cause = "identity_loss",
-        loss = tension.loss,
-        loss_remaining = tension.loss_remaining,
-        loss_near_death = tension.loss_near_death,
-        loss_exhausted = tension.loss_exhausted,
+        loss = snapshot.loss,
+        loss_remaining = snapshot.loss_remaining,
+        loss_near_death = snapshot.near_death,
+        loss_exhausted = snapshot.exhausted,
         loss_events_tail = tail(tension.loss_events, options.loss_events_tail_count or 5),
         loss_records_tail = tail(instance.boundary and instance.boundary.loss_records, options.loss_records_tail_count or 5),
         last_operator = options.last_operator or instance.operator,

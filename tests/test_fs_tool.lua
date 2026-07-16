@@ -157,7 +157,7 @@ local listed = fs.run({
     input = {
         path = ".",
         limits = {
-            max_depth = 2,
+            max_depth = 1,
             max_entries = 128,
             max_path_bytes = 240,
         },

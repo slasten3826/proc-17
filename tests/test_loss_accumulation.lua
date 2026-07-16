@@ -33,6 +33,7 @@ local record = assert(loss.apply(p, {
 assert_eq(record.loss_after, 0.5, "loss accumulated")
 assert_eq(record.loss_remaining_after, 0.5, "remaining decreased")
 assert_eq(p.tension.loss_near_death, false, "not near death yet")
+assert_eq(p.revisions.loss, 1, "identity mutation advances loss revision")
 
 loss.apply(p, {
     operator = "☳",
@@ -43,6 +44,7 @@ loss.apply(p, {
 })
 assert_true(p.tension.loss_near_death, "near death at threshold")
 assert_eq(p.tension.loss_exhausted, false, "near death not exhausted")
+assert_eq(p.revisions.loss, 2, "second identity mutation advances loss revision")
 
 loss.apply(p, {
     operator = "☳",
@@ -58,6 +60,17 @@ assert_eq(loss.from_encode_loss({omitted_count = 5}), 0.1, "encode omitted count
 assert_eq(loss.from_encode_loss({omitted_count = 0}), 0, "no encode loss fallback")
 assert_eq(loss.from_choose_loss({before_count = 4, not_chosen_count = 3}), 0.75, "choose ratio maps")
 assert_eq(loss.from_choose_loss({before_count = 0, not_chosen_count = 3}), 0, "bad choose denominator")
+
+local zero_loss = packet.new("zero loss record", {budget = {loss = 1.0}})
+assert(loss.init(zero_loss))
+assert(loss.apply(zero_loss, {
+    operator = "☵",
+    amount = 0,
+    kind = "lossless_projection",
+    source = "encode_loss",
+}))
+assert_eq(zero_loss.tension.loss, 0, "zero loss preserves identity")
+assert_eq(zero_loss.revisions.loss, 1, "recorded zero-loss result advances loss ledger revision")
 
 local residue = loss.identity_residue(p, {last_operator = "☳"})
 assert_eq(residue.cause, "identity_loss", "identity residue cause")

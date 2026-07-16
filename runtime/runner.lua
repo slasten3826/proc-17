@@ -1,4 +1,5 @@
 local packet_core = require("core.packet")
+local flow = require("organs.flow")
 local observe = require("organs.observe")
 local encode = require("organs.encode")
 local choose = require("organs.choose")
@@ -19,6 +20,26 @@ end
 
 local function stage_error(stage, err)
     return stage .. ":" .. tostring(err)
+end
+
+local function move(instance, to, reason)
+    return packet_core.commit_transition(instance, {
+        kind = "route_decision",
+        from = instance.operator,
+        to = to,
+        reason = reason,
+        truth_status = "runtime_confirmed",
+    })
+end
+
+local function enter_stage(instance, operator, reason)
+    if instance.operator ~= operator then
+        local moved, move_err = move(instance, operator, reason)
+        if not moved then
+            return nil, move_err
+        end
+    end
+    return packet_core.begin_tick(instance, operator, {})
 end
 
 local function manifest_input(instance, options, observe_payload, choose_payload, cycle_payload)
@@ -57,7 +78,6 @@ function runner.single_pass(prompt, substrate, options)
     options = options or {}
 
     local instance = packet_core.new(prompt, options.packet_options or {})
-    instance.status = "running"
 
     local result = {
         kind = "runner_single_pass_result",
@@ -65,6 +85,17 @@ function runner.single_pass(prompt, substrate, options)
         stages = {},
         final_status = instance.status,
     }
+
+    local flowed, flow_payload = flow.run(instance)
+    if not flowed then
+        return nil, stage_error("flow", flow_payload)
+    end
+    result.stages.flow = flow_payload
+
+    local observe_tick, observe_tick_err = enter_stage(instance, "☴", "single_pass_observe")
+    if not observe_tick then
+        return nil, stage_error("observe_route", observe_tick_err)
+    end
 
     local observed, observe_payload = observe.run(instance, substrate, {
         work_mode = options.work_mode or "build",
@@ -78,17 +109,36 @@ function runner.single_pass(prompt, substrate, options)
     end
     result.stages.observe = observe_payload
 
+    local encode_tick, encode_tick_err = enter_stage(instance, "☵", "single_pass_encode")
+    if not encode_tick then
+        return nil, stage_error("encode_route", encode_tick_err)
+    end
+
     local encoded, encode_payload = encode.run(instance, options.encode or {})
     if not encoded then
         return nil, stage_error("encode", encode_payload)
     end
     result.stages.encode = encode_payload
 
+    local choose_tick, choose_tick_err = enter_stage(instance, "☳", "single_pass_choose")
+    if not choose_tick then
+        return nil, stage_error("choose_route", choose_tick_err)
+    end
+
     local chosen, choose_payload = choose.run(instance, options.choose or {})
     if not chosen then
         return nil, stage_error("choose", choose_payload)
     end
     result.stages.choose = choose_payload
+
+    local runtime_bridge, runtime_bridge_err = move(instance, "☱", "single_pass_lower_bridge")
+    if not runtime_bridge then
+        return nil, stage_error("cycle_route", runtime_bridge_err)
+    end
+    local cycle_tick, cycle_tick_err = enter_stage(instance, "☲", "single_pass_cycle")
+    if not cycle_tick then
+        return nil, stage_error("cycle_route", cycle_tick_err)
+    end
 
     local cycle_payload, cycle_err = body.decide_cycle(instance, {
         cycle_key = options.cycle_key or instance.id,
@@ -112,11 +162,17 @@ function runner.single_pass(prompt, substrate, options)
     result.stages.manifest = manifest_payload
 
     if cycle_payload.decision == "stop_complete" then
-        packet_core.manifest_packet(instance, manifest_payload)
-        packet_core.die(instance, "complete", {
+        local manifest_tick, manifest_tick_err = enter_stage(instance, "△", "single_pass_manifest")
+        if not manifest_tick then
+            return nil, stage_error("manifest_route", manifest_tick_err)
+        end
+        local manifested, manifested_err = packet_core.manifest_packet(instance, manifest_payload, {
             cause = "complete",
             manifest_type = manifest_payload.output and manifest_payload.output.type,
         })
+        if not manifested then
+            return nil, stage_error("manifest", manifested_err)
+        end
     end
 
     result.final_status = instance.status

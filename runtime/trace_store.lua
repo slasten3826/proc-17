@@ -5,6 +5,8 @@ local trace_store = {}
 local function event_envelope(instance, event)
     return {
         packet_id = instance.id,
+        lineage_id = instance.lineage_id,
+        generation = instance.generation,
         event_id = event.id,
         type = event.type,
         operator = event.operator,
@@ -30,8 +32,11 @@ function trace_store.write_jsonl(path, instance)
 
     file:write(json.encode({
         packet_id = instance.id,
+        lineage_id = instance.lineage_id,
+        generation = instance.generation,
         type = "final",
         status = instance.status,
+        terminal = instance.terminal,
         residue = instance.residue,
     }))
     file:write("\n")

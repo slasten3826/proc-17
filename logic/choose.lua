@@ -282,6 +282,10 @@ function choose.choose(input)
     end
 
     local killed_sample = copy_array(killed_full, limits.max_killed_sample)
+    local suppressed_ids = {}
+    for _, item in ipairs(killed_full) do
+        suppressed_ids[#suppressed_ids + 1] = item.id
+    end
     local not_chosen_count = #ordered - #selected
     local collapse_type = #ordered <= #selected and "confirmation" or (level == "step" and "next_step" or level)
     local choice_loss = {
@@ -298,6 +302,7 @@ function choose.choose(input)
         selected = selected,
         chosen = selected[1],
         killed_alternatives = killed_sample,
+        suppressed_ids = suppressed_ids,
         not_chosen_count = not_chosen_count,
         collapse_type = collapse_type,
         choice_loss = choice_loss,

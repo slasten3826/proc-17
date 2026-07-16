@@ -1,5 +1,6 @@
 local logic_encode = require("logic.encode")
 local packet_core = require("core.packet")
+local field = require("runtime.field")
 
 local encode = {}
 
@@ -61,8 +62,85 @@ local function work_units_from_field(field)
     return units
 end
 
+local function append_unique(target, seen, value)
+    if value ~= nil and not seen[value] then
+        seen[value] = true
+        target[#target + 1] = value
+    end
+end
+
+local function field_sources(instance, legacy_refs)
+    local view = field.view(instance, {
+        created_by = {"▽", "☴"},
+        limit = math.max(1, #(instance.field.unit_order or {})),
+    }) or {units = {}}
+    local unit_by_event = {}
+    local flow_unit
+    for _, unit in ipairs(view.units) do
+        unit_by_event[unit.created_event_id] = unit
+        if unit.created_by == "▽" and not flow_unit then
+            flow_unit = unit
+        end
+    end
+
+    local birth
+    local chaos_events = {}
+    for _, event in ipairs(instance.trace or {}) do
+        if event.type == "birth" and not birth then
+            birth = event
+        elseif event.type == "chaos_append" then
+            chaos_events[#chaos_events + 1] = event
+        end
+    end
+
+    local provenance_refs = {}
+    local old_ids = {}
+    local source_event_refs = {}
+    local provenance_seen = {}
+    local old_seen = {}
+    local event_seen = {}
+    for _, legacy_ref in ipairs(legacy_refs) do
+        local event
+        local unit
+        local fragment_index = legacy_ref:match("^chaos:fragment:(%d+)$")
+        if fragment_index then
+            event = chaos_events[tonumber(fragment_index)]
+            unit = event and unit_by_event[event.id] or nil
+        elseif legacy_ref == "chaos:raw_prompt" then
+            event = birth
+            unit = flow_unit
+        end
+
+        if unit then
+            append_unique(provenance_refs, provenance_seen, unit.id)
+            append_unique(old_ids, old_seen, unit.id)
+        elseif event then
+            append_unique(provenance_refs, provenance_seen, event.id)
+        else
+            append_unique(provenance_refs, provenance_seen, legacy_ref)
+        end
+        if event then
+            append_unique(source_event_refs, event_seen, event.id)
+        end
+    end
+
+    return provenance_refs, old_ids, source_event_refs
+end
+
+local function legacy_unit_map(items, planned_ids)
+    local mapping = {}
+    for index, item in ipairs(items or {}) do
+        mapping[tostring(item.id or index)] = planned_ids[index]
+    end
+    return mapping
+end
+
 function encode.run(instance, options)
     options = options or {}
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "encode")
+    if not mutable then
+        return nil, mutable_err
+    end
     local text, source_refs = chaos_text(instance)
     if text == "" then
         return nil, "empty_chaos"
@@ -80,6 +158,12 @@ function encode.run(instance, options)
     end
 
     local work_units = work_units_from_field(encoded.field)
+    local provenance_refs, old_unit_ids, source_event_refs = field_sources(instance, source_refs)
+    local planned_unit_ids, plan_err = field.plan_unit_ids(instance, #encoded.field.items)
+    if not planned_unit_ids then
+        return nil, plan_err
+    end
+    local legacy_to_unit_id = legacy_unit_map(encoded.field.items, planned_unit_ids)
     local calm_delta = {
         kind = "encoded_field",
         source_area = "chaos",
@@ -92,6 +176,17 @@ function encode.run(instance, options)
         structure = encoded.field.structure,
         encoding = encoded.field.encoding,
         loss_log = encoded.loss.loss_log or encoded.field.loss_log or {},
+        field_shadow = {
+            protocol_version = "field-shadow.v0",
+            status = "shadow_only",
+            source_revision = instance.revisions.potential,
+            source_unit_ids = old_unit_ids,
+            source_event_refs = source_event_refs,
+            member_unit_ids = planned_unit_ids,
+            legacy_to_unit_id = legacy_to_unit_id,
+            named_reader = "organs.choose",
+            promotion_phase = "Phase D",
+        },
     }
 
     local loss = {
@@ -120,6 +215,44 @@ function encode.run(instance, options)
         return nil, event_or_err
     end
 
+    local new_unit_ids = {}
+    for index, item in ipairs(encoded.field.items) do
+        local unit, unit_err = field.add_unit(instance, "☵", {
+            id = planned_unit_ids[index],
+            kind = item.kind or "encoded_item",
+            carrier = item,
+            source_refs = provenance_refs,
+            event_truth_status = "runtime_confirmed",
+            content_truth_status = item.content_truth_status or encoded.field.truth_status or "unknown",
+            created_event_id = event_or_err.id,
+            migration = {
+                status = "shadow_only",
+                legacy_id = tostring(item.id or index),
+            },
+        })
+        if not unit then
+            return nil, unit_err
+        end
+        new_unit_ids[#new_unit_ids + 1] = unit.id
+    end
+
+    local identity_mapping = {}
+    for _, old_id in ipairs(old_unit_ids) do
+        identity_mapping[old_id] = new_unit_ids
+    end
+    local identity_map, identity_err = field.record_identity_map(instance, "☵", {
+        encode_event_id = event_or_err.id,
+        old_ids = old_unit_ids,
+        new_ids = new_unit_ids,
+        mapping = identity_mapping,
+        mapping_kind = "coarse_all_sources",
+        source_event_refs = source_event_refs,
+        shadow_only = true,
+    })
+    if not identity_map then
+        return nil, identity_err
+    end
+
     instance.calm.work_units = work_units
     instance.calm.current = calm_delta
     instance.calm.status = "accepted"
@@ -131,6 +264,14 @@ function encode.run(instance, options)
         loss = loss,
         work_units = work_units,
         trace_event_id = event_or_err.id,
+        field_shadow = {
+            status = "recorded",
+            source_unit_ids = old_unit_ids,
+            member_unit_ids = new_unit_ids,
+            legacy_to_unit_id = legacy_to_unit_id,
+            identity_map_ref = identity_map.trace_event_id,
+            shadow_only = true,
+        },
         truth_status = "runtime_confirmed",
     }
 end

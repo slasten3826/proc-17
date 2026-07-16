@@ -33,6 +33,7 @@ assert_eq(pattern.success_count, 1, "first success")
 assert_eq(pattern.failure_count, 0, "no failures")
 assert_true(pattern.strength > 0, "strength increased")
 assert_eq(foundation.state(p), "crystallizing", "success crystallizes")
+assert_eq(p.revisions.evidence, 1, "runtime evidence advances evidence revision")
 
 foundation.reinforce(p, result)
 local snap = foundation.snapshot(p)

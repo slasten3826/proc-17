@@ -1,3 +1,5 @@
+local packet_core = require("core.packet")
+
 local grave = {}
 
 local function copy_array(source)
@@ -20,6 +22,7 @@ local function normalize(input)
         return {
             packet_id = input.source_packet_id,
             status = input.source_status,
+            terminal = input.source_terminal,
             death = input.source_death,
             residue = input.residue or {},
             trace_tail = input.trace_tail or {},
@@ -30,6 +33,7 @@ local function normalize(input)
         return {
             packet_id = input.packet_id,
             status = input.status,
+            terminal = input.terminal,
             death = input.death,
             residue = input.residue or {},
             trace_tail = input.trace_tail or {},
@@ -39,6 +43,7 @@ local function normalize(input)
     return {
         packet_id = input.id or input.packet_id or input.source_packet_id,
         status = input.status or input.source_status,
+        terminal = input.terminal or input.source_terminal,
         death = input.death or input.source_death,
         residue = input.residue or {},
         trace_tail = input.trace_tail or {},
@@ -73,6 +78,7 @@ local function base_record(normalized, grave_kind)
         grave_kind = grave_kind,
         source_packet_id = normalized.packet_id,
         source_status = normalized.status,
+        terminal = normalized.terminal,
         death_cause = death.cause,
         death = death,
         residue = normalized.residue or {},
@@ -199,8 +205,9 @@ function grave.classify(input)
 end
 
 function grave.attach(instance, graves)
-    if type(instance) ~= "table" then
-        return nil, "packet instance required"
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "attach grave")
+    if not mutable then
+        return nil, mutable_err
     end
     if type(graves) ~= "table" then
         return nil, "graves required"
@@ -242,6 +249,10 @@ function grave.attach(instance, graves)
         end
 
         payload.attached_count = payload.attached_count + 1
+    end
+
+    if payload.attached_count > 0 and instance.revisions then
+        instance.revisions.history = (instance.revisions.history or 0) + 1
     end
 
     return payload

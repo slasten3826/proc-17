@@ -1,3 +1,5 @@
+local packet_core = require("core.packet")
+
 local budget = {}
 
 local AXES = {
@@ -68,6 +70,10 @@ local function refresh_exhaustion(runtime_budget)
 end
 
 function budget.init(instance)
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "initialize budget")
+    if not mutable then
+        return nil, mutable_err
+    end
     local runtime_budget = ensure(instance)
     local physis = instance.physis or instance.substrate or {}
     local limits = copy_numeric_axes(physis.budget or {})
@@ -108,6 +114,10 @@ function budget.estimate_tokens(text, options)
 end
 
 function budget.charge(instance, input)
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "charge budget")
+    if not mutable then
+        return nil, mutable_err
+    end
     input = input or {}
     if type(input.cost) ~= "table" then
         return nil, "budget charge requires cost table"
@@ -123,6 +133,10 @@ function budget.charge(instance, input)
                 runtime_budget.remaining[key] = runtime_budget.remaining[key] - value
             end
         end
+    end
+
+    if instance.revisions then
+        instance.revisions.budget = (instance.revisions.budget or 0) + 1
     end
 
     refresh_exhaustion(runtime_budget)
@@ -144,27 +158,32 @@ function budget.charge(instance, input)
 end
 
 function budget.snapshot(instance)
-    local runtime_budget = ensure(instance)
+    local runtime_budget = instance and instance.runtime and instance.runtime.budget or {}
+    local remaining = runtime_budget.remaining
+    if type(remaining) ~= "table" then
+        local physis = instance and (instance.physis or instance.substrate) or {}
+        remaining = copy_numeric_axes(physis.budget or {})
+    end
+    local keys = exhausted_keys({remaining = remaining})
     return {
         kind = "runtime_budget_snapshot",
         spent = copy_numeric_axes(runtime_budget.spent),
-        remaining = copy_numeric_axes(runtime_budget.remaining),
-        exhausted = runtime_budget.exhausted == true,
-        exhausted_keys = {table.unpack(runtime_budget.exhausted_keys or {})},
+        remaining = copy_numeric_axes(remaining),
+        exhausted = #keys > 0,
+        exhausted_keys = keys,
         event_count = #(runtime_budget.events or {}),
         truth_status = "runtime_confirmed",
     }
 end
 
 function budget.is_exhausted(instance)
-    local runtime_budget = ensure(instance)
-    refresh_exhaustion(runtime_budget)
-    return runtime_budget.exhausted == true, runtime_budget.exhausted_keys
+    local snapshot = budget.snapshot(instance)
+    return snapshot.exhausted, snapshot.exhausted_keys
 end
 
 function budget.exhaustion_residue(instance, options)
     options = options or {}
-    local runtime_budget = ensure(instance)
+    local snapshot = budget.snapshot(instance)
     local progress = options.progress or {}
     local trace = instance.trace or {}
     local trace_tail = {}
@@ -175,7 +194,7 @@ function budget.exhaustion_residue(instance, options)
     end
     return {
         cause = "budget_exhausted",
-        exhausted_keys = {table.unpack(runtime_budget.exhausted_keys or {})},
+        exhausted_keys = {table.unpack(snapshot.exhausted_keys or {})},
         last_operator = options.last_operator or instance.operator,
         trace_tail = trace_tail,
         remaining_work_count = progress.remaining_count,

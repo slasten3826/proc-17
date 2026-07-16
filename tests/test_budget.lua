@@ -37,6 +37,7 @@ local record = assert(budget.charge(p, {
 }))
 assert_eq(record.remaining_after.steps, 2, "step charge decreases remaining")
 assert_eq(p.runtime.budget.spent.steps, 1, "spent steps accumulated")
+assert_eq(p.revisions.budget, 1, "paid mutation advances budget revision")
 
 local usage = budget.from_usage({prompt_tokens = 3, completion_tokens = 4})
 assert_eq(usage.total_tokens, 7, "usage total computed")
@@ -51,6 +52,7 @@ budget.charge(p, {
 })
 assert_eq(p.runtime.budget.spent.total_tokens, 7, "token spend accumulated")
 assert_eq(p.runtime.budget.remaining.total_tokens, 3, "token remaining decreased")
+assert_eq(p.revisions.budget, 2, "usage mutation advances budget revision")
 
 local estimated = budget.estimate_tokens("123456789", {chars_per_token = 4})
 assert_eq(estimated, 3, "estimated tokens ceil")

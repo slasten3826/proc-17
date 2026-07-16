@@ -52,7 +52,12 @@ assert_eq(#p.calm.work_units, 3, "chaos fragment lines become units without raw 
 assert_eq(#p.boundary.crystallizations, 1, "crystallization stored")
 assert_eq(#p.boundary.loss_records, 1, "loss stored")
 assert_eq(#p.boundary.loss_records[1].loss.loss_log, 0, "non-truncated organ loss log empty")
-assert_eq(p.trace[#p.trace].type, "crystallization", "encode trace event")
+assert_eq(encoded_payload.trace_event_id, p.boundary.crystallizations[1].trace_event_id, "encode keeps crystallization ref")
+assert_eq(p.trace[#p.trace].type, "identity_map", "encode shadow identity map is trace-visible")
+assert_eq(#p.field.unit_order, 3, "encode creates one canonical unit per encoded item")
+assert_eq(#p.field.identity_maps, 1, "encode records one field identity map")
+assert_eq(#encoded_payload.field_shadow.member_unit_ids, 3, "encode exposes canonical member refs")
+assert_eq(p.calm.current.field_shadow.named_reader, "organs.choose", "shadow field names its reader")
 assert_true(not contains_secret(p.calm.current), "encode must not encode substrate secret")
 
 local limited = packet.new("limit encode", {
@@ -71,7 +76,7 @@ assert_eq(limited.calm.current.loss_log[1].content_preview, "c", "calm delta car
 
 local before_units = p.calm.work_units
 local chosen_packet, choice_payload = choose_organ.run(p, {
-    limits = {max_selected = 1, max_killed_sample = 8},
+    limits = {max_selected = 1, max_killed_sample = 1},
     semantic_ranking = {
         truth_status = "semantic_proposal",
         items = {
@@ -84,9 +89,18 @@ assert_true(chosen_packet, "choose organ should return packet")
 assert_eq(choice_payload.kind, "choose_collapse_payload", "choice payload kind")
 assert_eq(choice_payload.selected[1].id, "line:2", "choice selected ranked item")
 assert_eq(choice_payload.not_chosen_count, 2, "choice killed alternatives count")
+assert_eq(#choice_payload.killed_alternatives, 1, "choice detail log remains bounded")
+assert_eq(#choice_payload.suppressed_ids, 2, "choice retains every suppressed id")
 assert_eq(#p.boundary.choices, 1, "choice stored in boundary")
 assert_eq(p.trace[#p.trace].type, "choice", "choice trace event")
 assert_true(p.calm.work_units == before_units, "choose must not rewrite work units")
+assert_eq(choice_payload.field_shadow.status, "applied", "choice applies shadow activation")
+local selected_unit_id = p.calm.current.field_shadow.legacy_to_unit_id["line:2"]
+assert_eq(p.field.units[selected_unit_id].activation, "selected", "ranked canonical unit selected")
+for _, legacy_id in ipairs({"line:1", "line:3"}) do
+    local unit_id = p.calm.current.field_shadow.legacy_to_unit_id[legacy_id]
+    assert_eq(p.field.units[unit_id].activation, "suppressed", "unchosen canonical unit suppressed")
+end
 assert_eq(choice_payload.can_continue, nil, "choose must not decide continuation")
 assert_eq(choice_payload.next_action, nil, "choose must not choose next action")
 assert_eq(p.death, nil, "choose must not kill packet")

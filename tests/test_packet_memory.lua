@@ -15,7 +15,16 @@ local function assert_eq(left, right, message)
     end
 end
 
-local p = packet.new("remember failed route", {id = "packet-memory-test"})
+local p = packet.new("remember failed route", {
+    id = "packet-memory-test",
+    lineage_id = "lineage-memory-test",
+    generation = 2,
+    parent_id = "packet-memory-parent",
+    parent_corpse_id = "corpse-memory-parent",
+    birth_kind = "network_reentry",
+    carrier_id = "carrier-memory-parent",
+    substrate_session_id = "substrate-memory-session",
+})
 
 packet.append_chaos(p, {
     operator = "☴",
@@ -50,18 +59,19 @@ packet.crystallize(p, {
     status = "accepted",
 })
 
-packet.manifest_packet(p, {
+assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "memory_test_entry"}))
+assert(packet.commit_transition(p, {from = "☴", to = "☱", reason = "memory_test_runtime"}))
+assert(packet.commit_transition(p, {from = "☱", to = "△", reason = "memory_test_manifest"}))
+assert(packet.manifest_packet(p, {
     output = {
         type = "text",
         content = "do not repeat truncated encode",
     },
     truth_status = "runtime_confirmed",
-})
-
-packet.die(p, "complete", {
+}, {
     cause = "complete",
     do_not_repeat = "hide encode loss",
-})
+}))
 
 local disabled_save, disabled_save_err = packet_memory.save(p, {
     root = "sandbox/packets",
@@ -78,7 +88,14 @@ local capsule, path = packet_memory.save(p, {
 assert_true(capsule, "capsule saved")
 assert_eq(capsule.kind, "packet_memory_capsule", "capsule kind")
 assert_eq(capsule.packet_id, "packet-memory-test", "capsule packet id")
+assert_eq(capsule.lineage_id, "lineage-memory-test", "capsule lineage id")
+assert_eq(capsule.generation, 2, "capsule generation")
+assert_eq(capsule.parent_corpse_id, "corpse-memory-parent", "capsule parent corpse")
+assert_eq(capsule.birth_kind, "network_reentry", "capsule birth kind")
+assert_eq(capsule.carrier_id, "carrier-memory-parent", "capsule carrier")
+assert_eq(capsule.substrate_session_id, "substrate-memory-session", "capsule substrate session")
 assert_eq(capsule.status, "dead", "capsule status")
+assert_eq(capsule.terminal.kind, "manifest", "capsule terminal kind")
 assert_eq(capsule.residue.do_not_repeat, "hide encode loss", "capsule residue")
 assert_eq(#capsule.loss_records, 1, "capsule loss records")
 assert_true(#capsule.trace_tail <= 4, "trace tail limit")
@@ -98,6 +115,9 @@ assert_eq(disabled_inherit_err, "packet memory is disabled", "disabled inherit r
 local inherited = assert(packet_memory.inherit(loaded, {enabled = true}))
 assert_eq(inherited.kind, "inherited_packet_residue", "inherited kind")
 assert_eq(inherited.source_packet_id, "packet-memory-test", "inherited source")
+assert_eq(inherited.source_lineage_id, "lineage-memory-test", "inherited source lineage")
+assert_eq(inherited.source_generation, 2, "inherited source generation")
+assert_eq(inherited.source_parent_corpse_id, "corpse-memory-parent", "inherited source parent corpse")
 assert_eq(inherited.truth_status, "runtime_confirmed", "inherited truth")
 assert_eq(inherited.residue.do_not_repeat, "hide encode loss", "inherited residue")
 

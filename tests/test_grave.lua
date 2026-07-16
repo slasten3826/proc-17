@@ -165,6 +165,7 @@ assert_eq(child.chaos.unresolved_pressure[1].kind, "grave_bequest_pressure", "be
 assert_eq(child.chaos.unresolved_pressure[1].source_packet_id, "dead-progress", "bequest pressure source")
 assert_eq(child.chaos.unresolved_pressure[1].death_truth_status, "runtime_confirmed", "pressure death truth")
 assert_eq(child.chaos.unresolved_pressure[1].applicability_truth_status, "grave_pressure", "pressure applicability")
+assert_eq(child.revisions.history, 1, "grave attachment advances history revision once")
 
 local single_child = packet.new("single grave attach")
 local single_attach = assert(grave.attach(single_child, {

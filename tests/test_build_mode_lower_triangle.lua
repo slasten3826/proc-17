@@ -45,8 +45,7 @@ local fake_substrate = {
 
 local routed_packet, result = tension_runner.run("build lower triangle", fake_substrate, {
     work_mode = "build",
-    start_operator = "☶",
-    max_ticks = 2,
+    max_ticks = 8,
     logic = {
         spells = {
             {
@@ -60,11 +59,26 @@ local routed_packet, result = tension_runner.run("build lower triangle", fake_su
 })
 
 assert_true(routed_packet, result)
-assert_eq(result.ticks[1].operator, "☶", "first tick logic")
-assert_eq(result.ticks[1].payload.status, "accepted", "spell accepted")
-assert_eq(result.ticks[1].payload.evidence_count, 1, "spell evidence count")
+local logic_tick
+local logic_route
+for _, tick in ipairs(result.ticks) do
+    if tick.operator == "☶" then
+        logic_tick = tick
+        break
+    end
+end
+for _, route in ipairs(result.routes) do
+    if route.from == "☶" then
+        logic_route = route
+        break
+    end
+end
+assert_true(logic_tick ~= nil, "real tree route reaches logic")
+assert_eq(logic_tick.payload.status, "accepted", "spell accepted")
+assert_eq(logic_tick.payload.evidence_count, 1, "spell evidence count")
 assert_eq(#routed_packet.runtime.evidence, 1, "runtime evidence stored")
 assert_eq(routed_packet.runtime.foundation.reinforcements, 1, "foundation reinforced")
-assert_eq(result.routes[1].to, "☱", "logic routes to runtime eye")
+assert_true(logic_route ~= nil, "logic route recorded")
+assert_eq(logic_route.to, "☱", "logic routes to runtime eye")
 
 print("test_build_mode_lower_triangle ok")

@@ -51,4 +51,83 @@ function freshness.read(record, opts)
     return verdict("unclocked", "semantic_proposal", "no_clock", nil)
 end
 
+local function sorted_keys(value)
+    local keys = {}
+    for key in pairs(value or {}) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    return keys
+end
+
+function freshness.observation(instance, record)
+    if type(instance) ~= "table" or type(instance.revisions) ~= "table" then
+        return nil, "packet revision vector required"
+    end
+    if type(record) ~= "table" or record.kind ~= "eye_observation" then
+        return nil, "eye observation required"
+    end
+    if type(record.read_revisions) ~= "table" then
+        return nil, "observation read revisions required"
+    end
+
+    local changed = {}
+    local current = {}
+    for _, component in ipairs(sorted_keys(record.read_revisions)) do
+        local observed_revision = record.read_revisions[component]
+        local current_revision = instance.revisions[component]
+        current[component] = current_revision
+        if current_revision ~= observed_revision then
+            changed[#changed + 1] = {
+                component = component,
+                observed = observed_revision,
+                current = current_revision,
+            }
+        end
+    end
+
+    local fresh = #changed == 0
+    return {
+        kind = "observation_freshness",
+        observation_id = record.id,
+        eye = record.eye,
+        fresh = fresh,
+        zone = fresh and "fresh" or "stale",
+        reason = fresh and "referent_revisions_match" or "referent_revision_changed",
+        changed_components = changed,
+        read_revisions = record.read_revisions,
+        current_revisions = current,
+        event_truth_status = "runtime_confirmed",
+        content_truth_status = record.content_truth_status,
+    }
+end
+
+function freshness.latest_eye(instance, eye)
+    local key = eye
+    if eye == "☴" then
+        key = "upper"
+    elseif eye == "☱" then
+        key = "lower"
+    end
+    if key ~= "upper" and key ~= "lower" then
+        return nil, "invalid observation eye"
+    end
+
+    local observations = instance and instance.boundary and instance.boundary.observations or {}
+    local records = observations[key] or {}
+    local record = records[#records]
+    if not record then
+        return {
+            kind = "observation_freshness",
+            eye = key,
+            fresh = false,
+            zone = "missing",
+            reason = "no_observation",
+            changed_components = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
+    return freshness.observation(instance, record)
+end
+
 return freshness

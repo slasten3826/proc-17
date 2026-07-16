@@ -1,4 +1,5 @@
 local freshness = require("runtime.freshness")
+local packet_core = require("core.packet")
 
 local foundation = {}
 
@@ -31,9 +32,21 @@ local function update_state(store)
     return store.state
 end
 
+local function state_from(store)
+    if (store.reinforcements or 0) <= 0 then
+        return "fluid"
+    elseif (store.stability or 0) >= 0.85 then
+        return "stable_runtime"
+    elseif (store.stability or 0) < 0 then
+        return "collapsing"
+    end
+    return "crystallizing"
+end
+
 function foundation.reinforce(instance, spell_result)
-    if type(instance) ~= "table" then
-        return nil, "packet required"
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "reinforce foundation")
+    if not mutable then
+        return nil, mutable_err
     end
     if type(spell_result) ~= "table" or spell_result.kind ~= "spell_result" then
         return nil, "spell_result required"
@@ -79,12 +92,20 @@ function foundation.reinforce(instance, spell_result)
     update_state(store)
 
     instance.runtime.evidence[#instance.runtime.evidence + 1] = spell_result
+    if instance.revisions then
+        instance.revisions.evidence = (instance.revisions.evidence or 0) + 1
+    end
     return pattern
 end
 
 function foundation.snapshot(instance, opts)
     opts = opts or {}
-    local store = ensure_runtime(instance)
+    local store = instance and instance.runtime and instance.runtime.foundation or {
+        patterns = {},
+        stability = 0,
+        state = "fluid",
+        reinforcements = 0,
+    }
     local clock = instance.physis and instance.physis.clock
     local current_tick = opts.tick or (clock and clock.ticks)
     local patterns = {}
@@ -129,8 +150,8 @@ function foundation.snapshot(instance, opts)
 end
 
 function foundation.state(instance)
-    local store = ensure_runtime(instance)
-    return update_state(store)
+    local store = instance and instance.runtime and instance.runtime.foundation or {}
+    return state_from(store)
 end
 
 return foundation
