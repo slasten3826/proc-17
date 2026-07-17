@@ -32,7 +32,7 @@ registry readiness, capability, affordability, and topology. A confirmed build
 life followed:
 
 ```text
-▽ ☰ ☵ ☲ ☶ ☱ △
+▽ ☴ ☰ ☵ ☲ ☶ ☱ △
 ```
 
 `core/packet.lua` commits every route, so `packet.operator`, route events, and
@@ -46,11 +46,13 @@ Authority now depends on the explicit mode:
 ```text
 legacy  legacy movement only
 shadow  legacy movement, tree observation; current default
-tree    tree movement; opt-in Gate A experiment
+tree    tree movement, legacy read-only observation; opt-in experiment
 ```
 
-Tree mode does not call the legacy router as a prerequisite. Legacy-as-shadow
-instrumentation for tree lives is the next transition step.
+Tree mode does not call the legacy router as a prerequisite. After deriving its
+live decision, it records the legacy prediction as a read-only observer by
+default. `legacy_shadow=false` disables that observer for ablation. The legacy
+target is never committed or executed in a tree life.
 
 Two runners remain intentionally:
 
@@ -238,8 +240,11 @@ mutation loop.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    42 suites passed
+lua tests/run.lua                    45 suites passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
+tests/test_tree_instrumentation.lua  7/7 Gate B cases passed
+tests/test_edge_metric_roles.lua     passed
+tests/test_tree_manifest_honesty.lua 4/4 Gate 4.2 cases passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
 lua tests/smoke_runtime_camera_treatment.lua passed
 lua tests/smoke_pressure_ablation.lua passed
@@ -250,7 +255,7 @@ luac -p over all Lua sources         passed
 The first confirmed opt-in tree build produced:
 
 ```text
-walk: ▽ ☰ ☵ ☲ ☶ ☱ △
+walk: ▽ ☴ ☰ ☵ ☲ ☶ ☱ △
 7 ticks, one accepted validation, loss 0.5
 manifested -> dead/complete
 manifest input_provenance = packet_trace
@@ -260,6 +265,30 @@ The Gate A suite also confirms typed stalled birth, typed external failure,
 rejected validation survival, strict derivation refs, and loud invariant
 failure. The initial red baseline and treatment history are preserved in
 [`../00_chaos/tree_authority_opt_in_results_2026-07-17.md`](../00_chaos/tree_authority_opt_in_results_2026-07-17.md).
+
+Gate B reversed instrumentation without changing the default authority. The
+confirmed tree life produced seven tree derivations and seven legacy observer
+records. Observer ablation left routes, economics, loss, revisions, evidence,
+and terminal state identical; only seven append-only measurement events were
+removed. Legacy agreed twice, diverged five times, and reported one typed
+unavailable source at CONNECT. The complete record is preserved in
+[`../00_chaos/tree_legacy_shadow_flip_results_2026-07-17.md`](../00_chaos/tree_legacy_shadow_flip_results_2026-07-17.md).
+
+Promotion measurements now use `edge-stats.v2`. Route comparisons are keyed by
+the observer and observed authority; rail evidence is split between
+`tree_shadow` counterfactual predictions and `tree_authority` derivations. The
+old cross-observer agreement totals and role-changing flat rail counters were
+removed. Mixed v1/v2 ledgers fail loudly instead of silently promoting
+historical evidence. The contract is recorded in
+[`../02_crystall/blueprints/edge_evidence_roles.v0.md`](../02_crystall/blueprints/edge_evidence_roles.v0.md).
+
+Manifest honesty step 4.2 closes the rejected-validation laundering defect.
+MANIFEST reads both the validation record and the latest runtime reconciliation,
+preserves the semantic text, and projects a body-owned `blocked` outcome through
+output, summary, assembly, terminal, death, and corpse residue. A normal
+accepted build remains `complete`. The permanent grown-life gate is `4/4`
+green; the treatment record is preserved in
+[`../00_chaos/tree_manifest_honesty_treatment_results_2026-07-17.md`](../00_chaos/tree_manifest_honesty_treatment_results_2026-07-17.md).
 
 A local L0/L1 fake-substrate treatment confirms that the continuous camera does
 not alter the live route, step/substrate budget, or identity loss. In both plan
@@ -320,8 +349,8 @@ the checks outside the body.
    exist as libraries, not one automatic birth-to-grave lifecycle.
 8. **Tree authority is opt-in v0.** It is a deterministic, binary function of
    explicit Packet records and can manifest a build life, but its constants are
-   unmeasured. Tree lives do not yet record legacy as a read-only shadow, so the
-   instrumentation flip and promotion corpus are still open.
+   unmeasured. The legacy observer and v2 evidence roles are isolated and
+   measured; the promotion corpus is still open.
 9. **User surfaces are absent.** The machine CLI and Go TUI have designs only.
 
 Several modules are currently standalone or partially integrated, including
@@ -331,16 +360,13 @@ Several modules are currently standalone or partially integrated, including
 
 ## Next Architecture Target
 
-Gate A is complete. Finish the authority transition before granting repository
-mutation:
+Gates A and B are complete. Finish the authority transition before granting
+repository mutation:
 
-1. in tree lives, record the legacy decision as read-only shadow evidence;
-2. prove tree routes, economics, loss, revisions and terminal outcome are
-   identical with that observer enabled and disabled;
-3. grow a tree-life corpus containing manifest, stall, rejected validation,
+1. grow a tree-life corpus containing manifest, stall, rejected validation,
    typed external failure, mortality, CONNECT, and a real DISSOLVE witness;
-4. document calibration defects without hiding them behind legacy rails;
-5. change the default from `shadow` to `tree` only in a separate reviewed step,
+2. document calibration defects without hiding them behind legacy rails;
+3. change the default from `shadow` to `tree` only in a separate reviewed step,
    preserving explicit legacy control.
 
 Then close the first real work loop:

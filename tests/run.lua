@@ -11,6 +11,7 @@ local tests = {
     "tests.test_runtime_camera",
     "tests.test_tree_router",
     "tests.test_edge_evidence",
+    "tests.test_edge_metric_roles",
     "tests.test_packet",
     "tests.test_field",
     "tests.test_connect",
@@ -41,6 +42,8 @@ local tests = {
     "tests.test_router",
     "tests.test_shadow_router",
     "tests.test_tree_authority",
+    "tests.test_tree_instrumentation",
+    "tests.test_tree_manifest_honesty",
     "tests.test_tension_runner",
     "tests.test_build_mode_lower_triangle",
 }

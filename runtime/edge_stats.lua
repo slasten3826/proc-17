@@ -2,6 +2,61 @@ local catalog = require("runtime.edge_catalog")
 
 local edge_stats = {}
 
+edge_stats.protocol_version = "edge-stats.v2"
+
+local observer_authorities = {
+    tree = "legacy_control",
+    legacy = "tree",
+}
+
+local observer_counter_keys = {
+    "comparison_count",
+    "agreement_count",
+    "divergence_count",
+    "no_prediction_count",
+    "unavailable_count",
+}
+
+local rail_channel_definitions = {
+    tree_shadow = {
+        id = "tree_shadow",
+        evidence_role = "counterfactual_prediction",
+        observer = "tree",
+        observed_authority = "legacy_control",
+        authority = "none",
+        target_kind = "predicted_to",
+    },
+    tree_authority = {
+        id = "tree_authority",
+        evidence_role = "authoritative_derivation",
+        authority = "tree",
+        target_kind = "selected_to",
+    },
+}
+
+local rail_counter_keys = {
+    "cases",
+    "target_count",
+    "reference_eye_count",
+    "eye_debt_cases",
+    "eye_target_count",
+    "debt_eye_target_count",
+    "fresh_eye_target_count",
+    "debt_bypass_count",
+    "fresh_direct_count",
+    "no_target_count",
+}
+
+local function validate_stats(stats)
+    if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
+        return nil, "edge statistics state required"
+    end
+    if stats.protocol_version ~= edge_stats.protocol_version then
+        return nil, "edge statistics protocol mismatch"
+    end
+    return true
+end
+
 local rail_definitions = {
     {
         id = "rail.encode_observe",
@@ -44,6 +99,9 @@ local function new_direction(key, legal)
         exclusion_reasons = {},
         arrival_kinds = {},
         failure_kinds = {},
+        authority_counts = {},
+        derivation_refs = {},
+        failure_refs = {},
     }
 end
 
@@ -71,10 +129,47 @@ local function new_edge(definition)
         resistance_sum = 0,
         total_sum = 0,
         exclusion_reasons = {},
+        authority_counts = {},
+        derivation_refs = {},
+        failure_refs = {},
         status = "untested",
         coverage = "untested",
         executed_direction_count = 0,
         required_direction_count = #definition.directions,
+    }
+end
+
+local function new_observer(observer_id, observed_authority)
+    return {
+        observer = observer_id,
+        observed_authority = observed_authority or observer_authorities[observer_id],
+        evidence_role = "route_comparison",
+        comparison_count = 0,
+        agreement_count = 0,
+        divergence_count = 0,
+        no_prediction_count = 0,
+        unavailable_count = 0,
+    }
+end
+
+local function new_rail_channel(definition)
+    return {
+        id = definition.id,
+        evidence_role = definition.evidence_role,
+        observer = definition.observer,
+        observed_authority = definition.observed_authority,
+        authority = definition.authority,
+        target_kind = definition.target_kind,
+        cases = 0,
+        target_count = 0,
+        reference_eye_count = 0,
+        eye_debt_cases = 0,
+        eye_target_count = 0,
+        debt_eye_target_count = 0,
+        fresh_eye_target_count = 0,
+        debt_bypass_count = 0,
+        fresh_direct_count = 0,
+        no_target_count = 0,
     }
 end
 
@@ -84,14 +179,10 @@ local function new_rail(definition)
         from = definition.from,
         eye = definition.eye,
         debt_kind = definition.debt_kind,
-        cases = 0,
-        live_eye_count = 0,
-        eye_debt_cases = 0,
-        required_eye_recall = 0,
-        eye_without_debt = 0,
-        debt_bypass_proposals = 0,
-        fresh_direct_proposals = 0,
-        no_prediction_count = 0,
+        channels = {
+            tree_shadow = new_rail_channel(rail_channel_definitions.tree_shadow),
+            tree_authority = new_rail_channel(rail_channel_definitions.tree_authority),
+        },
         promotion_status = "insufficient_evidence",
     }
 end
@@ -153,6 +244,24 @@ local function merge_counts(target, source)
     end
 end
 
+local function append_unique(target, value)
+    if type(value) ~= "string" or value == "" then
+        return
+    end
+    for _, existing in ipairs(target) do
+        if existing == value then
+            return
+        end
+    end
+    target[#target + 1] = value
+end
+
+local function merge_unique(target, source)
+    for _, value in ipairs(source or {}) do
+        append_unique(target, value)
+    end
+end
+
 local function contribution_present(shadow, target, kind)
     for _, candidate in ipairs(shadow.candidates or {}) do
         if candidate.to == target then
@@ -166,43 +275,89 @@ local function contribution_present(shadow, target, kind)
     return false
 end
 
-local function record_rail(stats, shadow)
-    local rail = stats.rails_by_source[shadow.current_operator]
+local function record_rail(stats, evidence, channel_id)
+    local rail = stats.rails_by_source[evidence.current_operator]
     if not rail then
-        return
+        return stats
     end
-    rail.cases = rail.cases + 1
-    if shadow.live_to == rail.eye then
-        rail.live_eye_count = rail.live_eye_count + 1
+    local channel = rail.channels[channel_id]
+    if not channel then
+        return nil, "unknown rail evidence channel: " .. tostring(channel_id)
     end
-    local debt = contribution_present(shadow, rail.eye, rail.debt_kind)
+
+    channel.cases = channel.cases + 1
+    if evidence.reference_to == rail.eye then
+        channel.reference_eye_count = channel.reference_eye_count + 1
+    end
+    local debt = contribution_present(evidence, rail.eye, rail.debt_kind)
     if debt then
-        rail.eye_debt_cases = rail.eye_debt_cases + 1
+        channel.eye_debt_cases = channel.eye_debt_cases + 1
     end
-    if shadow.predicted_to == nil then
-        rail.no_prediction_count = rail.no_prediction_count + 1
-    elseif shadow.predicted_to == rail.eye then
+
+    if evidence.target_to == nil then
+        channel.no_target_count = channel.no_target_count + 1
+        return channel
+    end
+
+    channel.target_count = channel.target_count + 1
+    if evidence.target_to == rail.eye then
+        channel.eye_target_count = channel.eye_target_count + 1
         if debt then
-            rail.required_eye_recall = rail.required_eye_recall + 1
+            channel.debt_eye_target_count = channel.debt_eye_target_count + 1
         else
-            rail.eye_without_debt = rail.eye_without_debt + 1
+            channel.fresh_eye_target_count = channel.fresh_eye_target_count + 1
         end
     elseif debt then
-        rail.debt_bypass_proposals = rail.debt_bypass_proposals + 1
+        channel.debt_bypass_count = channel.debt_bypass_count + 1
     else
-        rail.fresh_direct_proposals = rail.fresh_direct_proposals + 1
+        channel.fresh_direct_count = channel.fresh_direct_count + 1
     end
+    return channel
+end
+
+local function record_candidates(stats, current_operator, candidates, selected_to, derivation_ref)
+    for _, candidate in ipairs(candidates or {}) do
+        local record, record_err = ensure_edge(stats, current_operator, candidate.to)
+        if not record then
+            return nil, record_err
+        end
+        local directional = ensure_direction(record, current_operator, candidate.to)
+        record.candidate_count = record.candidate_count + 1
+        directional.candidate_count = directional.candidate_count + 1
+        record.positive_sum = record.positive_sum + (candidate.positive or 0)
+        record.resistance_sum = record.resistance_sum + (candidate.resistance or 0)
+        record.total_sum = record.total_sum + (candidate.total or 0)
+        directional.positive_sum = directional.positive_sum + (candidate.positive or 0)
+        directional.resistance_sum = directional.resistance_sum + (candidate.resistance or 0)
+        directional.total_sum = directional.total_sum + (candidate.total or 0)
+        append_unique(record.derivation_refs, derivation_ref)
+        append_unique(directional.derivation_refs, derivation_ref)
+        if candidate.to == selected_to then
+            record.selection_count = record.selection_count + 1
+            directional.prediction_count = directional.prediction_count + 1
+        end
+        for _, exclusion in ipairs(candidate.exclusions or {}) do
+            local reason = exclusion.reason or exclusion.kind or "unknown"
+            increment_reason(record.exclusion_reasons, reason)
+            increment_reason(directional.exclusion_reasons, reason)
+        end
+        refresh_edge(record)
+    end
+    return stats
 end
 
 function edge_stats.new(labels)
     local stats = {
         kind = "edge_statistics",
-        protocol_version = "edge-stats.v1",
+        protocol_version = edge_stats.protocol_version,
         labels = labels or {},
-        shadow_ticks = 0,
-        agreement_count = 0,
-        divergence_count = 0,
-        no_viable_edge_count = 0,
+        comparison_count = 0,
+        tree_derivation_count = 0,
+        tree_no_viable_count = 0,
+        observers = {
+            tree = new_observer("tree", "legacy_control"),
+            legacy = new_observer("legacy", "tree"),
+        },
         edges = {},
         edge_order = {},
         rails = {},
@@ -222,55 +377,112 @@ function edge_stats.new(labels)
 end
 
 function edge_stats.record(stats, shadow)
-    if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
-        return nil, "edge statistics state required"
+    local valid, valid_err = validate_stats(stats)
+    if not valid then
+        return nil, valid_err
     end
     if type(shadow) ~= "table" or shadow.kind ~= "shadow_route_decision" then
         return nil, "shadow route decision required"
     end
 
-    stats.shadow_ticks = stats.shadow_ticks + 1
-    if shadow.agreement == true then
-        stats.agreement_count = stats.agreement_count + 1
-    else
-        stats.divergence_count = stats.divergence_count + 1
+    local observer_id = shadow.observer
+    local observed_authority = shadow.live_authority
+    if type(observer_id) ~= "string" or observer_id == "" then
+        return nil, "shadow observer identity required"
     end
-    if shadow.predicted_to == nil then
-        stats.no_viable_edge_count = stats.no_viable_edge_count + 1
+    if type(observed_authority) ~= "string" or observed_authority == "" then
+        return nil, "shadow observed authority required"
+    end
+    local expected_authority = observer_authorities[observer_id]
+    if expected_authority and observed_authority ~= expected_authority then
+        return nil, "observer authority mismatch: " .. observer_id
     end
 
-    for _, candidate in ipairs(shadow.candidates or {}) do
-        local record, record_err = ensure_edge(stats, shadow.current_operator, candidate.to)
-        if not record then
+    local observer = stats.observers[observer_id]
+    if not observer then
+        observer = new_observer(observer_id, observed_authority)
+        stats.observers[observer_id] = observer
+    elseif observer.observed_authority ~= observed_authority then
+        return nil, "observer authority changed: " .. observer_id
+    end
+
+    stats.comparison_count = stats.comparison_count + 1
+    observer.comparison_count = observer.comparison_count + 1
+    if shadow.agreement == true then
+        observer.agreement_count = observer.agreement_count + 1
+    else
+        observer.divergence_count = observer.divergence_count + 1
+    end
+    if shadow.predicted_to == nil then
+        observer.no_prediction_count = observer.no_prediction_count + 1
+    end
+    if shadow.instrumentation_status == "unavailable" then
+        observer.unavailable_count = observer.unavailable_count + 1
+    end
+
+    if observer_id == "tree" then
+        local recorded, record_err = record_candidates(
+            stats,
+            shadow.current_operator,
+            shadow.candidates,
+            shadow.predicted_to,
+            shadow.derivation_ref
+        )
+        if not recorded then
             return nil, record_err
         end
-        local directional = ensure_direction(record, shadow.current_operator, candidate.to)
-        record.candidate_count = record.candidate_count + 1
-        directional.candidate_count = directional.candidate_count + 1
-        record.positive_sum = record.positive_sum + (candidate.positive or 0)
-        record.resistance_sum = record.resistance_sum + (candidate.resistance or 0)
-        record.total_sum = record.total_sum + (candidate.total or 0)
-        directional.positive_sum = directional.positive_sum + (candidate.positive or 0)
-        directional.resistance_sum = directional.resistance_sum + (candidate.resistance or 0)
-        directional.total_sum = directional.total_sum + (candidate.total or 0)
-        if candidate.to == shadow.predicted_to then
-            record.selection_count = record.selection_count + 1
-            directional.prediction_count = directional.prediction_count + 1
+        local rail_recorded, rail_err = record_rail(stats, {
+            current_operator = shadow.current_operator,
+            candidates = shadow.candidates,
+            target_to = shadow.predicted_to,
+            reference_to = shadow.live_to,
+        }, "tree_shadow")
+        if not rail_recorded then
+            return nil, rail_err
         end
-        for _, exclusion in ipairs(candidate.exclusions or {}) do
-            local reason = exclusion.reason or exclusion.kind or "unknown"
-            increment_reason(record.exclusion_reasons, reason)
-            increment_reason(directional.exclusion_reasons, reason)
-        end
-        refresh_edge(record)
     end
-    record_rail(stats, shadow)
+    return stats
+end
+
+function edge_stats.record_tree_derivation(stats, decision)
+    local valid, valid_err = validate_stats(stats)
+    if not valid then
+        return nil, valid_err
+    end
+    if type(decision) ~= "table" or decision.authority ~= "tree"
+        or decision.from == nil or type(decision.candidates) ~= "table" then
+        return nil, "tree route derivation required"
+    end
+
+    stats.tree_derivation_count = stats.tree_derivation_count + 1
+    if decision.kind == "no_viable_edge" then
+        stats.tree_no_viable_count = stats.tree_no_viable_count + 1
+    end
+    local recorded, record_err = record_candidates(
+        stats,
+        decision.from,
+        decision.candidates,
+        decision.to,
+        decision.derivation_ref
+    )
+    if not recorded then
+        return nil, record_err
+    end
+    local rail_recorded, rail_err = record_rail(stats, {
+        current_operator = decision.from,
+        candidates = decision.candidates,
+        target_to = decision.to,
+    }, "tree_authority")
+    if not rail_recorded then
+        return nil, rail_err
+    end
     return stats
 end
 
 function edge_stats.record_transition(stats, route)
-    if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
-        return nil, "edge statistics state required"
+    local valid, valid_err = validate_stats(stats)
+    if not valid then
+        return nil, valid_err
     end
     if type(route) ~= "table" or route.from == nil or route.to == nil then
         return nil, "route transition required"
@@ -282,13 +494,19 @@ function edge_stats.record_transition(stats, route)
     local directional = ensure_direction(record, route.from, route.to)
     record.committed_count = record.committed_count + 1
     directional.committed_count = directional.committed_count + 1
+    local authority = route.authority or "legacy_control"
+    increment_reason(record.authority_counts, authority)
+    increment_reason(directional.authority_counts, authority)
+    append_unique(record.derivation_refs, route.derivation_ref)
+    append_unique(directional.derivation_refs, route.derivation_ref)
     refresh_edge(record)
     return record
 end
 
 function edge_stats.record_arrival(stats, route, payload)
-    if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
-        return nil, "edge statistics state required"
+    local valid, valid_err = validate_stats(stats)
+    if not valid then
+        return nil, valid_err
     end
     if type(route) ~= "table" or route.from == nil or route.to == nil then
         return nil, "arrival route required"
@@ -306,9 +524,10 @@ function edge_stats.record_arrival(stats, route, payload)
     return record
 end
 
-function edge_stats.record_failure(stats, route, failure)
-    if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
-        return nil, "edge statistics state required"
+function edge_stats.record_failure(stats, route, failure, failure_ref)
+    local valid, valid_err = validate_stats(stats)
+    if not valid then
+        return nil, valid_err
     end
     if type(route) ~= "table" or route.from == nil or route.to == nil then
         return nil, "failed arrival route required"
@@ -322,13 +541,16 @@ function edge_stats.record_failure(stats, route, failure)
     directional.failed_count = (directional.failed_count or 0) + 1
     local kind = type(failure) == "table" and (failure.code or failure.kind) or "unknown"
     increment_reason(directional.failure_kinds, kind)
+    append_unique(record.failure_refs, failure_ref)
+    append_unique(directional.failure_refs, failure_ref)
     refresh_edge(record)
     return record
 end
 
 function edge_stats.summary(stats)
-    if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
-        return nil, "edge statistics state required"
+    local valid, valid_err = validate_stats(stats)
+    if not valid then
+        return nil, valid_err
     end
     local status_counts = {}
     local coverage_counts = {}
@@ -343,16 +565,104 @@ function edge_stats.summary(stats)
     end
     return {
         kind = "edge_evidence_summary",
+        protocol_version = edge_stats.protocol_version,
         edge_count = #stats.edge_order,
         status_counts = status_counts,
         coverage_counts = coverage_counts,
         untested_ids = untested_ids,
         rail_count = #rail_definitions,
-        shadow_ticks = stats.shadow_ticks,
-        agreement_count = stats.agreement_count,
-        divergence_count = stats.divergence_count,
+        comparison_count = stats.comparison_count,
+        tree_derivation_count = stats.tree_derivation_count,
+        tree_no_viable_count = stats.tree_no_viable_count,
+        observers = stats.observers,
         truth_status = "runtime_confirmed",
     }
+end
+
+local observer_metadata_keys = {
+    "observer",
+    "observed_authority",
+    "evidence_role",
+}
+
+local rail_metadata_keys = {
+    "id",
+    "evidence_role",
+    "observer",
+    "observed_authority",
+    "authority",
+    "target_kind",
+}
+
+local function same_metadata(left, right, keys)
+    for _, key in ipairs(keys) do
+        if left[key] ~= right[key] then
+            return nil, key
+        end
+    end
+    return true
+end
+
+local function validate_merge_contract(target, source)
+    if target.protocol_version ~= edge_stats.protocol_version
+        or source.protocol_version ~= edge_stats.protocol_version then
+        return nil, "edge statistics protocol mismatch"
+    end
+
+    for observer_id, source_observer in pairs(source.observers or {}) do
+        if source_observer.observer ~= observer_id
+            or type(source_observer.observed_authority) ~= "string"
+            or source_observer.evidence_role ~= "route_comparison" then
+            return nil, "invalid observer metadata: " .. tostring(observer_id)
+        end
+        local expected_authority = observer_authorities[observer_id]
+        if expected_authority
+            and source_observer.observed_authority ~= expected_authority then
+            return nil, "observer authority mismatch: " .. observer_id
+        end
+        local target_observer = target.observers[observer_id]
+        if target_observer then
+            local same, key = same_metadata(
+                target_observer,
+                source_observer,
+                observer_metadata_keys
+            )
+            if not same then
+                return nil, "observer metadata mismatch: "
+                    .. observer_id .. "." .. tostring(key)
+            end
+        end
+    end
+
+    for rail_id, source_rail in pairs(source.rails or {}) do
+        local target_rail = target.rails[rail_id]
+        if not target_rail then
+            return nil, "unknown rail: " .. tostring(rail_id)
+        end
+        for channel_id, source_channel in pairs(source_rail.channels or {}) do
+            if source_channel.id ~= channel_id
+                or type(source_channel.evidence_role) ~= "string"
+                or type(source_channel.authority) ~= "string"
+                or type(source_channel.target_kind) ~= "string" then
+                return nil, "invalid rail channel metadata: "
+                    .. tostring(rail_id) .. "." .. tostring(channel_id)
+            end
+            local target_channel = target_rail.channels[channel_id]
+            if target_channel then
+                local same, key = same_metadata(
+                    target_channel,
+                    source_channel,
+                    rail_metadata_keys
+                )
+                if not same then
+                    return nil, "rail channel metadata mismatch: "
+                        .. tostring(rail_id) .. "." .. tostring(channel_id)
+                        .. "." .. tostring(key)
+                end
+            end
+        end
+    end
+    return true
 end
 
 function edge_stats.merge(target, source)
@@ -362,14 +672,32 @@ function edge_stats.merge(target, source)
     if type(source) ~= "table" or source.kind ~= "edge_statistics" then
         return nil, "source edge statistics state required"
     end
+    local valid, valid_err = validate_merge_contract(target, source)
+    if not valid then
+        return nil, valid_err
+    end
 
     for _, key in ipairs({
-        "shadow_ticks",
-        "agreement_count",
-        "divergence_count",
-        "no_viable_edge_count",
+        "comparison_count",
+        "tree_derivation_count",
+        "tree_no_viable_count",
     }) do
         target[key] = (target[key] or 0) + (source[key] or 0)
+    end
+
+    for observer_id, source_observer in pairs(source.observers or {}) do
+        local target_observer = target.observers[observer_id]
+        if not target_observer then
+            target_observer = new_observer(
+                observer_id,
+                source_observer.observed_authority
+            )
+            target.observers[observer_id] = target_observer
+        end
+        for _, key in ipairs(observer_counter_keys) do
+            target_observer[key] = (target_observer[key] or 0)
+                + (source_observer[key] or 0)
+        end
     end
 
     for _, edge in ipairs(target.edge_order) do
@@ -389,6 +717,9 @@ function edge_stats.merge(target, source)
                 into[key] = (into[key] or 0) + (from[key] or 0)
             end
             merge_counts(into.exclusion_reasons, from.exclusion_reasons)
+            merge_counts(into.authority_counts, from.authority_counts)
+            merge_unique(into.derivation_refs, from.derivation_refs)
+            merge_unique(into.failure_refs, from.failure_refs)
             for direction, source_direction in pairs(from.directions or {}) do
                 local target_direction = into.directions[direction]
                     or new_direction(direction, source_direction.legal)
@@ -408,6 +739,9 @@ function edge_stats.merge(target, source)
                 merge_counts(target_direction.exclusion_reasons, source_direction.exclusion_reasons)
                 merge_counts(target_direction.arrival_kinds, source_direction.arrival_kinds)
                 merge_counts(target_direction.failure_kinds, source_direction.failure_kinds)
+                merge_counts(target_direction.authority_counts, source_direction.authority_counts)
+                merge_unique(target_direction.derivation_refs, source_direction.derivation_refs)
+                merge_unique(target_direction.failure_refs, source_direction.failure_refs)
             end
             refresh_edge(into)
         end
@@ -416,17 +750,16 @@ function edge_stats.merge(target, source)
     for id, source_rail in pairs(source.rails or {}) do
         local target_rail = target.rails[id]
         if target_rail then
-            for _, key in ipairs({
-                "cases",
-                "live_eye_count",
-                "eye_debt_cases",
-                "required_eye_recall",
-                "eye_without_debt",
-                "debt_bypass_proposals",
-                "fresh_direct_proposals",
-                "no_prediction_count",
-            }) do
-                target_rail[key] = (target_rail[key] or 0) + (source_rail[key] or 0)
+            for channel_id, source_channel in pairs(source_rail.channels or {}) do
+                local target_channel = target_rail.channels[channel_id]
+                if not target_channel then
+                    target_channel = new_rail_channel(source_channel)
+                    target_rail.channels[channel_id] = target_channel
+                end
+                for _, key in ipairs(rail_counter_keys) do
+                    target_channel[key] = (target_channel[key] or 0)
+                        + (source_channel[key] or 0)
+                end
             end
         end
     end

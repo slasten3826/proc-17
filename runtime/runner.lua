@@ -166,10 +166,7 @@ function runner.single_pass(prompt, substrate, options)
         if not manifest_tick then
             return nil, stage_error("manifest_route", manifest_tick_err)
         end
-        local manifested, manifested_err = packet_core.manifest_packet(instance, manifest_payload, {
-            cause = "complete",
-            manifest_type = manifest_payload.output and manifest_payload.output.type,
-        })
+        local manifested, manifested_err = packet_core.manifest_packet(instance, manifest_payload)
         if not manifested then
             return nil, stage_error("manifest", manifested_err)
         end

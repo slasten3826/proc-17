@@ -9,6 +9,7 @@ policy: pressure.binary.v0 / vibed_control
 lower policy: L0 sampled freshness (historical control)
 authority: shadow only
 substrate: fake
+statistics schema: edge-stats.v1 (historical; cannot merge into v2)
 lower interpretation superseded by runtime_camera_treatment_results_2026-07-16.md;
 retain this matrix as the pre-treatment baseline
 ```

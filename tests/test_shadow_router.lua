@@ -65,10 +65,14 @@ assert_eq(shadow.runtime.budget.spent.substrate_calls, legacy.runtime.budget.spe
 assert_eq(shadow.tension.loss, legacy.tension.loss, "shadow cannot create identity loss")
 assert_eq(#legacy_result.shadow_routes, 0, "legacy mode emits no shadow predictions")
 assert_eq(#shadow_result.shadow_routes, #shadow_result.routes, "every live route gets one shadow comparison")
-assert_eq(shadow_result.edge_stats.shadow_ticks, #shadow_result.routes, "statistics read every shadow decision")
-assert_eq(shadow_result.edge_stats.agreement_count + shadow_result.edge_stats.divergence_count,
+local tree_observer = shadow_result.edge_stats.observers.tree
+assert_eq(tree_observer.comparison_count, #shadow_result.routes,
+    "tree observer reads every shadow decision")
+assert_eq(tree_observer.agreement_count + tree_observer.divergence_count,
     #shadow_result.routes, "every prediction is classified")
-assert_true(shadow_result.edge_stats.divergence_count > 0, "fixture exposes migration divergences")
+assert_true(tree_observer.divergence_count > 0, "fixture exposes migration divergences")
+assert_eq(shadow_result.edge_stats.agreement_count, nil,
+    "v2 has no cross-observer agreement aggregate")
 assert_eq(shadow_result.edge_stats_errors, nil, "edge statistics reader stays connected")
 
 local shadow_events, pressure_events = shadow_trace_count(shadow)
@@ -76,6 +80,8 @@ assert_eq(shadow_events, #shadow_result.routes, "shadow decisions are append-onl
 assert_eq(pressure_events, #shadow_result.routes, "each prediction retains its pressure snapshot")
 
 for _, comparison in ipairs(shadow_result.shadow_routes) do
+    assert_eq(comparison.observer, "tree", "legacy live mode is observed by tree")
+    assert_eq(comparison.live_authority, "legacy_control", "legacy remains live authority")
     assert_eq(comparison.live_to ~= nil, true, "comparison names the authoritative route")
     assert_eq(comparison.policy, "pressure.binary.v0", "comparison names its policy")
     assert_eq(comparison.policy_status, "vibed_control", "shadow policy remains uncalibrated")
@@ -92,5 +98,7 @@ assert_eq(tree.kind, "tree_route_decision", "explicit tree mode derives a live d
 assert_eq(tree.authority, "tree", "tree decision names its authority")
 assert_true(type(tree.derivation_ref) == "string", "tree decision carries derivation evidence")
 assert_true(tree.selected_candidate.readiness.ready, "tree authority selects a ready candidate")
+assert_eq(tree.shadow.observer, "legacy", "explicit tree life is observed by legacy")
+assert_eq(tree.shadow.live_authority, "tree", "legacy observation cannot take authority")
 
 print("test_shadow_router ok")

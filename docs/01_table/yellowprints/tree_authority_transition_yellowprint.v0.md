@@ -9,7 +9,9 @@ failure law: docs/00_chaos/body_event_and_physics_failure_boundary_notes.md
 reviews: docs/00_chaos/fable_tree_authority_review_2026-07-16.md
 crystall: docs/02_crystall/blueprints/tree_authority_transition.v0.md
 Gate A confirmed: 2026-07-17
-implementation evidence: docs/00_chaos/tree_authority_opt_in_results_2026-07-17.md
+Gate B confirmed: 2026-07-17
+Gate A evidence: docs/00_chaos/tree_authority_opt_in_results_2026-07-17.md
+Gate B evidence: docs/00_chaos/tree_legacy_shadow_flip_results_2026-07-17.md
 ```
 
 ## 1. Scope
@@ -257,13 +259,33 @@ suite is registered in `tests/run.lua`.
 ```text
 initial independent gate: 1 green / 6 red
 final expanded gate:      10 green / 0 red
-manifested tree walk:     ▽ ☰ ☵ ☲ ☶ ☱ △
+manifested tree walk:     ▽ ☴ ☰ ☵ ☲ ☶ ☱ △
 manifest input:           Packet trace
 default authority:        unchanged shadow/legacy control
 ```
 
 The table remains valid. Treatment changed witnesses and writer-reader links;
 it did not add pressure weights or promote tree mode to the default.
+
+## 14.2 Gate B Treatment Record
+
+```text
+independent red baseline:        3 green / 3 red
+permanent instrumentation gate: 7 green / 0 red
+tree derivations:                7
+legacy observer records:         7
+observer ablation:               identical body physics and terminal
+typed legacy absence:            1 at CONNECT
+default authority:               unchanged shadow/legacy control
+```
+
+In explicit tree lives, legacy now predicts after the tree derivation and has
+no commit path. Tree candidate audits feed edge statistics directly. Legacy
+records feed only observer comparison counters and cannot become candidate,
+rail, commit, or execution evidence.
+
+Gate B is confirmed. Gate C remains closed pending the promotion corpus and
+honest treatment of rejected-validation manifestation.
 
 ## 15. Open Calibration, Not Contract
 

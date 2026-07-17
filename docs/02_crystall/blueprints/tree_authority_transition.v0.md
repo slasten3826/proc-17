@@ -8,7 +8,12 @@ from docs/01_table/yellowprints/tree_authority_transition_yellowprint.v0.md
 implementation target: staged tree authority promotion
 production code unchanged at blueprint creation
 Gate A implemented and confirmed: 2026-07-17
-current transition step: 2 of 5
+Gate B implemented and confirmed: 2026-07-17
+edge evidence roles v2 confirmed: 2026-07-17
+manifest honesty red gate confirmed: 2026-07-17
+manifest honesty treatment confirmed: 2026-07-17
+current transition checkpoint: 4.2 complete
+next checkpoint: promotion corpus
 ```
 
 ## 1. Objective
@@ -39,6 +44,7 @@ runtime/edge_stats.lua             failed arrival and tree-live evidence
 organs/manifest.lua                Packet-owned manifest input
 substrates/contract.lua            typed external effect failures
 tests/test_tree_authority.lua       permanent Gate A contract
+tests/test_tree_instrumentation.lua permanent Gate B contract
 tests/test_tree_router.lua
 tests/test_shadow_router.lua
 tests/test_tension_runner.lua
@@ -340,6 +346,17 @@ revisions
 terminal outcome
 ```
 
+Gate B treatment result:
+
+```text
+7/7 permanent instrumentation cases green
+43 main suites green
+one legacy observation per tree derivation, including FLOW
+observer on/off changes only seven append-only measurement events
+legacy CONNECT absence is typed unavailable instrumentation
+tree candidate audits feed edge evidence without legacy pollution
+```
+
 ## 12. Edge Statistics
 
 Extend edge evidence with:
@@ -398,9 +415,8 @@ Gate A treatment result:
 10/10 permanent gate cases green
 42 main suites green
 8/8 mortality cases green
-normal build walk: ▽ ☰ ☵ ☲ ☶ ☱ △
+normal build walk: ▽ ☴ ☰ ☵ ☲ ☶ ☱ △
 ```
 
 This blueprint authorizes opt-in tree implementation only. It does not
-authorize changing the default before Gate B instrumentation and corpus
-evidence are recorded.
+authorize changing the default before the Gate C corpus evidence is recorded.

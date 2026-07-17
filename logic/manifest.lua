@@ -103,7 +103,26 @@ local function context_residue(input)
         }
     end
 
+    local runtime_context = input.runtime_context
+    if type(runtime_context) == "table" then
+        residue.runtime = {
+            completion_state = runtime_context.completion_state,
+            reconciliation_event = runtime_context.reconciliation_event,
+            event_truth_status = runtime_context.event_truth_status,
+        }
+    end
+
     return residue
+end
+
+local function boundary_outcome(input)
+    local runtime_context = input.runtime_context or {}
+    local logic_context = input.logic_context or {}
+    local rejected_count = tonumber(logic_context.rejected_count) or 0
+    if runtime_context.completion_state == "blocked" or rejected_count > 0 then
+        return "blocked"
+    end
+    return "complete"
 end
 
 function manifest.assemble(input)
@@ -115,13 +134,19 @@ function manifest.assemble(input)
 
     local text = tostring(response.text or "")
     local output_type, language = detect_type(text, input.work_mode)
+    local outcome = boundary_outcome(input)
     local sources = copy_map(input.sources)
+    local residue = context_residue(input)
+    residue.cause = outcome
+    residue.manifest_type = output_type
+    residue.manifest_outcome = outcome
     local payload = {
         kind = "manifest_payload",
         output = {
             type = output_type,
             text = text,
             language = language,
+            status = outcome,
         },
         sources = sources,
         assembly = {
@@ -129,14 +154,19 @@ function manifest.assemble(input)
             work_mode = input.work_mode,
             substrate_truth_status = "semantic_proposal",
             input_provenance = input.input_provenance or "unknown",
+            outcome = outcome,
+            runtime_completion_state = input.runtime_context
+                and input.runtime_context.completion_state or nil,
         },
-        residue = context_residue(input),
+        residue = residue,
+        terminal_cause = outcome,
         truth_status = "runtime_confirmed",
     }
 
     payload.summary = {
         type = output_type,
         language = language,
+        status = outcome,
         text_preview = compact(text),
         source_event = sources.substrate_result_event,
     }

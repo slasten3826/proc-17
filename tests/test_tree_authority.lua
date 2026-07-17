@@ -89,6 +89,10 @@ case("normal_build_manifests_under_tree", function()
     assert_eq(result.stop_reason, "manifested", "tree build reaches manifest")
     assert_true(instance.terminal and instance.terminal.kind == "manifest",
         "tree build has manifest terminal")
+    assert_eq(instance.manifest.output.status, "complete",
+        "accepted tree build is outwardly complete")
+    assert_eq(instance.terminal.cause, "complete",
+        "accepted tree build has complete terminal cause")
     assert_eq(instance.manifest.assembly.input_provenance, "packet_trace",
         "tree manifest material belongs to Packet trace")
 end)

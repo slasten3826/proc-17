@@ -42,6 +42,8 @@ function manifest_organ.input(instance, options)
     local cycle_payload = cycle_event and cycle_event.payload or last_payload(result, "☲")
     local validation_event = last_trace_event(instance, "validation", "☶")
     local validation_payload = validation_event and validation_event.payload or nil
+    local reconciliation_event = last_trace_event(instance, "runtime_reconciliation", "☱")
+    local reconciliation_payload = reconciliation_event and reconciliation_event.payload or nil
     local choice_loss = choose_payload and choose_payload.loss or {}
     local cycle_reason = cycle_payload and cycle_payload.reason or nil
 
@@ -58,6 +60,7 @@ function manifest_organ.input(instance, options)
             choice_event = choice_event and choice_event.id,
             cycle_event = cycle_event and cycle_event.id,
             validation_event = validation_event and validation_event.id,
+            runtime_reconciliation_event = reconciliation_event and reconciliation_event.id,
         },
         choose_context = choose_payload and {
             selected_count = #(choose_payload.selected or {}),
@@ -77,6 +80,11 @@ function manifest_organ.input(instance, options)
             rejection_reasons = validation_payload.status == "rejected"
                 and {validation_payload.reason or "validation_rejected"} or {},
             last_validation_event = validation_event.id,
+        } or nil,
+        runtime_context = reconciliation_payload and {
+            completion_state = reconciliation_payload.completion_state,
+            reconciliation_event = reconciliation_event.id,
+            event_truth_status = reconciliation_event.truth_status,
         } or nil,
         input_provenance = observation_event and "packet_trace" or "harness_compatibility",
     }

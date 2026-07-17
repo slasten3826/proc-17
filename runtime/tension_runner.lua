@@ -169,7 +169,29 @@ local function ledger_refs(prefix, first_index, last_index)
     return refs
 end
 
+local function record_decision_evidence(result, decision, observer)
+    if decision.authority == "tree" then
+        local recorded, stats_err = edge_stats.record_tree_derivation(
+            result.edge_stats,
+            decision
+        )
+        if not recorded then
+            note_stats_error(result, stats_err)
+        end
+    end
+    if observer then
+        result.shadow_routes[#result.shadow_routes + 1] = observer
+        local recorded, stats_err = edge_stats.record(result.edge_stats, observer)
+        if not recorded then
+            note_stats_error(result, stats_err)
+        end
+    end
+end
+
 local function commit_route(instance, result, route, include_in_routes)
+    -- Observer output is reported separately; it is not committed route evidence.
+    local observer = route.shadow
+    route.shadow = nil
     local route_event, commit_err = packet_core.commit_transition(instance, route)
     if not route_event then
         return nil, commit_err
@@ -178,6 +200,7 @@ local function commit_route(instance, result, route, include_in_routes)
     if include_in_routes ~= false then
         result.routes[#result.routes + 1] = route
     end
+    record_decision_evidence(result, route, observer)
     local recorded, stats_err = edge_stats.record_transition(result.edge_stats, route)
     if not recorded then
         note_stats_error(result, stats_err)
@@ -186,6 +209,9 @@ local function commit_route(instance, result, route, include_in_routes)
 end
 
 local function die_from_no_viable(instance, result, outcome)
+    local observer = outcome.shadow
+    outcome.shadow = nil
+    record_decision_evidence(result, outcome, observer)
     if die_from_mortality(instance, result, instance.operator) then
         return instance
     end
@@ -246,6 +272,8 @@ function tension_runner.run(prompt, substrate, options)
             router_mode = options.router_mode or "shadow",
         }),
         router_mode = options.router_mode or "shadow",
+        legacy_shadow = (options.router_mode or "shadow") == "tree"
+            and options.legacy_shadow ~= false or false,
         stop_reason = nil,
         final_status = instance.status,
     }
@@ -282,6 +310,7 @@ function tension_runner.run(prompt, substrate, options)
             options = options,
             result = result,
             tree = options.tree_router,
+            legacy_shadow = options.legacy_shadow,
         })
         if not derived_entry then
             return nil, stage_error("entry", derived_err)
@@ -381,7 +410,8 @@ function tension_runner.run(prompt, substrate, options)
                 local failed, failed_err = edge_stats.record_failure(
                     result.edge_stats,
                     pending_arrival,
-                    failure
+                    failure,
+                    failure_event.id
                 )
                 if not failed then
                     note_stats_error(result, failed_err)
@@ -508,10 +538,7 @@ function tension_runner.run(prompt, substrate, options)
         result_tick.runtime_frame_seq = runtime_frame.seq
 
         if current == "△" then
-            local manifested, manifest_err = packet_core.manifest_packet(instance, payload, {
-                cause = "complete",
-                manifest_type = payload.output and payload.output.type,
-            })
+            local manifested, manifest_err = packet_core.manifest_packet(instance, payload)
             if not manifested then
                 return nil, stage_error("manifest", manifest_err)
             end
@@ -537,6 +564,7 @@ function tension_runner.run(prompt, substrate, options)
             options = options,
             result = result,
             tree = options.tree_router,
+            legacy_shadow = options.legacy_shadow,
         })
         if not route then
             return nil, stage_error("router", route_err)
@@ -548,14 +576,6 @@ function tension_runner.run(prompt, substrate, options)
                 return nil, stage_error("router", death_err)
             end
             return instance, result
-        end
-
-        if route.shadow then
-            result.shadow_routes[#result.shadow_routes + 1] = route.shadow
-            local recorded_stats, stats_err = edge_stats.record(result.edge_stats, route.shadow)
-            if not recorded_stats then
-                note_stats_error(result, stats_err)
-            end
         end
 
         local committed, commit_err = commit_route(instance, result, route)

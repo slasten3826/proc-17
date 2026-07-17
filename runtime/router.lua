@@ -7,6 +7,9 @@ local tree_router = require("runtime.tree_router")
 
 local router = {}
 
+local legacy_policy = "legacy.control.v0"
+local legacy_policy_status = "historical_control"
+
 local hard_next = {
     ["☵"] = "☴",
     ["☳"] = "☴",
@@ -207,8 +210,9 @@ local function route_runtime(pressure)
     return "△", "no_remaining_work"
 end
 
-local function legacy_after_tick(instance, tick)
+local function legacy_after_tick(instance, tick, options)
     tick = tick or {}
+    options = options or {}
     local from = topology.resolve(tick.operator)
     if not from then
         return nil, "invalid_operator"
@@ -218,7 +222,10 @@ local function legacy_after_tick(instance, tick)
     local to = hard_next[from]
     local reason = "mandatory_eye_tick"
 
-    if from == "☴" then
+    if from == "▽" then
+        to = topology.resolve(options.start_operator or "☴")
+        reason = "runner_entry"
+    elseif from == "☴" then
         to, reason = route_observe(pressure)
     elseif from == "☱" then
         to, reason = route_runtime(pressure)
@@ -363,6 +370,8 @@ end
 local function shadow_error(from, live, err)
     return {
         kind = "shadow_route_decision",
+        observer = "tree",
+        live_authority = "legacy_control",
         current_operator = from,
         candidates = {},
         predicted_to = nil,
@@ -370,6 +379,7 @@ local function shadow_error(from, live, err)
         live_to = live.to,
         agreement = false,
         divergence = "prediction_error:" .. tostring(err),
+        instrumentation_status = "error",
         policy = tree_router.policy,
         policy_status = tree_router.policy_status,
         truth_status = "runtime_confirmed",
@@ -413,6 +423,8 @@ local function derive_shadow(instance, tick, live, options)
     end
     return {
         kind = "shadow_route_decision",
+        observer = "tree",
+        live_authority = "legacy_control",
         current_operator = live.from,
         candidates = prediction.candidates or {},
         predicted_to = predicted_to,
@@ -420,12 +432,77 @@ local function derive_shadow(instance, tick, live, options)
         live_to = live.to,
         agreement = agreement,
         divergence = divergence,
+        instrumentation_status = "observed",
         no_viable_edge = prediction.kind == "no_viable_edge" and prediction or nil,
         pressure_snapshot_ref = snapshot.trace_event_id,
         policy = tree_router.policy,
         policy_status = tree_router.policy_status,
         truth_status = "runtime_confirmed",
     }
+end
+
+local function legacy_shadow_from_tree(instance, tick, live, options)
+    options = options or {}
+    local prediction, prediction_err = legacy_after_tick(
+        instance,
+        tick,
+        options.options or {}
+    )
+
+    local shadow
+    if prediction then
+        local agreement = live.to ~= nil and prediction.to == live.to
+        local divergence
+        if not agreement then
+            divergence = "live:" .. tostring(live.to)
+                .. "/shadow:" .. tostring(prediction.to)
+        end
+        shadow = {
+            kind = "shadow_route_decision",
+            observer = "legacy",
+            live_authority = "tree",
+            current_operator = live.from,
+            candidates = {},
+            predicted_to = prediction.to,
+            predicted_reason = prediction.reason,
+            live_to = live.to,
+            live_reason = live.reason or live.cause,
+            agreement = agreement,
+            divergence = divergence,
+            instrumentation_status = "observed",
+            tree_derivation_ref = live.derivation_ref,
+            policy = legacy_policy,
+            policy_status = legacy_policy_status,
+            truth_status = "runtime_confirmed",
+        }
+    elseif prediction_err == "unsupported_route_source" then
+        shadow = {
+            kind = "shadow_route_decision",
+            observer = "legacy",
+            live_authority = "tree",
+            current_operator = live.from,
+            candidates = {},
+            predicted_to = nil,
+            predicted_reason = prediction_err,
+            live_to = live.to,
+            live_reason = live.reason or live.cause,
+            agreement = false,
+            divergence = "legacy_unavailable:" .. prediction_err,
+            instrumentation_status = "unavailable",
+            tree_derivation_ref = live.derivation_ref,
+            policy = legacy_policy,
+            policy_status = legacy_policy_status,
+            truth_status = "runtime_confirmed",
+        }
+    else
+        return nil, "legacy_shadow:" .. tostring(prediction_err)
+    end
+
+    local recorded, record_err = record_shadow(instance, shadow)
+    if not recorded then
+        return nil, record_err
+    end
+    return shadow
 end
 
 local function shadow_without_authority(instance, tick, live, options)
@@ -451,7 +528,18 @@ function router.after_tick(instance, tick, options)
         return nil, "invalid_router_mode"
     end
     if mode == "tree" then
-        return derive_tree_authority(instance, tick, options)
+        local live, live_err = derive_tree_authority(instance, tick, options)
+        if not live then
+            return nil, live_err
+        end
+        if options.legacy_shadow ~= false then
+            local shadow, shadow_err = legacy_shadow_from_tree(instance, tick, live, options)
+            if not shadow then
+                return nil, shadow_err
+            end
+            live.shadow = shadow
+        end
+        return live
     end
 
     local live, live_err = legacy_after_tick(instance, tick)
@@ -468,6 +556,15 @@ function router.after_tick(instance, tick, options)
 end
 
 router.legacy_after_tick = legacy_after_tick
-router.tree_after_tick = derive_tree_authority
+router.derive_tree_authority = derive_tree_authority
+function router.tree_after_tick(instance, tick, options)
+    local tree_options = {}
+    for key, value in pairs(options or {}) do
+        tree_options[key] = value
+    end
+    tree_options.mode = "tree"
+    return router.after_tick(instance, tick, tree_options)
+end
+router.legacy_shadow_from_tree = legacy_shadow_from_tree
 
 return router

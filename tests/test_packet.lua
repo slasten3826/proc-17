@@ -177,6 +177,37 @@ assert_eq(manifested.terminal.manifest_ref, manifest_event.id, "terminal referen
 assert_eq(manifested.death.terminal_event_id, terminal_event.id, "death references terminal event")
 assert_eq(manifested.trace[#manifested.trace].type, "terminal", "terminal seals manifest trace")
 
+local blocked = packet.new("blocked manifest through terminal", {id = "packet-blocked"})
+assert(packet.commit_transition(blocked, {from = "▽", to = "☴", reason = "entry"}))
+assert(packet.commit_transition(blocked, {from = "☴", to = "☱", reason = "runtime_ready"}))
+assert(packet.commit_transition(blocked, {from = "☱", to = "△", reason = "blocked_manifest"}))
+local blocked_trace_before = #blocked.trace
+local mismatched, mismatch_err = packet.manifest_packet(blocked, {
+    output = {type = "text", status = "blocked"},
+    terminal_cause = "blocked",
+    truth_status = "runtime_confirmed",
+}, {
+    cause = "complete",
+})
+assert_true(not mismatched, "manifest residue cannot contradict terminal cause")
+assert_eq(mismatch_err, "manifest residue cause does not match terminal",
+    "manifest cause mismatch reason")
+assert_eq(#blocked.trace, blocked_trace_before, "cause mismatch does not mutate trace")
+assert_eq(blocked.manifest, nil, "cause mismatch does not install manifest")
+
+local blocked_packet, blocked_event, blocked_terminal = packet.manifest_packet(blocked, {
+    output = {type = "text", status = "blocked"},
+    terminal_cause = "blocked",
+    truth_status = "runtime_confirmed",
+    residue = {cause = "blocked", rejection = "missing_artifact"},
+})
+assert_true(blocked_packet, blocked_event)
+assert_eq(blocked_terminal.payload.cause, "blocked", "blocked terminal event cause")
+assert_eq(blocked.terminal.cause, "blocked", "blocked Packet terminal cause")
+assert_eq(blocked.death.cause, "blocked", "blocked Packet death cause")
+assert_eq(blocked.residue.cause, "blocked", "blocked corpse residue cause")
+assert_eq(blocked.residue.rejection, "missing_artifact", "blocked residue preserved")
+
 local ok, event = packet.append_chaos(p, {
     operator = "☴",
     kind = "substrate_fragment",

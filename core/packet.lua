@@ -51,6 +51,7 @@ packet.event_types = {
 
 packet.death_causes = {
     complete = true,
+    blocked = true,
     budget_exhausted = true,
     identity_loss = true,
     invalid_topology = true,
@@ -788,6 +789,17 @@ function packet.manifest_packet(instance, payload, residue)
         return nil, "invalid truth status"
     end
 
+    local death_residue = deep_copy(residue or payload.residue or {})
+    if type(death_residue) ~= "table" then
+        return nil, "manifest residue must be table"
+    end
+    if death_residue.cause ~= nil and death_residue.cause ~= cause then
+        return nil, "manifest residue cause does not match terminal"
+    end
+    death_residue.cause = cause
+    death_residue.manifest_type = death_residue.manifest_type
+        or (payload.output and payload.output.type)
+
     instance.manifest = payload
     local event = append_trace(instance, {
         type = "manifest",
@@ -806,10 +818,7 @@ function packet.manifest_packet(instance, payload, residue)
     if not terminal_event then
         return nil, terminal_err
     end
-    local corpse, freeze_err = packet.freeze(instance, cause, residue or payload.residue or {
-        cause = cause,
-        manifest_type = payload.output and payload.output.type,
-    })
+    local corpse, freeze_err = packet.freeze(instance, cause, death_residue)
     if not corpse then
         return nil, freeze_err
     end

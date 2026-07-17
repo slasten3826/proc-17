@@ -66,7 +66,7 @@ one passing file-existence spell
 Observed result:
 
 ```text
-walk:                ▽ ☰ ☵ ☲ ☶ ☱ △
+walk:                ▽ ☴ ☰ ☵ ☲ ☶ ☱ △
 ticks:               7
 stop_reason:         manifested
 final_status:        dead
@@ -78,6 +78,12 @@ manifest provenance: packet_trace
 
 This is the first normal life in the current body where neither the harness nor
 the legacy router chooses the road after FLOW.
+
+Correction recorded during Gate B preparation: the first report printed
+`result.routes`, which intentionally excludes `entry_route`, and therefore
+omitted the initial `▽ -> ☴` destination. Packet trace contains seven committed
+edges and the full walk shown above. The body was correct; the report renderer
+was incomplete.
 
 ## Confirmed Laws
 

@@ -31,8 +31,9 @@ The repository currently contains:
 - internal mortality through budget exhaustion and identity loss;
 - grave inheritance, warning karma, bequests, and session compost;
 - truth freshness, spell evidence, and a LOGIC stamp for lower-triangle closure;
-- a 22-edge evidence ledger that separates candidate, committed, and executed;
-- 42 Lua test suites plus mortality and live-substrate smoke programs.
+- a 22-edge evidence ledger that separates candidate, committed, and executed,
+  with observer- and authority-typed promotion channels;
+- 45 Lua test suites plus mortality and live-substrate smoke programs.
 
 The fixed single-pass runner remains as a smoke rail. The tension runner is the
 active experiment: movement is chosen from packet pressure rather than a fixed
@@ -52,8 +53,12 @@ agent.
 - The default legacy router cannot select CONNECT or DISSOLVE. Explicit tree
   authority has executed CONNECT; DISSOLVE still needs a live rigidity witness.
 - The binary full-tree pressure policy is uncalibrated. Explicit
-  `router_mode=tree` can now own a complete build life, but tree lives do not yet
-  record legacy as read-only shadow evidence and the default remains `shadow`.
+  `router_mode=tree` can now own a complete build life while legacy records
+  read-only comparison evidence. Observer ablation is green; the promotion
+  corpus is still incomplete and the default remains `shadow`.
+- A rejected validation is delivered through △ as an explicit `blocked`
+  output, terminal, death, and residue while preserving the substrate text.
+  Retry and repair policy remains intentionally separate.
 - The command sandbox must become capability-based before arbitrary hands are
   connected.
 - A machine CLI and human TUI are planned, not implemented.
