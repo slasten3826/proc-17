@@ -6,7 +6,7 @@ local freshness = require("runtime.freshness")
 
 local logic_organ = {}
 
-local function stamp_logic_verdict(instance, verdict)
+local function stamp_logic_verdict(instance, verdict, trace_event_id)
     instance.runtime = instance.runtime or {}
     instance.runtime.logic_stamp = {
         kind = "logic_stamp",
@@ -14,17 +14,18 @@ local function stamp_logic_verdict(instance, verdict)
         evidence_fingerprint = freshness.evidence_fingerprint(instance),
         stamped_at_tick = instance.physis and instance.physis.clock
             and instance.physis.clock.ticks or nil,
+        trace_event_id = trace_event_id,
         truth_status = "runtime_confirmed",
     }
     return instance.runtime.logic_stamp
 end
 
 local function record(instance, payload)
-    stamp_logic_verdict(instance, payload.status)
-    local recorded, record_err = body.record_validation(instance, payload)
+    local recorded, event_or_err = body.record_validation(instance, payload)
     if not recorded then
-        return nil, record_err
+        return nil, event_or_err
     end
+    stamp_logic_verdict(instance, payload.status, event_or_err.id)
     return instance, payload
 end
 

@@ -75,9 +75,16 @@ local function field_sources(instance, legacy_refs)
         limit = math.max(1, #(instance.field.unit_order or {})),
     }) or {units = {}}
     local unit_by_event = {}
+    local unit_by_legacy_ref = {}
+    local unit_by_id = {}
     local flow_unit
     for _, unit in ipairs(view.units) do
+        unit_by_id[unit.id] = unit
         unit_by_event[unit.created_event_id] = unit
+        local migration = unit.migration or {}
+        if type(migration.legacy_ref) == "string" then
+            unit_by_legacy_ref[migration.legacy_ref] = unit
+        end
         if unit.created_by == "▽" and not flow_unit then
             flow_unit = unit
         end
@@ -105,7 +112,8 @@ local function field_sources(instance, legacy_refs)
         local fragment_index = legacy_ref:match("^chaos:fragment:(%d+)$")
         if fragment_index then
             event = chaos_events[tonumber(fragment_index)]
-            unit = event and unit_by_event[event.id] or nil
+            unit = unit_by_legacy_ref[legacy_ref]
+                or (event and unit_by_event[event.id] or nil)
         elseif legacy_ref == "chaos:raw_prompt" then
             event = birth
             unit = flow_unit
@@ -114,6 +122,12 @@ local function field_sources(instance, legacy_refs)
         if unit then
             append_unique(provenance_refs, provenance_seen, unit.id)
             append_unique(old_ids, old_seen, unit.id)
+            for _, ref in ipairs(unit.source_refs or {}) do
+                if unit_by_id[ref] then
+                    append_unique(provenance_refs, provenance_seen, ref)
+                    append_unique(old_ids, old_seen, ref)
+                end
+            end
         elseif event then
             append_unique(provenance_refs, provenance_seen, event.id)
         else

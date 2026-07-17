@@ -34,7 +34,7 @@ local reader_order = {
 local sampled_reader_order = {
     "relation_debt",
     "rigidity",
-    "upper_observation_debt",
+    "sampled_upper_observation_debt",
     "encoding_debt",
     "choice_pressure",
     "sampled_runtime_mismatch",
@@ -129,14 +129,6 @@ local function one(value)
     return {value}
 end
 
-local function live_units(instance)
-    return field.view(instance, {
-        activation = {live = true, selected = true},
-        generation = instance.generation,
-        limit = 256,
-    }) or {units = {}, total_count = 0}
-end
-
 local function latest(list)
     if type(list) ~= "table" then
         return nil
@@ -145,22 +137,30 @@ local function latest(list)
 end
 
 readers.relation_debt = function(instance, context)
-    local view = live_units(instance)
+    local view = field.view(instance, {
+        created_by = {"▽", "☷", "☴"},
+        activation = {live = true, selected = true},
+        generation = instance.generation,
+        limit = 256,
+    }) or {units = {}, total_count = 0}
     if view.total_count < 2 then
         return {}
     end
     local relations = instance.field and instance.field.relations or {}
     local raw = relations.raw or {}
-    local fresh_epoch = type(raw.epoch) == "number" and raw.epoch > 0
-        and raw.source_revision == instance.revisions.potential
-    if fresh_epoch then
-        return {}
+    local covered = {}
+    for _, ref in ipairs(raw.source_refs or {}) do
+        covered[ref] = true
     end
     local refs = {}
     for _, unit in ipairs(view.units) do
-        refs[#refs + 1] = unit.id
+        if not covered[unit.id] then
+            refs[#refs + 1] = unit.id
+        end
     end
-    refs[#refs + 1] = "revision:potential:" .. tostring(instance.revisions.potential)
+    if #refs == 0 then
+        return {}
+    end
     return one(contribution(
         "relation_debt",
         instance,
@@ -169,7 +169,11 @@ readers.relation_debt = function(instance, context)
         "help",
         "addressable_units_lack_fresh_relation_epoch",
         refs,
-        {freshness = fresh_epoch and "fresh" or "stale_or_missing"}
+        {
+            freshness = type(raw.epoch) == "number" and raw.epoch > 0
+                and "partial" or "missing",
+            uncovered_unit_count = #refs,
+        }
     ))
 end
 
@@ -255,8 +259,53 @@ local function eye_debt(instance, context, eye, target, kind)
     }))
 end
 
-readers.upper_observation_debt = function(instance, context)
+readers.sampled_upper_observation_debt = function(instance, context)
     return eye_debt(instance, context, "upper", "☴", "upper_observation_debt")
+end
+
+readers.upper_observation_debt = function(instance, context)
+    local view = field.view(instance, {
+        created_by = {"▽", "☷", "☴"},
+        activation = {live = true, selected = true},
+        generation = instance.generation,
+        limit = 256,
+    }) or {units = {}}
+    local observation, observation_err = body.latest_observation(instance, "upper")
+    if observation_err then
+        return nil, observation_err
+    end
+    local covered = {}
+    for _, ref in ipairs(observation and observation.scope_refs or {}) do
+        covered[ref] = true
+    end
+    for _, ref in ipairs(observation and observation.sensor_output_refs or {}) do
+        covered[ref] = true
+    end
+
+    local refs = {}
+    for _, unit in ipairs(view.units or {}) do
+        if not covered[unit.id] then
+            refs[#refs + 1] = unit.id
+        end
+    end
+    if #refs == 0 then
+        return {}
+    end
+    return one(contribution(
+        "upper_observation_debt",
+        instance,
+        context,
+        "☴",
+        "help",
+        observation and "semantic_units_outside_upper_observation"
+            or "upper_observation_missing",
+        refs,
+        {
+            freshness = observation and "uncovered" or "missing",
+            observation_id = observation and observation.id,
+            uncovered_unit_count = #refs,
+        }
+    ))
 end
 
 readers.lower_observation_debt = function(instance, context)
@@ -429,10 +478,25 @@ readers.validation_debt = function(instance, context)
     ))
 end
 
+local function current_logic_stamp(instance)
+    local stamp = instance.runtime and instance.runtime.logic_stamp
+    if type(stamp) ~= "table" then
+        return nil
+    end
+    local fingerprint = freshness.evidence_fingerprint(instance)
+    if stamp.evidence_fingerprint ~= fingerprint then
+        return nil
+    end
+    return stamp, fingerprint
+end
+
 readers.continuation = function(instance, context)
     local progress = body.progress(instance)
     local budget_state = budget.snapshot(instance)
     if progress.remaining_count <= 0 or budget_state.exhausted then
+        return {}
+    end
+    if work_mode(instance, context) == "build" and current_logic_stamp(instance) ~= nil then
         return {}
     end
     local refs = {}
@@ -457,8 +521,14 @@ readers.manifest = function(instance, context)
     local budget_state = budget.snapshot(instance)
     local loss_state = loss.snapshot(instance)
     local calm_exists = instance.calm and instance.calm.current ~= nil
+    local stamp, evidence_fingerprint = current_logic_stamp(instance)
+    local no_new_evidence = work_mode(instance, context) == "build"
+        and calm_exists
+        and progress.remaining_count > 0
+        and stamp ~= nil
     local ready = loss_state.near_death or budget_state.exhausted
         or (calm_exists and progress.remaining_count == 0)
+        or no_new_evidence
     if not ready then
         return {}
     end
@@ -470,6 +540,10 @@ readers.manifest = function(instance, context)
     elseif budget_state.exhausted then
         refs[#refs + 1] = "revision:budget:" .. tostring(instance.revisions.budget)
         reason = "budget_exhausted"
+    elseif no_new_evidence then
+        refs[#refs + 1] = stamp.trace_event_id or "runtime:logic_stamp"
+        refs[#refs + 1] = "evidence:fingerprint:" .. tostring(evidence_fingerprint)
+        reason = "logic_stamp_no_new_evidence"
     else
         refs[#refs + 1] = "calm:current"
     end

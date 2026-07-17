@@ -181,7 +181,8 @@ local missing, err = tension_runner.run("build notes app", nil, {
     max_ticks = 2,
 })
 assert_true(not missing, "missing substrate should fail")
-assert_eq(err, "☴:missing_capability", "missing substrate is denied by the capability contract")
+assert_eq(err, "☴:committed_operator_not_ready:missing_capability",
+    "legacy committed an operator excluded by the capability contract")
 
 -- logic stamp collapses the ☱☶ evidence loop into an honest manifest
 local stamped, stamped_result = tension_runner.run("build without evidence", fake, {

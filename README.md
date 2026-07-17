@@ -26,13 +26,13 @@ The repository currently contains:
 - a continuous runtime camera with immutable per-tick frames and explicit ☱ reconciliation;
 - all ten ProcessLang operators behind one rights-declaring registry;
 - CONNECT and DISSOLVE organs available for direct execution and shadow routing;
-- a legacy-authoritative tension runner plus a full-tree pressure router in shadow;
+- a legacy-authoritative default plus opt-in full-tree route authority;
 - fake and OpenAI-compatible substrates, including a DeepSeek adapter;
 - internal mortality through budget exhaustion and identity loss;
 - grave inheritance, warning karma, bequests, and session compost;
 - truth freshness, spell evidence, and a LOGIC stamp for lower-triangle closure;
 - a 22-edge evidence ledger that separates candidate, committed, and executed;
-- 41 Lua test suites plus mortality and live-substrate smoke programs.
+- 42 Lua test suites plus mortality and live-substrate smoke programs.
 
 The fixed single-pass runner remains as a smoke rail. The tension runner is the
 active experiment: movement is chosen from packet pressure rather than a fixed
@@ -49,11 +49,11 @@ agent.
   the external test harness. That is real delivery evidence, not body-side work.
 - Session and packet memory components exist, but are not yet one runner-managed
   lifecycle. Bequests and compost patterns still need named readers.
-- CONNECT and DISSOLVE exist, but the authoritative legacy router cannot select
-  them yet.
-- The binary full-tree pressure policy is uncalibrated and shadow-only. The
-  first control corpus has complete directional evidence for 6 of 22 edges,
-  partial evidence for one, and no executed direction for fifteen.
+- The default legacy router cannot select CONNECT or DISSOLVE. Explicit tree
+  authority has executed CONNECT; DISSOLVE still needs a live rigidity witness.
+- The binary full-tree pressure policy is uncalibrated. Explicit
+  `router_mode=tree` can now own a complete build life, but tree lives do not yet
+  record legacy as read-only shadow evidence and the default remains `shadow`.
 - The command sandbox must become capability-based before arbitrary hands are
   connected.
 - A machine CLI and human TUI are planned, not implemented.

@@ -3,6 +3,17 @@ local contract = require("substrates.contract")
 
 local openai = {}
 
+local function effect_failure(source, code, message, retryability, detail, cost)
+    return contract.effect_failure({
+        source = source,
+        code = code,
+        message = message,
+        retryability = retryability,
+        detail = detail,
+        cost = cost,
+    })
+end
+
 local function shell_quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
@@ -74,20 +85,20 @@ function openai.ask(call, config)
         return nil, err
     end
     if not config.api_key or config.api_key == "" then
-        return nil, "api key is required"
+        return nil, effect_failure("substrate", "missing_api_key", "api key is required", "terminal")
     end
     if not config.base_url or config.base_url == "" then
-        return nil, "base_url is required"
+        return nil, effect_failure("substrate", "missing_base_url", "base_url is required", "terminal")
     end
     if not config.model or config.model == "" then
-        return nil, "model is required"
+        return nil, effect_failure("substrate", "missing_model", "model is required", "terminal")
     end
 
     local request = openai.build_request(call, config)
     local request_path = os.tmpname()
     local write_ok, write_err = write_file(request_path, json.encode(request))
     if not write_ok then
-        return nil, write_err
+        return nil, effect_failure("storage", "request_write_failed", tostring(write_err), "unknown")
     end
 
     local command = table.concat({
@@ -103,7 +114,7 @@ function openai.ask(call, config)
     local handle = io.popen(command)
     if not handle then
         remove_file(request_path)
-        return nil, "failed to start curl"
+        return nil, effect_failure("substrate", "transport_start_failed", "failed to start curl", "retryable")
     end
 
     local output = handle:read("*a")
@@ -111,20 +122,26 @@ function openai.ask(call, config)
     remove_file(request_path)
 
     if not ok_close then
-        return nil, "curl failed"
+        return nil, effect_failure("substrate", "transport_failed", "curl failed", "retryable",
+            nil, {substrate_calls = 1})
     end
 
     local body, code = output:match("^(.*)\n(%d%d%d)%s*$")
     if not body then
-        return nil, "invalid curl response"
+        return nil, effect_failure("substrate", "invalid_transport_response",
+            "invalid curl response", "retryable", nil, {substrate_calls = 1})
     end
     if tonumber(code) < 200 or tonumber(code) >= 300 then
-        return nil, "http " .. code .. ": " .. body
+        return nil, effect_failure("substrate", "http_error", "http " .. code, "unknown", {
+            http_status = tonumber(code),
+            body = body,
+        }, {substrate_calls = 1})
     end
 
     local decode_ok, decoded = pcall(json.decode, body)
     if not decode_ok then
-        return nil, "invalid json response: " .. tostring(decoded)
+        return nil, effect_failure("substrate", "invalid_json_response", tostring(decoded),
+            "unknown", nil, {substrate_calls = 1})
     end
 
     return openai.normalize_chat_response(decoded, body, {

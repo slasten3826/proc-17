@@ -2,6 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local openai = require("substrates.openai_compatible")
 local deepseek = require("substrates.deepseek")
+local contract = require("substrates.contract")
 
 local sample = {
     id = "sample",
@@ -44,6 +45,45 @@ end
 local caps = deepseek.capabilities()
 if caps.provider ~= "deepseek" then
     error("deepseek capabilities mismatch")
+end
+
+local failure = contract.effect_failure({
+    source = "substrate",
+    code = "connection_lost",
+    message = "test failure",
+    retryability = "retryable",
+    cost = {substrate_calls = 1},
+})
+if not contract.is_effect_failure(failure) then
+    error("well-formed effect failure rejected")
+end
+if contract.is_effect_failure({
+    kind = "effect_failure",
+    source = "substrate",
+    code = "connection_lost",
+}) then
+    error("partial effect failure accepted")
+end
+
+local invalid_retry = pcall(contract.effect_failure, {
+    source = "substrate",
+    code = "connection_lost",
+    retryability = "maybe",
+})
+if invalid_retry then
+    error("invalid effect failure retryability accepted")
+end
+
+local missing_config_response, missing_config_failure = openai.ask({
+    mode = "natural",
+    operator = "☴",
+    task = "config boundary test",
+}, {})
+if missing_config_response ~= nil
+    or not contract.is_effect_failure(missing_config_failure)
+    or missing_config_failure.code ~= "missing_api_key"
+    or next(missing_config_failure.cost) ~= nil then
+    error("OpenAI-compatible adapter did not type missing configuration")
 end
 
 print("test_substrates ok")

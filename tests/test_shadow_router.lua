@@ -4,6 +4,7 @@ local tension_runner = require("runtime.tension_runner")
 local packet = require("core.packet")
 local router = require("runtime.router")
 local fake = require("substrates.fake")
+local flow = require("organs.flow")
 
 local function assert_true(value, message)
     if not value then
@@ -80,9 +81,16 @@ for _, comparison in ipairs(shadow_result.shadow_routes) do
     assert_eq(comparison.policy_status, "vibed_control", "shadow policy remains uncalibrated")
 end
 
-local unpromoted = packet.new("tree authority stays off", {id = "tree-authority-off"})
-local denied, denied_err = router.after_tick(unpromoted, {operator = "☵"}, {mode = "tree"})
-assert_true(not denied, "tree prediction cannot gain authority through a runtime option")
-assert_eq(denied_err, "tree_authority_not_promoted", "promotion denial is explicit")
+local promoted = packet.new("tree authority is explicit", {id = "tree-authority-explicit"})
+assert(flow.run(promoted))
+local tree, tree_err = router.after_tick(promoted, {operator = "▽"}, {
+    mode = "tree",
+    substrate = fake,
+})
+assert_true(tree, tree_err)
+assert_eq(tree.kind, "tree_route_decision", "explicit tree mode derives a live decision")
+assert_eq(tree.authority, "tree", "tree decision names its authority")
+assert_true(type(tree.derivation_ref) == "string", "tree decision carries derivation evidence")
+assert_true(tree.selected_candidate.readiness.ready, "tree authority selects a ready candidate")
 
 print("test_shadow_router ok")

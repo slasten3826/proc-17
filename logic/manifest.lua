@@ -128,6 +128,7 @@ function manifest.assemble(input)
             rule = "deterministic_v0",
             work_mode = input.work_mode,
             substrate_truth_status = "semantic_proposal",
+            input_provenance = input.input_provenance or "unknown",
         },
         residue = context_residue(input),
         truth_status = "runtime_confirmed",

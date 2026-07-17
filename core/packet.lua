@@ -29,6 +29,8 @@ packet.truth_statuses = {
 packet.event_types = {
     birth = true,
     operator_tick = true,
+    operator_failure = true,
+    route_derivation = true,
     route = true,
     chaos_append = true,
     crystallization = true,
@@ -53,6 +55,8 @@ packet.death_causes = {
     identity_loss = true,
     invalid_topology = true,
     unsafe_scope = true,
+    stalled = true,
+    effect_failure = true,
     cancelled = true,
 }
 
@@ -433,6 +437,15 @@ function packet.begin_tick(instance, operator, input_refs)
     })
 end
 
+local function trace_event_by_id(instance, event_id)
+    for _, event in ipairs(instance.trace or {}) do
+        if event.id == event_id then
+            return event
+        end
+    end
+    return nil
+end
+
 function packet.commit_transition(instance, decision)
     local mutable, mutable_err = packet.assert_mutable(instance, "commit transition")
     if not mutable then
@@ -460,6 +473,65 @@ function packet.commit_transition(instance, decision)
         return nil, "invalid operator transition"
     end
 
+    local authority = decision.authority
+    if authority == nil then
+        authority = decision.kind == "tree_route_decision"
+            and "tree" or "legacy_control"
+    end
+    local selected = decision.selected_candidate
+    if authority == "tree" then
+        if type(decision.derivation_ref) ~= "string" or decision.derivation_ref == "" then
+            return nil, "tree route requires derivation ref"
+        end
+        if type(decision.pressure_snapshot_ref) ~= "string"
+            or decision.pressure_snapshot_ref == "" then
+            return nil, "tree route requires pressure snapshot ref"
+        end
+        if type(selected) ~= "table" or topology.resolve(selected.to) ~= to then
+            return nil, "tree route requires matching selected candidate"
+        end
+        if type(selected.readiness) ~= "table" or selected.readiness.ready ~= true then
+            return nil, "tree route cannot commit unready candidate"
+        end
+
+        local derivation = trace_event_by_id(instance, decision.derivation_ref)
+        if not derivation or derivation.type ~= "route_derivation" then
+            return nil, "tree route derivation ref must name route_derivation event"
+        end
+        local derivation_payload = derivation.payload or {}
+        if topology.resolve(derivation_payload.current_operator) ~= from
+            or derivation_payload.outcome ~= "selected"
+            or topology.resolve(derivation_payload.selected_to) ~= to then
+            return nil, "tree route does not match recorded derivation"
+        end
+        if derivation_payload.pressure_snapshot_ref ~= decision.pressure_snapshot_ref then
+            return nil, "tree route pressure ref does not match recorded derivation"
+        end
+
+        local pressure_event = trace_event_by_id(instance, decision.pressure_snapshot_ref)
+        if not pressure_event
+            or pressure_event.type ~= "tension_measure"
+            or pressure_event.operator ~= from
+            or (pressure_event.payload or {}).kind ~= "edge_pressure_snapshot" then
+            return nil, "tree route pressure ref must name matching edge pressure snapshot"
+        end
+
+        local recorded_candidate
+        for _, candidate in ipairs(derivation_payload.candidates or {}) do
+            if topology.resolve(candidate.to) == to
+                and candidate.excluded ~= true
+                and type(candidate.readiness) == "table"
+                and candidate.readiness.ready == true then
+                recorded_candidate = candidate
+                break
+            end
+        end
+        if not recorded_candidate then
+            return nil, "tree route selected candidate is absent from derivation"
+        end
+        selected = recorded_candidate
+    end
+
     local event = append_trace(instance, {
         type = "route",
         operator = to,
@@ -470,6 +542,13 @@ function packet.commit_transition(instance, decision)
             to = to,
             reason = decision.reason,
             pressure = decision.pressure,
+            authority = authority,
+            derivation_ref = decision.derivation_ref,
+            pressure_snapshot_ref = decision.pressure_snapshot_ref,
+            selected_candidate = selected,
+            policy = decision.policy,
+            policy_status = decision.policy_status,
+            threshold = decision.threshold,
         },
         cost = decision.cost or {},
     })

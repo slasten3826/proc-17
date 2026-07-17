@@ -84,13 +84,30 @@ for _, id in ipairs({
     assert_eq(rail.promotion_status, "insufficient_evidence", id .. " cannot self-promote")
 end
 
-assert_true(corpus.rails["rail.encode_observe"].debt_bypass_proposals > 0,
-    "current shadow attempts an unresolved upper-eye bypass after ENCODE")
+assert_eq(corpus.rails["rail.encode_observe"].eye_debt_cases, 0,
+    "ENCODE does not make already covered semantic units unobserved")
+assert_true(corpus.rails["rail.encode_observe"].fresh_direct_proposals > 0,
+    "current shadow can bypass the upper eye when no semantic unit is uncovered")
 assert_true(corpus.rails["rail.choose_observe"].debt_bypass_proposals > 0,
     "current shadow attempts an unresolved upper-eye bypass after CHOOSE")
 assert_true(corpus.rails["rail.cycle_runtime"].eye_debt_cases > 0,
     "cycle consequence creates bounded runtime reconciliation debt")
 assert_true(corpus.rails["rail.logic_runtime"].eye_debt_cases > 0,
     "logic consequence creates bounded runtime reconciliation debt")
+
+local failure_source = edge_stats.new({kind = "failure_source"})
+local failed_route = {from = "▽", to = "☴"}
+assert(edge_stats.record_transition(failure_source, failed_route))
+assert(edge_stats.record_failure(failure_source, failed_route, {
+    kind = "effect_failure",
+    code = "connection_lost",
+}))
+local failure_corpus = edge_stats.new({kind = "failure_corpus"})
+assert(edge_stats.merge(failure_corpus, failure_source))
+local failed_edge = failure_corpus.edges[assert(catalog.get("▽", "☴")).edge]
+assert_eq(failed_edge.failed_count, 1, "corpus merge preserves failed arrivals")
+assert_eq(failed_edge.executed_count, 0, "failed arrival is not executed evidence")
+assert_eq(failed_edge.directions["▽->☴"].failure_kinds.connection_lost, 1,
+    "corpus merge preserves typed failure kind")
 
 print("test_edge_evidence ok")

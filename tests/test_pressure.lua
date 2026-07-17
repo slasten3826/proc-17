@@ -102,9 +102,14 @@ assert(packet.commit_transition(p, {
 local after_observe = assert(pressure.derive(p, {operator = "☵"}, {
     options = {work_mode = "plan"},
 }))
-local upper = assert(find_kind(after_observe, "upper_observation_debt"),
-    "OBSERVE output can make its immutable view stale for a later adjacent operator")
+assert_eq(find_kind(after_observe, "upper_observation_debt"), nil,
+    "OBSERVE scope and sensor output do not create self-observation pressure")
+local sampled_after_observe = assert(pressure.derive(p, {operator = "☵"}, {
+    options = {work_mode = "plan", pressure_policy = "sampled"},
+}))
+local upper = assert(find_kind(sampled_after_observe, "upper_observation_debt"),
+    "sampled control preserves historical upper-eye revision staleness")
 assert_eq(upper.target_operator, "☴", "upper debt points back to upper eye")
-assert_eq(upper.freshness, "stale", "own output produces deferred staleness, not a self-loop")
+assert_eq(upper.freshness, "stale", "sampled own output remains deferred staleness")
 
 print("test_pressure ok")

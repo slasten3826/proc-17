@@ -114,6 +114,7 @@ local function decision(from, to, reason, pressure)
         to = to,
         reason = reason,
         pressure = pressure,
+        authority = "legacy_control",
         truth_status = "runtime_confirmed",
     }
 end
@@ -262,6 +263,103 @@ local function record_shadow(instance, shadow)
     return event
 end
 
+local function selected_candidate(prediction)
+    for _, candidate in ipairs(prediction and prediction.candidates or {}) do
+        if candidate.to == prediction.to then
+            return candidate
+        end
+    end
+    return nil
+end
+
+local function record_derivation(instance, snapshot, prediction)
+    local payload = {
+        kind = "route_derivation",
+        current_operator = snapshot.current_operator,
+        pressure_snapshot_ref = snapshot.trace_event_id,
+        candidates = prediction.candidates or {},
+        outcome = prediction.kind == "tree_route_decision"
+            and "selected" or "no_viable_edge",
+        selected_to = prediction.to,
+        no_viable_cause = prediction.kind == "no_viable_edge"
+            and prediction.cause or nil,
+        policy = prediction.policy,
+        policy_status = prediction.policy_status,
+        threshold = prediction.threshold,
+    }
+    local event, err = packet_core.append_trace(instance, {
+        type = "route_derivation",
+        operator = snapshot.current_operator,
+        truth_status = "runtime_confirmed",
+        payload = payload,
+        cost = {},
+    })
+    if not event then
+        return nil, err
+    end
+    return event, payload
+end
+
+local function derive_tree_authority(instance, tick, options)
+    options = options or {}
+    local snapshot, snapshot_err = pressure_module.derive(instance, tick, {
+        current_operator = tick.operator,
+        options = options.options or {},
+    })
+    if not snapshot then
+        return nil, snapshot_err
+    end
+    local pressure_event, pressure_err = record_pressure_snapshot(instance, snapshot)
+    if not pressure_event then
+        return nil, pressure_err
+    end
+
+    local prediction, prediction_err = tree_router.predict(instance, snapshot, {
+        substrate = options.substrate,
+        capabilities = options.capabilities,
+        options = options.options or {},
+        result = options.result,
+        tree = options.tree,
+    })
+    if not prediction then
+        return nil, prediction_err
+    end
+    local derivation_event, derivation_err = record_derivation(instance, snapshot, prediction)
+    if not derivation_event then
+        return nil, derivation_err
+    end
+
+    if prediction.kind == "no_viable_edge" then
+        prediction.from = snapshot.current_operator
+        prediction.authority = "tree"
+        prediction.derivation_ref = derivation_event.id
+        prediction.pressure_snapshot_ref = snapshot.trace_event_id
+        prediction.truth_status = "runtime_confirmed"
+        return prediction
+    end
+
+    local selected = selected_candidate(prediction)
+    if not selected then
+        return nil, "tree decision missing selected candidate"
+    end
+    return {
+        kind = "tree_route_decision",
+        from = snapshot.current_operator,
+        to = prediction.to,
+        reason = prediction.reason,
+        authority = "tree",
+        derivation_ref = derivation_event.id,
+        pressure_snapshot_ref = snapshot.trace_event_id,
+        selected_candidate = selected,
+        candidates = prediction.candidates or {},
+        policy = prediction.policy,
+        policy_status = prediction.policy_status,
+        threshold = prediction.threshold,
+        winning_total = prediction.winning_total,
+        truth_status = "runtime_confirmed",
+    }
+end
+
 local function shadow_error(from, live, err)
     return {
         kind = "shadow_route_decision",
@@ -348,20 +446,20 @@ end
 function router.after_tick(instance, tick, options)
     tick = tick or {}
     options = options or {}
-    local live, live_err = legacy_after_tick(instance, tick)
-    if not live then
-        return nil, live_err
-    end
-
     local mode = options.mode or "shadow"
     if mode ~= "legacy" and mode ~= "shadow" and mode ~= "tree" then
         return nil, "invalid_router_mode"
     end
+    if mode == "tree" then
+        return derive_tree_authority(instance, tick, options)
+    end
+
+    local live, live_err = legacy_after_tick(instance, tick)
+    if not live then
+        return nil, live_err
+    end
     if mode == "legacy" then
         return live
-    end
-    if mode == "tree" then
-        return nil, "tree_authority_not_promoted"
     end
 
     local shadow = shadow_without_authority(instance, tick, live, options)
@@ -370,5 +468,6 @@ function router.after_tick(instance, tick, options)
 end
 
 router.legacy_after_tick = legacy_after_tick
+router.tree_after_tick = derive_tree_authority
 
 return router

@@ -244,7 +244,8 @@ for _, profile in ipairs(profiles) do
 end
 
 assert(reports.C0.agreement > 0, "control corpus must contain current shadow agreements")
-assert(reports.A.agreement == 0, "removing duplicate mismatch must expose zero legacy agreement")
+assert(reports.A.agreement < reports.C0.agreement,
+    "removing duplicate mismatch must reduce legacy agreement")
 assert(count(reports.C0.selected_directions, "☵->☱") > 0,
     "C0 must expose ENCODE to RUNTIME selections")
 assert(count(reports.A.selected_directions, "☵->☱") == 0,
@@ -257,8 +258,10 @@ assert(count(reports.A.selected_directions, "☱->☵") > 0,
     "A must preserve reverse RUNTIME to ENCODE pressure")
 assert(count(reports.A.selected_edges, "E05") > count(reports.C0.selected_edges, "E05"),
     "removing mismatch must expose more canonical CONNECT tie-break selections")
-assert(reports.A.rails["☲"].recall == 0 and reports.A.rails["☶"].recall == 0,
-    "A must remove both apparent lower-rail recalls")
+assert(reports.A.rails["☲"].recall == 0,
+    "A must remove the apparent CYCLE lower-rail recall")
+assert(reports.A.rails["☶"].recall > 0,
+    "A must preserve LOGIC to RUNTIME when validation changed constraints")
 for _, profile in ipairs(profiles) do
     assert(count(reports[profile].normal_manifest_predictions, "△") == 0,
         profile .. " must retain the diagnosed normal-manifest gap")

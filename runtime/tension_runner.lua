@@ -169,6 +169,59 @@ local function ledger_refs(prefix, first_index, last_index)
     return refs
 end
 
+local function commit_route(instance, result, route, include_in_routes)
+    local route_event, commit_err = packet_core.commit_transition(instance, route)
+    if not route_event then
+        return nil, commit_err
+    end
+    route.trace_event_id = route_event.id
+    if include_in_routes ~= false then
+        result.routes[#result.routes + 1] = route
+    end
+    local recorded, stats_err = edge_stats.record_transition(result.edge_stats, route)
+    if not recorded then
+        note_stats_error(result, stats_err)
+    end
+    return route
+end
+
+local function die_from_no_viable(instance, result, outcome)
+    if die_from_mortality(instance, result, instance.operator) then
+        return instance
+    end
+    local cause = outcome.cause == "unsafe" and "unsafe_scope" or "stalled"
+    local residue = {
+        cause = cause,
+        stall_kind = outcome.cause or "stalled",
+        last_operator = instance.operator,
+        candidate_audit_ref = outcome.derivation_ref,
+        pressure_snapshot_ref = outcome.pressure_snapshot_ref,
+        candidates = outcome.candidates or {},
+        do_not_repeat = "no viable operator edge under current packet state",
+    }
+    local dead, death_err = packet_core.die(instance, cause, residue)
+    if not dead then
+        return nil, death_err
+    end
+    result.stop_reason = cause
+    result.final_status = instance.status
+    result.no_viable_edge = outcome
+    finish_measurements(result)
+    return instance
+end
+
+local function failed_effect_residue(instance, operator, failure, pending_arrival, failure_event)
+    return {
+        cause = "effect_failure",
+        last_operator = operator,
+        failure = failure,
+        failure_event_ref = failure_event and failure_event.id,
+        committed_route_ref = pending_arrival and pending_arrival.trace_event_id,
+        progress = body.progress(instance),
+        do_not_repeat = "repeat only after external effect failure pressure changes",
+    }
+end
+
 function tension_runner.run(prompt, substrate, options)
     options = options or {}
 
@@ -216,25 +269,51 @@ function tension_runner.run(prompt, substrate, options)
         result.grave = grave_payload
     end
 
-    local start_operator = options.start_operator or "☴"
-    local entry_decision = {
-        kind = "route_decision",
-        from = instance.operator,
-        to = start_operator,
-        reason = "runner_entry",
-        truth_status = "runtime_confirmed",
-    }
-    local entry_event, entry_err = packet_core.commit_transition(instance, entry_decision)
-    if not entry_event then
+    local entry_decision
+    if result.router_mode == "tree" and options.tree_test_override ~= true then
+        local derived_entry, derived_err = router.after_tick(instance, {
+            operator = "▽",
+            payload = flow_payload,
+            work_mode = options.work_mode or "build",
+        }, {
+            mode = "tree",
+            substrate = substrate,
+            capabilities = options.capabilities,
+            options = options,
+            result = result,
+            tree = options.tree_router,
+        })
+        if not derived_entry then
+            return nil, stage_error("entry", derived_err)
+        end
+        if derived_entry.kind == "no_viable_edge" then
+            result.entry_derivation = derived_entry
+            local dead, death_err = die_from_no_viable(instance, result, derived_entry)
+            if not dead then
+                return nil, stage_error("entry", death_err)
+            end
+            return instance, result
+        end
+        entry_decision = derived_entry
+    else
+        local start_operator = options.start_operator or "☴"
+        entry_decision = {
+            kind = "route_decision",
+            from = instance.operator,
+            to = start_operator,
+            reason = "runner_entry",
+            authority = options.tree_test_override == true
+                and "harness_override" or "legacy_control",
+            truth_status = "runtime_confirmed",
+        }
+    end
+
+    local committed_entry, entry_err = commit_route(instance, result, entry_decision, false)
+    if not committed_entry then
         return nil, stage_error("entry", entry_err)
     end
-    entry_decision.trace_event_id = entry_event.id
     result.entry_route = entry_decision
     result.final_status = instance.status
-    local entry_stats, entry_stats_err = edge_stats.record_transition(result.edge_stats, entry_decision)
-    if not entry_stats then
-        note_stats_error(result, entry_stats_err)
-    end
 
     local current = instance.operator
     local max_ticks = options.max_ticks or default_max_ticks(instance)
@@ -258,14 +337,120 @@ function tension_runner.run(prompt, substrate, options)
         if not tick_event then
             return nil, stage_error("tick", tick_err)
         end
-        local payload, err, readiness = operator_registry.run(
+        local execution, err = operator_registry.execute(
             current,
             instance,
             operator_context(substrate, options, result)
         )
-        if not payload then
+        if not execution then
             return nil, stage_error(current, err)
         end
+        if execution.status == "not_ready" then
+            return nil, stage_error(current,
+                "committed_operator_not_ready:" .. tostring(execution.readiness.reason))
+        end
+        if execution.status == "effect_failure" then
+            local failure = execution.failure
+            local failure_event, failure_event_err = packet_core.append_trace(instance, {
+                type = "operator_failure",
+                operator = current,
+                truth_status = "runtime_confirmed",
+                payload = {
+                    kind = "operator_failure",
+                    operator = current,
+                    failure = failure,
+                    committed_route_ref = pending_arrival and pending_arrival.trace_event_id,
+                },
+                cost = {},
+            })
+            if not failure_event then
+                return nil, stage_error("operator_failure", failure_event_err)
+            end
+
+            local result_tick = append_tick(result, current, {
+                kind = "operator_failure_payload",
+                failure = failure,
+                trace_event_id = failure_event.id,
+                truth_status = "runtime_confirmed",
+            })
+            result_tick.trace_event_id = tick_event.id
+            result_tick.readiness = execution.readiness
+            result_tick.registry = operator_registry.protocol_version
+            result_tick.status = "effect_failure"
+            if pending_arrival then
+                local failed, failed_err = edge_stats.record_failure(
+                    result.edge_stats,
+                    pending_arrival,
+                    failure
+                )
+                if not failed then
+                    note_stats_error(result, failed_err)
+                end
+            end
+
+            local clock = instance.physis and instance.physis.clock
+            if clock then
+                clock.ticks = (clock.ticks or 0) + 1
+            end
+            budget.charge(instance, {
+                operator = current,
+                event_id = failure_event.id,
+                cost = {steps = 1},
+                source = "body_tick",
+                truth_status = "runtime_confirmed",
+            })
+            if next(failure.cost or {}) ~= nil then
+                budget.charge(instance, {
+                    operator = current,
+                    event_id = failure_event.id,
+                    cost = failure.cost,
+                    source = "failed_external_effect",
+                    truth_status = "runtime_confirmed",
+                })
+            end
+
+            local source_event_refs = event_refs(instance, trace_start)
+            local runtime_frame, frame_err = camera.capture(instance, {
+                operator = current,
+                revisions_before = revisions_before,
+                source_event_refs = source_event_refs,
+                effect_refs = {failure_event.id},
+                budget_event_refs = ledger_refs(
+                    "budget:event:",
+                    budget_event_start,
+                    #(instance.runtime and instance.runtime.budget
+                        and instance.runtime.budget.events or {})
+                ),
+                loss_event_refs = ledger_refs(
+                    "loss:event:",
+                    loss_event_start,
+                    #(instance.tension and instance.tension.loss_events or {})
+                ),
+                budget_before = budget_before,
+                loss_before = loss_before,
+                progress_before = progress_before,
+                evidence_fingerprint_before = evidence_fingerprint_before,
+            })
+            if not runtime_frame then
+                return nil, stage_error("camera", frame_err)
+            end
+            result_tick.runtime_frame_ref = runtime_frame.trace_event_id
+            result_tick.runtime_frame_seq = runtime_frame.seq
+
+            local dead, death_err = packet_core.die(instance, "effect_failure",
+                failed_effect_residue(instance, current, failure, pending_arrival, failure_event))
+            if not dead then
+                return nil, stage_error("effect_failure", death_err)
+            end
+            result.stop_reason = "effect_failure"
+            result.final_status = instance.status
+            result.effect_failure = failure
+            finish_measurements(result)
+            return instance, result
+        end
+
+        local payload = execution.payload
+        local readiness = execution.readiness
 
         local result_tick = append_tick(result, current, payload)
         result_tick.trace_event_id = tick_event.id
@@ -357,6 +542,14 @@ function tension_runner.run(prompt, substrate, options)
             return nil, stage_error("router", route_err)
         end
 
+        if route.kind == "no_viable_edge" then
+            local dead, death_err = die_from_no_viable(instance, result, route)
+            if not dead then
+                return nil, stage_error("router", death_err)
+            end
+            return instance, result
+        end
+
         if route.shadow then
             result.shadow_routes[#result.shadow_routes + 1] = route.shadow
             local recorded_stats, stats_err = edge_stats.record(result.edge_stats, route.shadow)
@@ -365,15 +558,9 @@ function tension_runner.run(prompt, substrate, options)
             end
         end
 
-        local route_event, commit_err = packet_core.commit_transition(instance, route)
-        if not route_event then
+        local committed, commit_err = commit_route(instance, result, route)
+        if not committed then
             return nil, stage_error("route", commit_err)
-        end
-        route.trace_event_id = route_event.id
-        result.routes[#result.routes + 1] = route
-        local transition_stats, transition_stats_err = edge_stats.record_transition(result.edge_stats, route)
-        if not transition_stats then
-            note_stats_error(result, transition_stats_err)
         end
         pending_arrival = route
         current = instance.operator

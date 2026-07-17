@@ -37,11 +37,13 @@ local function new_direction(key, legal)
         prediction_count = 0,
         committed_count = 0,
         executed_count = 0,
+        failed_count = 0,
         positive_sum = 0,
         resistance_sum = 0,
         total_sum = 0,
         exclusion_reasons = {},
         arrival_kinds = {},
+        failure_kinds = {},
     }
 end
 
@@ -64,6 +66,7 @@ local function new_edge(definition)
         selection_count = 0,
         committed_count = 0,
         executed_count = 0,
+        failed_count = 0,
         positive_sum = 0,
         resistance_sum = 0,
         total_sum = 0,
@@ -303,6 +306,26 @@ function edge_stats.record_arrival(stats, route, payload)
     return record
 end
 
+function edge_stats.record_failure(stats, route, failure)
+    if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
+        return nil, "edge statistics state required"
+    end
+    if type(route) ~= "table" or route.from == nil or route.to == nil then
+        return nil, "failed arrival route required"
+    end
+    local record, record_err = ensure_edge(stats, route.from, route.to)
+    if not record then
+        return nil, record_err
+    end
+    local directional = ensure_direction(record, route.from, route.to)
+    record.failed_count = (record.failed_count or 0) + 1
+    directional.failed_count = (directional.failed_count or 0) + 1
+    local kind = type(failure) == "table" and (failure.code or failure.kind) or "unknown"
+    increment_reason(directional.failure_kinds, kind)
+    refresh_edge(record)
+    return record
+end
+
 function edge_stats.summary(stats)
     if type(stats) ~= "table" or stats.kind ~= "edge_statistics" then
         return nil, "edge statistics state required"
@@ -358,6 +381,7 @@ function edge_stats.merge(target, source)
                 "selection_count",
                 "committed_count",
                 "executed_count",
+                "failed_count",
                 "positive_sum",
                 "resistance_sum",
                 "total_sum",
@@ -374,6 +398,7 @@ function edge_stats.merge(target, source)
                     "prediction_count",
                     "committed_count",
                     "executed_count",
+                    "failed_count",
                     "positive_sum",
                     "resistance_sum",
                     "total_sum",
@@ -382,6 +407,7 @@ function edge_stats.merge(target, source)
                 end
                 merge_counts(target_direction.exclusion_reasons, source_direction.exclusion_reasons)
                 merge_counts(target_direction.arrival_kinds, source_direction.arrival_kinds)
+                merge_counts(target_direction.failure_kinds, source_direction.failure_kinds)
             end
             refresh_edge(into)
         end

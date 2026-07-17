@@ -20,6 +20,7 @@ local significant_event_reasons = {
     choice = "alternatives_suppressed",
     validation = "validation_effect_recorded",
     cycle = "cycle_impulse_recorded",
+    operator_failure = "external_effect_failure_recorded",
 }
 
 local function completion_state(instance)

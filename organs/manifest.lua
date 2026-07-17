@@ -3,14 +3,19 @@ local manifest_logic = require("logic.manifest")
 
 local manifest_organ = {}
 
-local function last_trace_id(instance, event_type)
+local function last_trace_event(instance, event_type, operator)
     for index = #(instance.trace or {}), 1, -1 do
         local event = instance.trace[index]
-        if event.type == event_type then
-            return event.id
+        if event.type == event_type and (operator == nil or event.operator == operator) then
+            return event
         end
     end
     return nil
+end
+
+local function last_trace_id(instance, event_type)
+    local event = last_trace_event(instance, event_type)
+    return event and event.id or nil
 end
 
 local function last_payload(result, operator)
@@ -26,10 +31,17 @@ end
 function manifest_organ.input(instance, options)
     options = options or {}
     local result = options.result or {ticks = {}}
+    local observation_event = last_trace_event(instance, "observation", "☴")
+    local observation_record = observation_event and observation_event.payload or {}
+    local observation_payload = observation_record.payload or {}
     local observe_payload = last_payload(result, "☴") or {}
-    local choose_payload = last_payload(result, "☳")
-    local cycle_payload = last_payload(result, "☲")
-    local response = observe_payload.response or {}
+    local response = observation_payload.response or observe_payload.response or {}
+    local choice_event = last_trace_event(instance, "choice", "☳")
+    local choose_payload = choice_event and choice_event.payload or last_payload(result, "☳")
+    local cycle_event = last_trace_event(instance, "cycle", "☲")
+    local cycle_payload = cycle_event and cycle_event.payload or last_payload(result, "☲")
+    local validation_event = last_trace_event(instance, "validation", "☶")
+    local validation_payload = validation_event and validation_event.payload or nil
     local choice_loss = choose_payload and choose_payload.loss or {}
     local cycle_reason = cycle_payload and cycle_payload.reason or nil
 
@@ -40,10 +52,12 @@ function manifest_organ.input(instance, options)
             truth_status = response.truth_status or "semantic_proposal",
         },
         sources = {
-            substrate_result_event = observe_payload.trace_event_id,
+            substrate_result_event = observation_event and observation_event.id
+                or observe_payload.trace_event_id,
             encoded_field_event = last_trace_id(instance, "crystallization"),
-            choice_event = last_trace_id(instance, "choice"),
-            cycle_event = last_trace_id(instance, "cycle"),
+            choice_event = choice_event and choice_event.id,
+            cycle_event = cycle_event and cycle_event.id,
+            validation_event = validation_event and validation_event.id,
         },
         choose_context = choose_payload and {
             selected_count = #(choose_payload.selected or {}),
@@ -57,6 +71,14 @@ function manifest_organ.input(instance, options)
             repeated_fingerprint = cycle_payload.reason == "state_fingerprint",
             turn_budget_pressure = cycle_payload.decision == "stop_budget" and "cannot_pay" or "payable",
         } or nil,
+        logic_context = validation_payload and {
+            accepted_count = validation_payload.status == "accepted" and 1 or 0,
+            rejected_count = validation_payload.status == "rejected" and 1 or 0,
+            rejection_reasons = validation_payload.status == "rejected"
+                and {validation_payload.reason or "validation_rejected"} or {},
+            last_validation_event = validation_event.id,
+        } or nil,
+        input_provenance = observation_event and "packet_trace" or "harness_compatibility",
     }
 end
 

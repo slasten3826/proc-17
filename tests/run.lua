@@ -40,6 +40,7 @@ local tests = {
     "tests.test_runner",
     "tests.test_router",
     "tests.test_shadow_router",
+    "tests.test_tree_authority",
     "tests.test_tension_runner",
     "tests.test_build_mode_lower_triangle",
 }

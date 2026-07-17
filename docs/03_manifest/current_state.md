@@ -1,11 +1,11 @@
-# Current State - 2026-07-16
+# Current State - 2026-07-17
 
 Status: active packet-first body
 
 Current transition:
 
 ```text
-working process physics -> body that performs and verifies real work
+legacy route authority -> opt-in full-tree authority -> measured promotion
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -16,23 +16,41 @@ packet.
 
 ## Runtime Shape
 
-The active runner is pressure-routed:
+The default control life remains legacy pressure-routed:
 
 ```text
 ▽ birth -> ☴ -> ☵ -> ☴ -> ☳ -> ☴ -> ☱ -> (☶ / ☲ / ☴ / △)
 ```
 
-This is not a fixed full trace. `runtime/router.lua` chooses the next operator
-from packet state. Topology constrains allowed movement, and ☴ or ☱ must observe
-the body after state-changing operators. `core/packet.lua` commits every route,
-so `packet.operator`, route events, and executed tick events share one position.
-`runtime/operator_registry.lua` now resolves and dispatches the organ at that
-position; it does not choose the next position.
+The mandatory eye rails in that trace are historical scaffolding. They remain
+the default control through `router_mode=shadow`, where the tree observes but
+does not move the Packet.
 
-The authoritative route is still the legacy pressure router. By default the
-tension runner now also executes `pressure.binary.v0` and the full-tree router
-in shadow. The shadow observes the same post-tick state and records a prediction,
-but cannot change Packet position, economics, loss, or semantic state.
+Explicit `router_mode=tree` now grants live authority to the canonical full-tree
+derivation. FLOW entry and every later edge are selected from Packet pressure,
+registry readiness, capability, affordability, and topology. A confirmed build
+life followed:
+
+```text
+▽ ☰ ☵ ☲ ☶ ☱ △
+```
+
+`core/packet.lua` commits every route, so `packet.operator`, route events, and
+executed tick events share one position. Tree commits additionally require an
+immutable pressure snapshot, route derivation, and a ready selected candidate
+from that derivation. `runtime/operator_registry.lua` dispatches the organ at
+the committed position; it does not choose the next position.
+
+Authority now depends on the explicit mode:
+
+```text
+legacy  legacy movement only
+shadow  legacy movement, tree observation; current default
+tree    tree movement; opt-in Gate A experiment
+```
+
+Tree mode does not call the legacy router as a prerequisite. Legacy-as-shadow
+instrumentation for tree lives is the next transition step.
 
 Two runners remain intentionally:
 
@@ -89,10 +107,9 @@ tension runner dispatches every tick through this registry instead of a private
 operator `if` chain. These rights are declarations in v0; lower storage APIs
 remain responsible for enforcing their concrete mutations.
 
-CONNECT and DISSOLVE are registered, implemented, and directly testable, but
-intentionally remain unreachable from the live legacy router. They now appear
-as audited shadow candidates; any real authority remains a later promotion, not
-an immediate replacement of the current rails.
+CONNECT and DISSOLVE are registered, implemented, and directly testable. They
+remain unreachable from the live legacy router, but CONNECT has now executed in
+an opt-in tree-authority life. DISSOLVE still lacks a live rigidity corpus.
 
 ### Named pressure and shadow routing
 
@@ -109,13 +126,14 @@ candidates remain visible, and failure produces typed `no_viable_edge` rather
 than a hidden fallback. Router movement remains separate from semantic ☳ and
 creates no CHOOSE loss.
 
-`runtime/router.lua` records each pressure snapshot and legacy/tree comparison
-as append-only trace data. `runtime/edge_stats.lua` reads those comparisons into
-the run report. Its v1 ledger distinguishes candidate, committed transition,
-and executed destination evidence and preallocates all E01-E22 rows through
-`runtime/edge_catalog.lua`. It also audits the four temporary eye rails.
-`legacy` and `shadow` modes are available; `tree` authority is explicitly
-rejected until promotion evidence exists.
+`runtime/router.lua` records pressure snapshots and immutable route derivations
+as append-only trace data. In the default shadow mode it also records the
+legacy/tree comparison. `runtime/edge_stats.lua` reads those records into the
+run report. Its v1 ledger distinguishes candidate, committed transition,
+executed destination, and failed-arrival evidence and preallocates all E01-E22
+rows through `runtime/edge_catalog.lua`. It also audits the four temporary eye
+rails. `legacy`, `shadow`, and explicit `tree` authority modes are available;
+only the first two currently have comparison instrumentation.
 
 ### Task-shaped field
 
@@ -124,10 +142,11 @@ bounded read views, revision increments, raw relation epochs, RUNTIME-only
 activation, subtractive relation mutations, unit activation, and ENCODE identity
 maps. All six implemented upper-field operators write through this API.
 
-This is intentionally a shadow migration. Existing CHAOS input, CALM structures,
-loss accounting, and `runtime/router.lua` remain behavior-authoritative. The
-field records the same life in parallel and names its current reader, but routing
-does not consume it yet. This keeps the migration observable and reversible.
+Compatibility projections still coexist with the canonical field. Explicit tree
+lives now consume field-backed relation, encoding, choice, and observation
+witnesses, while several CALM consumers still read legacy-shaped projections.
+The migration remains observable and reversible, but the field is no longer
+purely passive in opt-in tree mode.
 
 ### Two eyes and revision freshness
 
@@ -145,10 +164,11 @@ old tension snapshot remains a compatibility projection.
 the current revision vector and returns `fresh`, `stale`, or `missing`. It does
 not mutate history. Potential, CALM, constraints, evidence, history, budget,
 and loss writers now advance their owned revision axes where those mutations
-already exist. Upper-eye freshness remains shadow-only; the legacy router does
-not consume it yet.
+already exist. Semantic-unit coverage drives upper-eye pressure in explicit
+tree lives. Historical revision staleness remains available through the
+`sampled` diagnostic policy; the legacy router does not consume either form.
 
-The lower routing interpretation now has an L1 shadow treatment. The runner
+The lower routing interpretation now has an L1 camera treatment. The runner
 captures one immutable `runtime_frame` after each completed tick's cost and
 loss physics without adding another tick or charge. `☱` reads significant
 pending frames, appends a `runtime_reconciliation`, and advances a monotonic
@@ -172,6 +192,12 @@ grave_pressure      inherited applicability claim, not the ancestor's death fact
 evidence. The build lower triangle has a LOGIC stamp so unchanged evidence is
 not repeatedly validated forever.
 
+The execution boundary distinguishes expected world failure from broken body
+physics. A well-formed external `effect_failure` becomes an `operator_failure`
+trace event and an honest terminal Packet. Untyped Lua errors, malformed failure
+objects, and trusted invariant violations remain loud harness failures and may
+not enter graves or promotion evidence.
+
 ### Mortality and lineage
 
 The normal packet death mechanisms are internal:
@@ -179,6 +205,8 @@ The normal packet death mechanisms are internal:
 - `budget_exhausted`: runtime economics are spent;
 - `identity_loss`: encoding and choice have destroyed packet coherence;
 - `complete`: the packet reaches MANIFEST with an assembled result.
+- `stalled`: a coherent tree derivation has no viable edge;
+- `effect_failure`: an attempted external effect failed in a typed way.
 
 MANIFEST is a terminal kind, not a temporary living status. Both successful
 manifestation and internal death produce a typed terminal record, seal the
@@ -210,12 +238,28 @@ mutation loop.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    41 suites passed
+lua tests/run.lua                    42 suites passed
+tests/test_tree_authority.lua        10/10 Gate A cases passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
 lua tests/smoke_runtime_camera_treatment.lua passed
+lua tests/smoke_pressure_ablation.lua passed
 lua tests/smoke_deepseek_tension_runner.lua passed through ☱ twice
 luac -p over all Lua sources         passed
 ```
+
+The first confirmed opt-in tree build produced:
+
+```text
+walk: ▽ ☰ ☵ ☲ ☶ ☱ △
+7 ticks, one accepted validation, loss 0.5
+manifested -> dead/complete
+manifest input_provenance = packet_trace
+```
+
+The Gate A suite also confirms typed stalled birth, typed external failure,
+rejected validation survival, strict derivation refs, and loud invariant
+failure. The initial red baseline and treatment history are preserved in
+[`../00_chaos/tree_authority_opt_in_results_2026-07-17.md`](../00_chaos/tree_authority_opt_in_results_2026-07-17.md).
 
 A local L0/L1 fake-substrate treatment confirms that the continuous camera does
 not alter the live route, step/substrate budget, or identity loss. In both plan
@@ -256,16 +300,16 @@ the checks outside the body.
 
 1. **No hands.** Selected work units are recorded but not executed by the body;
    their status does not progress to `done` through real repository mutation.
-2. **Canonical field is shadow-only.** FLOW/OBSERVE/ENCODE/CHOOSE mirror their
-   state through the field API, but current ENCODE input, CALM consumers, and the
-   router still use compatibility projections.
-3. **Relations have no live authority yet.** Raw snapshots, RUNTIME activation,
-   weakening, dissolution, and residue are canonical and tested. ☰/☷ now have
-   registry contracts, but the legacy router cannot select them and ☱ does not
-   yet apply relation momentum.
-4. **Camera pressure does not yet govern live routing.** Lower sampled freshness
-   has been replaced in L1 shadow by significant-frame reconciliation debt, but
-   binary ties are uncalibrated and the legacy router still owns movement.
+2. **Canonical field migration is incomplete.** FLOW/OBSERVE/ENCODE/CHOOSE and
+   explicit tree routing consume field records, but CALM and several organ
+   inputs still retain compatibility projections.
+3. **Relation authority is partial.** CONNECT executes in an opt-in tree life;
+   DISSOLVE has no live rigidity corpus and its readiness does not yet receive
+   the exact rigidity witness that created its pressure. ☱ does not yet apply
+   relation momentum.
+4. **Camera pressure is uncalibrated.** Reconciliation debt can govern explicit
+   tree lives, but all coefficients remain one and the default mode still grants
+   movement to legacy control.
 5. **The sandbox is not ready for hands.** Shell execution exists in spells,
    while the public sandbox command policy denies all commands. Filesystem path
    checks are lexical and need protection against symlink escape.
@@ -274,9 +318,10 @@ the checks outside the body.
    affect router or foundation.
 7. **Session lifecycle is not runner-owned.** Session and packet memory modules
    exist as libraries, not one automatic birth-to-grave lifecycle.
-8. **Pressure routing is shadow v0.** It is a deterministic, binary function of
-   explicit Packet records. Its constants are unmeasured, several readiness
-   contexts are incomplete, and it has no live authority.
+8. **Tree authority is opt-in v0.** It is a deterministic, binary function of
+   explicit Packet records and can manifest a build life, but its constants are
+   unmeasured. Tree lives do not yet record legacy as a read-only shadow, so the
+   instrumentation flip and promotion corpus are still open.
 9. **User surfaces are absent.** The machine CLI and Go TUI have designs only.
 
 Several modules are currently standalone or partially integrated, including
@@ -286,18 +331,17 @@ Several modules are currently standalone or partially integrated, including
 
 ## Next Architecture Target
 
-Before granting the body repository mutation, continue the packet-physics
-migration without switching the live router prematurely. The shared eye
-envelope, operator registry, and first shadow router are complete. The remaining
-sequence is:
+Gate A is complete. Finish the authority transition before granting repository
+mutation:
 
-1. derive a real independent CALM/runtime mismatch instead of freshness aliasing;
-2. make normal completion Packet-local and give △ Packet-owned material;
-3. connect ☷ readiness to the exact rigidity witness that selected it;
-4. grow paired lower-rail recall/bypass lives and the reverse E11 direction;
-5. promote field consumers only after old/new behavior comparisons are green;
-6. promote tree authority only through an explicit reviewed record;
-7. replace the shell-shaped sandbox boundary with explicit capabilities.
+1. in tree lives, record the legacy decision as read-only shadow evidence;
+2. prove tree routes, economics, loss, revisions and terminal outcome are
+   identical with that observer enabled and disabled;
+3. grow a tree-life corpus containing manifest, stall, rejected validation,
+   typed external failure, mortality, CONNECT, and a real DISSOLVE witness;
+4. document calibration defects without hiding them behind legacy rails;
+5. change the default from `shadow` to `tree` only in a separate reviewed step,
+   preserving explicit legacy control.
 
 Then close the first real work loop:
 

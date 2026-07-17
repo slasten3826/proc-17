@@ -1,5 +1,6 @@
 local topology = require("core.topology")
 local field = require("runtime.field")
+local substrate_contract = require("substrates.contract")
 
 local flow = require("organs.flow")
 local connect = require("organs.connect")
@@ -345,6 +346,20 @@ function registry.readiness(value, instance, context)
 end
 
 function registry.run(value, instance, context)
+    local outcome, outcome_err = registry.execute(value, instance, context)
+    if not outcome then
+        return nil, outcome_err
+    end
+    if outcome.status == "not_ready" then
+        return nil, outcome.readiness.reason, outcome.readiness
+    end
+    if outcome.status == "effect_failure" then
+        return nil, outcome.failure, outcome.readiness
+    end
+    return outcome.payload, nil, outcome.readiness
+end
+
+function registry.execute(value, instance, context)
     local descriptor = registry.get(value)
     if not descriptor then
         return nil, "operator_not_registered"
@@ -357,14 +372,40 @@ function registry.run(value, instance, context)
         return nil, ready_err
     end
     if not ready.ready then
-        return nil, ready.reason, ready
+        return {
+            kind = "operator_execution_outcome",
+            status = "not_ready",
+            operator = descriptor.glyph,
+            readiness = ready,
+            event_truth_status = "runtime_confirmed",
+        }
     end
 
     local payload, run_err = descriptor.run(instance, context or {})
     if not payload then
-        return nil, run_err, ready
+        if substrate_contract.is_effect_failure(run_err) then
+            return {
+                kind = "operator_execution_outcome",
+                status = "effect_failure",
+                operator = descriptor.glyph,
+                failure = run_err,
+                readiness = ready,
+                event_truth_status = "runtime_confirmed",
+            }
+        end
+        if type(run_err) == "table" and run_err.kind == "effect_failure" then
+            return nil, "invalid effect failure contract"
+        end
+        return nil, run_err
     end
-    return payload, nil, ready
+    return {
+        kind = "operator_execution_outcome",
+        status = "applied",
+        operator = descriptor.glyph,
+        payload = payload,
+        readiness = ready,
+        event_truth_status = "runtime_confirmed",
+    }
 end
 
 return registry

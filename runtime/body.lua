@@ -368,7 +368,7 @@ function body.record_validation(instance, validation_payload)
     if instance.revisions then
         instance.revisions.constraints = (instance.revisions.constraints or 0) + 1
     end
-    return validation_payload
+    return validation_payload, event
 end
 
 function body.record_cycle(instance, cycle_payload)
