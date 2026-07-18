@@ -3,6 +3,22 @@ local packet_core = require("core.packet")
 
 local foundation = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 local function ensure_runtime(instance)
     instance.runtime = instance.runtime or {}
     instance.runtime.foundation = instance.runtime.foundation or {
@@ -44,9 +60,9 @@ local function state_from(store)
 end
 
 function foundation.reinforce(instance, spell_result)
-    local mutable, mutable_err = packet_core.assert_mutable(instance, "reinforce foundation")
-    if not mutable then
-        return nil, mutable_err
+    local lease, lease_err = packet_core.assert_actor_tick(instance, "☶", "reinforce foundation")
+    if not lease then
+        return nil, lease_err
     end
     if type(spell_result) ~= "table" or spell_result.kind ~= "spell_result" then
         return nil, "spell_result required"
@@ -79,7 +95,7 @@ function foundation.reinforce(instance, spell_result)
         pattern.strength = math.max(0.0, pattern.strength - 0.10)
         pattern.stability = math.max(-1.0, pattern.stability - 0.30)
     end
-    pattern.last_result = spell_result
+    pattern.last_result = copy_value(spell_result)
 
     store.reinforcements = store.reinforcements + 1
     local total = 0
@@ -91,11 +107,11 @@ function foundation.reinforce(instance, spell_result)
     store.stability = count > 0 and (total / count) or 0
     update_state(store)
 
-    instance.runtime.evidence[#instance.runtime.evidence + 1] = spell_result
+    instance.runtime.evidence[#instance.runtime.evidence + 1] = copy_value(spell_result)
     if instance.revisions then
         instance.revisions.evidence = (instance.revisions.evidence or 0) + 1
     end
-    return pattern
+    return copy_value(pattern)
 end
 
 function foundation.snapshot(instance, opts)

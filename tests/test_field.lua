@@ -29,6 +29,8 @@ assert_eq(ingress.content_truth_status, "semantic_proposal", "prompt content rem
 assert_eq(#ingress.source_refs, 0, "direct user ingress may have no prior source")
 assert_eq(ingress.density, nil, "unmeasured density stays absent")
 
+assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "field_observe_fixture"}))
+assert(packet.begin_tick(p, "☴", {}))
 local _, observe_event = packet.append_chaos(p, {
     operator = "☴",
     kind = "substrate_response",
@@ -63,6 +65,8 @@ assert_eq(view.source_revision, p.revisions.potential, "view captures source rev
 view.units[1].carrier = "tampered"
 assert_eq(field.get_unit(p, "unit:1").carrier, "shape a field", "views cannot mutate stored units")
 
+assert(packet.commit_transition(p, {from = "☴", to = "☵", reason = "field_encode_fixture"}))
+assert(packet.begin_tick(p, "☵", {}))
 local _, encode_event = packet.crystallize(p, {
     source_chaos_refs = {observe_event.id},
     calm_delta = {kind = "field-test-form"},
@@ -90,6 +94,8 @@ assert_eq(identity_map.new_ids[1], encoded.id, "identity map target")
 assert_eq(p.revisions.momentum, 0, "ENCODE identity map cannot write momentum")
 assert_eq(p.trace[#p.trace].type, "identity_map", "identity map is trace-visible")
 
+assert(packet.commit_transition(p, {from = "☵", to = "☳", reason = "field_choose_fixture"}))
+assert(packet.begin_tick(p, "☳", {}))
 local choice_event = assert(packet.append_event(p, {
     type = "choice",
     operator = "☳",

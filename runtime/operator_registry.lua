@@ -111,18 +111,8 @@ local descriptors = {
         loss_profile = "mandatory",
         reads = {"chaos.fragments", "field.potential", "regime.encoding"},
         writes = {"calm", "field.potential", "field.identity_maps", "loss"},
-        readiness = function(instance)
-            local chaos = instance and instance.chaos or {}
-            local refs = {}
-            for index, fragment in ipairs(chaos.fragments or {}) do
-                if fragment.text ~= nil or fragment.value ~= nil or fragment.content ~= nil then
-                    refs[#refs + 1] = "chaos:fragment:" .. tostring(index)
-                end
-            end
-            if #refs == 0 and type(chaos.raw_prompt) == "string" and chaos.raw_prompt ~= "" then
-                refs[1] = "chaos:raw_prompt"
-            end
-            return witness("☵", #refs > 0, #refs > 0 and "ready" or "no_compressible_structure", refs)
+        readiness = function(instance, context)
+            return encode.readiness(instance, option(context, "encode"))
         end,
         run = function(instance, context)
             return unwrap(encode.run(instance, option(context, "encode")))
@@ -162,29 +152,31 @@ local descriptors = {
         name = "OBSERVE",
         module = observe,
         required_capabilities = {"substrate.ask"},
+        capabilities = function(context)
+            local observe_options = option(context, "observe")
+            if observe_options.sensor == "relation_native"
+                or observe_options.sensor == "field_native" then
+                return {}
+            end
+            return {"substrate.ask"}
+        end,
         loss_profile = "zero",
         reads = {"chaos", "field.potential", "field.relations", "substrate.current"},
         writes = {"boundary.observations.upper", "chaos.fragments", "field.potential"},
-        readiness = function(instance)
-            local view = field.view(instance, {limit = 16})
-            local refs = {}
-            for _, unit in ipairs(view and view.units or {}) do
-                refs[#refs + 1] = unit.id
-            end
-            if #refs == 0 then
-                refs[1] = "chaos:raw_prompt"
-            end
-            return witness("☴", true, "ready", refs)
+        readiness = function(instance, context)
+            return observe.readiness(instance, option(context, "observe"))
         end,
         run = function(instance, context)
             local options = main_options(context)
-            return unwrap(observe.run(instance, context and context.substrate, {
+            local configured = option(context, "observe")
+            configured = setmetatable(configured, {__index = {
                 work_mode = options.work_mode or "build",
                 mode = options.observe_mode or options.mode or "mixed",
                 prompt_payload = options.prompt_payload,
                 system_prompt = options.system_prompt,
                 substrate_options = options.substrate_options,
-            }))
+            }})
+            return unwrap(observe.run(instance, context and context.substrate, configured))
         end,
     },
     ["☲"] = {
@@ -281,7 +273,7 @@ local function normalize_witness(descriptor, value)
     value.ready = value.ready == true
     value.reason = value.reason or (value.ready and "ready" or "not_ready")
     value.source_refs = value.source_refs or {}
-    value.required_capabilities = descriptor.required_capabilities
+    value.required_capabilities = value.required_capabilities or descriptor.required_capabilities
     value.missing_capabilities = value.missing_capabilities or {}
     value.event_truth_status = "runtime_confirmed"
     return value
@@ -312,16 +304,18 @@ function registry.available(value, instance, context)
         return false, "terminal_packet", {}
     end
 
+    local required = descriptor.capabilities and descriptor.capabilities(context or {})
+        or descriptor.required_capabilities
     local missing = {}
-    for _, capability in ipairs(descriptor.required_capabilities) do
+    for _, capability in ipairs(required) do
         if not has_capability(capability, context) then
             missing[#missing + 1] = capability
         end
     end
     if #missing > 0 then
-        return false, "missing_capability", missing
+        return false, "missing_capability", missing, required
     end
-    return true, "available", {}
+    return true, "available", {}, required
 end
 
 function registry.readiness(value, instance, context)
@@ -329,12 +323,13 @@ function registry.readiness(value, instance, context)
     if not descriptor then
         return nil, "operator_not_registered"
     end
-    local available, reason, missing = registry.available(value, instance, context)
+    local available, reason, missing, required = registry.available(value, instance, context)
     if not available then
         return normalize_witness(descriptor, {
             ready = false,
             reason = reason,
             missing_capabilities = missing,
+            required_capabilities = required,
         })
     end
 
@@ -342,6 +337,7 @@ function registry.readiness(value, instance, context)
     if not value_or_nil then
         return nil, err
     end
+    value_or_nil.required_capabilities = required
     return normalize_witness(descriptor, value_or_nil)
 end
 

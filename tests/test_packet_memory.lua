@@ -26,12 +26,16 @@ local p = packet.new("remember failed route", {
     substrate_session_id = "substrate-memory-session",
 })
 
+assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "memory_chaos_fixture"}))
+assert(packet.begin_tick(p, "☴", {}))
 packet.append_chaos(p, {
     operator = "☴",
     text = "a\nb\nc",
     truth_status = "semantic_proposal",
 })
 
+assert(packet.commit_transition(p, {from = "☴", to = "☵", reason = "memory_crystal_fixture"}))
+assert(packet.begin_tick(p, "☵", {}))
 packet.crystallize(p, {
     source_chaos_refs = {"chaos:fragment:1"},
     calm_delta = {
@@ -59,8 +63,7 @@ packet.crystallize(p, {
     status = "accepted",
 })
 
-assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "memory_test_entry"}))
-assert(packet.commit_transition(p, {from = "☴", to = "☱", reason = "memory_test_runtime"}))
+assert(packet.commit_transition(p, {from = "☵", to = "☱", reason = "memory_test_runtime"}))
 assert(packet.commit_transition(p, {from = "☱", to = "△", reason = "memory_test_manifest"}))
 assert(packet.manifest_packet(p, {
     output = {

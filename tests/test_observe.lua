@@ -19,6 +19,8 @@ end
 
 local p = packet.new("observe this task")
 local before_calm_count = #p.calm.structures
+assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "observe_fixture"}))
+assert(packet.begin_tick(p, "☴", {}))
 
 local observed, payload = observe.run(p, fake, {
     work_mode = "plan",

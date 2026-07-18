@@ -4,6 +4,22 @@ local packet_core = require("core.packet")
 
 local packet_memory = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 packet_memory.default_root = "sandbox/packets"
 
 local function enabled(options)
@@ -30,7 +46,7 @@ local function copy_array(source, start_index)
         return result
     end
     for index = start_index or 1, #source do
-        result[#result + 1] = source[index]
+        result[#result + 1] = copy_value(source[index])
     end
     return result
 end
@@ -126,15 +142,16 @@ function packet_memory.capsule(instance, options)
         birth_kind = instance.birth_kind,
         carrier_id = instance.carrier_id,
         substrate_session_id = instance.substrate_session_id,
+        flow_mark = copy_value(instance.ingress and instance.ingress.flow_mark),
         status = instance.status,
-        terminal = instance.terminal,
-        death = instance.death,
-        residue = instance.residue or {},
-        manifest = instance.manifest,
+        terminal = copy_value(instance.terminal),
+        death = copy_value(instance.death),
+        residue = copy_value(instance.residue or {}),
+        manifest = copy_value(instance.manifest),
         trace_tail = copy_array(trace, tail_start),
         loss_records = copy_array(instance.boundary and instance.boundary.loss_records or {}),
         runtime = {
-            foundation = instance.runtime and instance.runtime.foundation or {},
+            foundation = copy_value(instance.runtime and instance.runtime.foundation or {}),
         },
         saved_at = os.time(),
         truth_status = "runtime_confirmed",
@@ -210,12 +227,12 @@ function packet_memory.inherit(capsule, options)
         source_generation = capsule.generation,
         source_parent_corpse_id = capsule.parent_corpse_id,
         source_status = capsule.status,
-        source_terminal = capsule.terminal,
-        source_death = capsule.death,
-        residue = capsule.residue or {},
-        manifest = capsule.manifest,
-        loss_records = capsule.loss_records or {},
-        trace_tail = capsule.trace_tail or {},
+        source_terminal = copy_value(capsule.terminal),
+        source_death = copy_value(capsule.death),
+        residue = copy_value(capsule.residue or {}),
+        manifest = copy_value(capsule.manifest),
+        loss_records = copy_value(capsule.loss_records or {}),
+        trace_tail = copy_value(capsule.trace_tail or {}),
         truth_status = "runtime_confirmed",
     }
 end
@@ -237,7 +254,8 @@ function packet_memory.attach(instance, inherited_residue, options)
     instance.runtime.memory = instance.runtime.memory or {}
     instance.runtime.memory.enabled = true
     instance.runtime.memory.inherited_residue = instance.runtime.memory.inherited_residue or {}
-    instance.runtime.memory.inherited_residue[#instance.runtime.memory.inherited_residue + 1] = inherited_residue
+    instance.runtime.memory.inherited_residue[#instance.runtime.memory.inherited_residue + 1]
+        = copy_value(inherited_residue)
     if instance.revisions then
         instance.revisions.history = (instance.revisions.history or 0) + 1
     end

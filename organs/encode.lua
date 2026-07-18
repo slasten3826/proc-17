@@ -4,6 +4,298 @@ local field = require("runtime.field")
 
 local encode = {}
 
+local function exact_ref(id, version)
+    return table.concat({"coverage", "field_unit", id, tostring(version)}, ":")
+end
+
+local function relation_scope(instance, input)
+    if type(input) ~= "table" or type(input.raw_epoch) ~= "number"
+        or type(input.relation_ids) ~= "table" or #input.relation_ids == 0
+        or type(input.endpoint_versions) ~= "table" then
+        return nil, "relation-guided ENCODE requires exact relation_input"
+    end
+    if not (instance.ingress
+        and instance.ingress.integration_protocol == "vertical_packet_life.v0") then
+        return nil, "relation-guided ENCODE requires vertical packet life"
+    end
+    local relations = {}
+    local endpoint_ids = {}
+    local endpoint_seen = {}
+    local source_refs = {}
+    local content_status
+    for _, relation_id in ipairs(input.relation_ids) do
+        local relation, relation_err = field.raw_relation_exact(
+            instance,
+            input.raw_epoch,
+            relation_id,
+            input.endpoint_versions
+        )
+        if not relation then
+            return nil, relation_err
+        end
+        local phase, phase_err = field.raw_relation_phase(
+            instance,
+            input.raw_epoch,
+            relation_id
+        )
+        if not phase then
+            return nil, phase_err
+        end
+        if phase.phase ~= "available" and phase.phase ~= "observed" then
+            return nil, "raw relation is not formable from phase " .. phase.phase
+        end
+        relations[#relations + 1] = relation
+        source_refs[#source_refs + 1] = relation.id
+        if relation.origin_event_id then
+            source_refs[#source_refs + 1] = relation.origin_event_id
+        end
+        for endpoint, version in pairs(relation.endpoint_versions or {}) do
+            source_refs[#source_refs + 1] = exact_ref(endpoint, version)
+            if not endpoint_seen[endpoint] then
+                endpoint_seen[endpoint] = true
+                endpoint_ids[#endpoint_ids + 1] = endpoint
+            end
+        end
+        local current = relation.content_truth_status or "unknown"
+        if content_status == nil then
+            content_status = current
+        elseif content_status ~= current then
+            content_status = "mixed"
+        end
+    end
+    table.sort(endpoint_ids)
+    return {
+        input = input,
+        relations = relations,
+        endpoint_ids = endpoint_ids,
+        source_refs = source_refs,
+        content_truth_status = content_status or "unknown",
+    }
+end
+
+function encode.readiness(instance, options)
+    options = options or {}
+    if options.relation_input ~= nil then
+        local scope, scope_err = relation_scope(instance, options.relation_input)
+        return {
+            operator = "☵",
+            ready = scope ~= nil,
+            reason = scope and "relation_formation_ready" or scope_err,
+            source_refs = scope and scope.source_refs or {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }, scope
+    end
+    local chaos = instance and instance.chaos or {}
+    local refs = {}
+    for index, fragment in ipairs(chaos.fragments or {}) do
+        if fragment.text ~= nil or fragment.value ~= nil or fragment.content ~= nil then
+            refs[#refs + 1] = "chaos:fragment:" .. tostring(index)
+        end
+    end
+    if #refs == 0 and type(chaos.raw_prompt) == "string" and chaos.raw_prompt ~= "" then
+        refs[1] = "chaos:raw_prompt"
+    end
+    return {
+        operator = "☵",
+        ready = #refs > 0,
+        reason = #refs > 0 and "ready" or "no_compressible_structure",
+        source_refs = refs,
+        required_capabilities = {},
+        missing_capabilities = {},
+        event_truth_status = "runtime_confirmed",
+    }
+end
+
+local function relation_guided_run(instance, options)
+    local witness, scope_or_err = encode.readiness(instance, options)
+    if not witness.ready then
+        return nil, witness.reason
+    end
+    local scope = scope_or_err
+    local planned_ids, plan_err = field.plan_unit_ids(instance, #scope.relations)
+    if not planned_ids then
+        return nil, plan_err
+    end
+    local identity_map_id, map_plan_err = field.plan_identity_map_id(instance)
+    if not identity_map_id then
+        return nil, map_plan_err
+    end
+
+    local items = {}
+    local work_units = {}
+    for index, relation in ipairs(scope.relations) do
+        items[index] = {
+            id = "formed_relation:" .. tostring(index),
+            kind = "formed_relation",
+            relation_kind = relation.kind,
+            from = relation.from,
+            to = relation.to,
+            endpoint_versions = relation.endpoint_versions,
+            source_relation_id = relation.id,
+            content_truth_status = relation.content_truth_status,
+        }
+        work_units[index] = {
+            id = planned_ids[index],
+            status = "pending",
+            description = relation.kind .. ":" .. relation.from .. "->" .. relation.to,
+            source_relation_id = relation.id,
+            content_truth_status = relation.content_truth_status,
+        }
+    end
+    local observation_refs = {}
+    for _, relation in ipairs(scope.relations) do
+        local phase = assert(field.raw_relation_phase(
+            instance,
+            options.relation_input.raw_epoch,
+            relation.id
+        ))
+        if phase.disposition_event_ref then
+            observation_refs[#observation_refs + 1] = phase.disposition_event_ref
+        end
+    end
+    local formation = {
+        protocol_version = "l2.relation_formation.v0",
+        formed_from = {
+            raw_epoch = options.relation_input.raw_epoch,
+            relation_ids = options.relation_input.relation_ids,
+            endpoint_versions = options.relation_input.endpoint_versions,
+            observation_event_refs = observation_refs,
+        },
+        formed_unit_ids = planned_ids,
+        identity_map_ref = identity_map_id,
+        content_truth_status = scope.content_truth_status,
+    }
+    local calm_delta = {
+        kind = "relation_formed_calm",
+        source_area = "field.relations.raw",
+        source_refs = scope.source_refs,
+        field = {
+            kind = "relation_formed_field",
+            items = items,
+            truth_status = scope.content_truth_status,
+        },
+        connections = {},
+        hierarchy = {},
+        work_units = work_units,
+        formation_basis = "relation_guided",
+        requested_shape = options.relation_input.requested_shape,
+        relation_formation = formation,
+    }
+    local old_count = #scope.endpoint_ids
+    local new_count = #planned_ids
+    local loss_percentage = old_count > 0
+        and math.max(0, (old_count - new_count) / old_count) or 0
+    local relation_loss = {
+        kind = "relation_formation_loss",
+        amount = loss_percentage,
+        input_count = old_count,
+        output_count = new_count,
+        omitted_count = 0,
+        truncated = false,
+        loss_percentage = loss_percentage,
+        encoding_type = "relation_guided",
+        loss_log = {{
+            kind = "identity_compaction",
+            input_identity_count = old_count,
+            output_identity_count = new_count,
+            amount = loss_percentage,
+        }},
+    }
+
+    local crystallized, crystallization_event = packet_core.crystallize(instance, {
+        source_chaos_refs = scope.source_refs,
+        calm_delta = calm_delta,
+        loss = relation_loss,
+        status = "accepted",
+        truth_status = "runtime_confirmed",
+    })
+    if not crystallized then
+        return nil, crystallization_event
+    end
+    local new_ids = {}
+    for index, item in ipairs(items) do
+        local unit, unit_err = field.add_unit(instance, "☵", {
+            id = planned_ids[index],
+            kind = "formed_relation",
+            carrier = item,
+            source_refs = scope.source_refs,
+            event_truth_status = "runtime_confirmed",
+            content_truth_status = scope.content_truth_status,
+            created_event_id = crystallization_event.id,
+            migration = {
+                status = "formed_from_raw_relation",
+                protocol_version = formation.protocol_version,
+                raw_epoch = formation.formed_from.raw_epoch,
+                relation_id = item.source_relation_id,
+            },
+        })
+        if not unit then
+            return nil, unit_err
+        end
+        new_ids[#new_ids + 1] = unit.id
+    end
+    local mapping = {}
+    for _, endpoint_id in ipairs(scope.endpoint_ids) do
+        mapping[endpoint_id] = new_ids
+    end
+    local identity_map, identity_err = field.record_identity_map(instance, "☵", {
+        id = identity_map_id,
+        encode_event_id = crystallization_event.id,
+        old_ids = scope.endpoint_ids,
+        new_ids = new_ids,
+        mapping = mapping,
+        mapping_kind = "relation_guided",
+        source_event_refs = scope.source_refs,
+        shadow_only = false,
+    })
+    if not identity_map then
+        return nil, identity_err
+    end
+    local formation_event, formation_err = packet_core.append_event(instance, {
+        type = "relation_formation",
+        operator = "☵",
+        truth_status = "runtime_confirmed",
+        payload = {
+            kind = "relation_formation",
+            protocol_version = formation.protocol_version,
+            formed_from = formation.formed_from,
+            formed_unit_ids = new_ids,
+            identity_map_ref = identity_map.id,
+            identity_map_event_ref = identity_map.trace_event_id,
+            event_truth_status = "runtime_confirmed",
+            content_truth_status = scope.content_truth_status,
+        },
+        cost = {},
+    })
+    if not formation_event then
+        return nil, formation_err
+    end
+
+    return instance, {
+        kind = "encode_organ_payload",
+        mode = "relation_guided",
+        formation_basis = "relation_guided",
+        calm_delta = calm_delta,
+        work_units = work_units,
+        loss = relation_loss,
+        relation_formation = formation,
+        identity_map = identity_map,
+        trace_event_id = crystallization_event.id,
+        formation_event_id = formation_event.id,
+        field_shadow = {
+            status = "formed",
+            source_unit_ids = scope.endpoint_ids,
+            member_unit_ids = new_ids,
+            identity_map_ref = identity_map.id,
+            shadow_only = false,
+        },
+        truth_status = "runtime_confirmed",
+        content_truth_status = scope.content_truth_status,
+    }
+end
+
 local function trim(value)
     return tostring(value or ""):match("^%s*(.-)%s*$")
 end
@@ -155,6 +447,9 @@ function encode.run(instance, options)
     if not mutable then
         return nil, mutable_err
     end
+    if options.relation_input ~= nil then
+        return relation_guided_run(instance, options)
+    end
     local text, source_refs = chaos_text(instance)
     if text == "" then
         return nil, "empty_chaos"
@@ -267,10 +562,6 @@ function encode.run(instance, options)
         return nil, identity_err
     end
 
-    instance.calm.work_units = work_units
-    instance.calm.current = calm_delta
-    instance.calm.status = "accepted"
-
     return instance, {
         kind = "encode_organ_payload",
         encoded = encoded,
@@ -287,6 +578,7 @@ function encode.run(instance, options)
             shadow_only = true,
         },
         truth_status = "runtime_confirmed",
+        formation_basis = "semantic_text",
     }
 end
 

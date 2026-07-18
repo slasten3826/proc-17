@@ -2,6 +2,22 @@ local packet_core = require("core.packet")
 
 local budget = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 local AXES = {
     "steps",
     "substrate_calls",
@@ -19,6 +35,50 @@ local AXES = {
 local AXIS_SET = {}
 for _, axis in ipairs(AXES) do
     AXIS_SET[axis] = true
+end
+
+local DISCRETE_AXES = {
+    steps = true,
+    substrate_calls = true,
+    prompt_tokens = true,
+    completion_tokens = true,
+    total_tokens = true,
+    estimated_tokens = true,
+    tool_calls = true,
+    file_writes = true,
+    test_runs = true,
+}
+
+local function finite_number(value)
+    return type(value) == "number"
+        and value == value
+        and value ~= math.huge
+        and value ~= -math.huge
+end
+
+function budget.validate_cost(cost)
+    if type(cost) ~= "table" then
+        return nil, "budget charge requires cost table"
+    end
+    local normalized = {}
+    for axis, amount in pairs(cost) do
+        if not AXIS_SET[axis] then
+            return nil, "unknown budget cost axis: " .. tostring(axis)
+        end
+        if not finite_number(amount) then
+            return nil, "budget cost must be finite number: " .. tostring(axis)
+        end
+        if amount < 0 then
+            return nil, "budget cost must be non-negative: " .. tostring(axis)
+        end
+        if DISCRETE_AXES[axis] and amount ~= math.floor(amount) then
+            return nil, "budget cost must be integer: " .. tostring(axis)
+        end
+        if amount ~= 0 then
+            normalized[axis] = amount
+        end
+    end
+    return normalized
 end
 
 local function copy_numeric_axes(source)
@@ -74,8 +134,18 @@ function budget.init(instance)
     if not mutable then
         return nil, mutable_err
     end
-    local runtime_budget = ensure(instance)
     local physis = instance.physis or instance.substrate or {}
+    for axis, limit in pairs(physis.budget or {}) do
+        if AXIS_SET[axis] then
+            if not finite_number(limit) or limit < 0 then
+                return nil, "budget limit must be finite number >= 0: " .. tostring(axis)
+            end
+            if DISCRETE_AXES[axis] and limit ~= math.floor(limit) then
+                return nil, "budget limit must be integer: " .. tostring(axis)
+            end
+        end
+    end
+    local runtime_budget = ensure(instance)
     local limits = copy_numeric_axes(physis.budget or {})
     for axis, limit in pairs(limits) do
         if runtime_budget.spent[axis] == nil then
@@ -89,19 +159,30 @@ end
 
 function budget.from_usage(usage)
     usage = usage or {}
+    if type(usage) ~= "table" then
+        return nil, "substrate usage must be table"
+    end
     local cost = {}
-    if type(usage.prompt_tokens) == "number" then
+    if usage.prompt_tokens ~= nil then
         cost.prompt_tokens = usage.prompt_tokens
     end
-    if type(usage.completion_tokens) == "number" then
+    if usage.completion_tokens ~= nil then
         cost.completion_tokens = usage.completion_tokens
     end
-    if type(usage.total_tokens) == "number" then
+    local total_supplied = usage.total_tokens ~= nil
+    if total_supplied then
         cost.total_tokens = usage.total_tokens
-    elseif cost.prompt_tokens or cost.completion_tokens then
-        cost.total_tokens = (cost.prompt_tokens or 0) + (cost.completion_tokens or 0)
     end
-    return cost
+    local validated, validate_err = budget.validate_cost(cost)
+    if not validated then
+        return nil, validate_err
+    end
+    if not total_supplied
+        and (usage.prompt_tokens ~= nil or usage.completion_tokens ~= nil) then
+        validated.total_tokens = (validated.prompt_tokens or 0)
+            + (validated.completion_tokens or 0)
+    end
+    return validated
 end
 
 function budget.estimate_tokens(text, options)
@@ -119,19 +200,33 @@ function budget.charge(instance, input)
         return nil, mutable_err
     end
     input = input or {}
-    if type(input.cost) ~= "table" then
-        return nil, "budget charge requires cost table"
+    local charged, cost_err = budget.validate_cost(input.cost)
+    if not charged then
+        return nil, cost_err
+    end
+
+    if next(charged) == nil then
+        local snapshot = budget.snapshot(instance)
+        return {
+            kind = "budget_cost",
+            status = "no_op",
+            operator = input.operator,
+            event_id = input.event_id,
+            cost = {},
+            source = input.source or "body_tick",
+            truth_status = input.truth_status or "runtime_confirmed",
+            spent_after = snapshot.spent,
+            remaining_after = snapshot.remaining,
+            exhausted = snapshot.exhausted,
+            exhausted_keys = snapshot.exhausted_keys,
+        }
     end
 
     local runtime_budget = ensure(instance)
-    local charged = {}
-    for key, value in pairs(input.cost) do
-        if AXIS_SET[key] and type(value) == "number" and value ~= 0 then
-            charged[key] = value
-            runtime_budget.spent[key] = (runtime_budget.spent[key] or 0) + value
-            if type(runtime_budget.remaining[key]) == "number" then
-                runtime_budget.remaining[key] = runtime_budget.remaining[key] - value
-            end
+    for key, value in pairs(charged) do
+        runtime_budget.spent[key] = (runtime_budget.spent[key] or 0) + value
+        if type(runtime_budget.remaining[key]) == "number" then
+            runtime_budget.remaining[key] = runtime_budget.remaining[key] - value
         end
     end
 
@@ -143,6 +238,7 @@ function budget.charge(instance, input)
 
     local record = {
         kind = "budget_cost",
+        status = "charged",
         operator = input.operator,
         event_id = input.event_id,
         cost = charged,
@@ -154,7 +250,7 @@ function budget.charge(instance, input)
         exhausted_keys = {table.unpack(runtime_budget.exhausted_keys)},
     }
     runtime_budget.events[#runtime_budget.events + 1] = record
-    return record
+    return copy_value(record)
 end
 
 function budget.snapshot(instance)
@@ -190,7 +286,7 @@ function budget.exhaustion_residue(instance, options)
     local tail_count = options.trace_tail_count or 5
     local start = math.max(1, #trace - tail_count + 1)
     for index = start, #trace do
-        trace_tail[#trace_tail + 1] = trace[index]
+        trace_tail[#trace_tail + 1] = copy_value(trace[index])
     end
     return {
         cause = "budget_exhausted",

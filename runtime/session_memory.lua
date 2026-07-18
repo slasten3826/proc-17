@@ -4,6 +4,22 @@ local grave = require("runtime.grave")
 
 local session_memory = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 session_memory.default_root = "sandbox/sessions"
 session_memory.protocol_version = "session.v0"
 
@@ -340,7 +356,7 @@ function session_memory.add_grave(session, input)
     if type(session) ~= "table" or session.kind ~= "proc17_session" then
         return nil, "session required"
     end
-    local record = input
+    local record = copy_value(input)
     if not (type(record) == "table" and record.kind == "grave") then
         local classified, classify_err = grave.classify(input)
         if not classified then
@@ -364,7 +380,7 @@ function session_memory.add_grave(session, input)
         return nil, "unknown grave kind: " .. tostring(record.grave_kind)
     end
     session.updated_at = os.time()
-    return record
+    return copy_value(record)
 end
 
 function session_memory.inherit_graves(session, options)
@@ -380,7 +396,7 @@ function session_memory.inherit_graves(session, options)
     copy_into(out, session_grave.warnings)
     copy_into(out, session_grave.bequests)
     copy_into(out, session_grave.neutral)
-    return out
+    return copy_value(out)
 end
 
 function session_memory.compost(session, options)

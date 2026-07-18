@@ -10,6 +10,16 @@ local allowed_reasons = {
     contradictory = true,
     unsupported = true,
     explicitly_released = true,
+    snapshot_replaced = true,
+}
+
+local fixture_release_policies = {
+    ["vertical.fixture.explicit_release.v0"] = {
+        explicitly_released = true,
+    },
+    ["vertical.fixture.unsupported_release.v0"] = {
+        unsupported = true,
+    },
 }
 
 local function trace_event(instance, event_id)
@@ -45,8 +55,105 @@ local function reason_is_visible(instance, relation, reason)
     return payload.reason_kind == nil or payload.reason_kind == reason.kind
 end
 
+local function raw_reason_is_visible(instance, phase, relation, reason)
+    if type(reason) ~= "table" or not allowed_reasons[reason.kind] then
+        return false
+    end
+    if reason.kind == "stale" and phase.phase == "stale" then
+        return true
+    end
+    if reason.kind == "snapshot_replaced" and phase.phase == "replaced" then
+        return true
+    end
+    local policy = fixture_release_policies[reason.policy_id]
+    if policy and policy[reason.kind]
+        and instance.ingress
+        and instance.ingress.integration_protocol == "vertical_packet_life.v0" then
+        return true
+    end
+    local event = trace_event(instance, reason.event_id)
+    if not event or event.truth_status ~= "runtime_confirmed" then
+        return false
+    end
+    local payload = event.payload or {}
+    local nested = payload.payload or {}
+    local target = payload.relation_id or payload.target_ref
+        or nested.relation_id or nested.target_ref
+    local kind = payload.reason_kind or nested.reason_kind
+    return target == relation.id and (kind == nil or kind == reason.kind)
+end
+
+local function raw_readiness(instance, options)
+    if not (instance.ingress
+        and instance.ingress.integration_protocol == "vertical_packet_life.v0") then
+        return {
+            operator = "☷",
+            ready = false,
+            reason = "raw_release_requires_vertical_packet_life",
+            source_refs = {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
+    local relation, relation_err = field.raw_relation_exact(
+        instance,
+        options.raw_epoch,
+        options.relation_id,
+        options.endpoint_versions
+    )
+    if not relation then
+        return {
+            operator = "☷",
+            ready = false,
+            reason = relation_err,
+            source_refs = {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
+    local phase, phase_err = field.raw_relation_phase(
+        instance,
+        options.raw_epoch,
+        options.relation_id
+    )
+    if not phase then
+        return nil, phase_err
+    end
+    local visible = raw_reason_is_visible(instance, phase, relation, options.reason)
+    local phase_allows = phase.phase == "available" or phase.phase == "observed"
+        or phase.phase == "stale" or phase.phase == "replaced"
+    local refs = {relation.id}
+    for endpoint, version in pairs(relation.endpoint_versions or {}) do
+        refs[#refs + 1] = table.concat({
+            "coverage", "field_unit", endpoint, tostring(version),
+        }, ":")
+    end
+    if options.reason and options.reason.event_id then
+        refs[#refs + 1] = options.reason.event_id
+    elseif options.reason and options.reason.policy_id then
+        refs[#refs + 1] = "policy:" .. options.reason.policy_id
+    end
+    return {
+        operator = "☷",
+        ready = phase_allows and visible,
+        reason = phase_allows and visible and "raw_relation_releasable"
+            or (not phase_allows and ("raw_relation_" .. phase.phase)
+                or "raw_release_reason_not_visible"),
+        source_refs = refs,
+        required_capabilities = {},
+        missing_capabilities = {},
+        raw_phase = phase.phase,
+        event_truth_status = "runtime_confirmed",
+    }, relation, phase
+end
+
 function dissolve.readiness(instance, options)
     options = options or {}
+    if options.scope == "raw" then
+        return raw_readiness(instance, options)
+    end
     local view, view_err = field.relation_view(instance, {
         scope = "active",
         relation_ids = options.relation_id and {options.relation_id} or nil,
@@ -135,6 +242,69 @@ function dissolve.run(instance, options)
         return nil, witness.reason
     end
     local relation = relation_or_err
+    if options.scope == "raw" then
+        local release, release_relation = field.release_raw_relation(instance, "☷", {
+            raw_epoch = options.raw_epoch,
+            relation_id = options.relation_id,
+            endpoint_versions = options.endpoint_versions,
+            reason = options.reason,
+            source_event_refs = options.source_event_refs,
+        })
+        if not release then
+            return nil, release_relation
+        end
+        local residue_unit
+        if options.preserve_residue == true then
+            local carrier = residue_carrier(release_relation, options.reason)
+            local unit, unit_err = field.add_unit(instance, "☷", {
+                kind = "raw_relation_residue",
+                carrier = carrier,
+                source_refs = {
+                    release_relation.id,
+                    release_relation.origin_event_id,
+                    release.trace_event_id,
+                },
+                event_truth_status = "runtime_confirmed",
+                content_truth_status = release_relation.content_truth_status or "unknown",
+                created_event_id = release.trace_event_id,
+                migration = {
+                    status = "released_raw_residue",
+                    raw_epoch = options.raw_epoch,
+                    relation_id = release_relation.id,
+                },
+            })
+            if not unit then
+                return nil, unit_err
+            end
+            residue_unit = unit
+        end
+        return instance, {
+            kind = "dissolve_organ_payload",
+            mode = "raw_release",
+            status = "applied",
+            reason = options.reason,
+            readiness = witness,
+            reads = {
+                raw_epoch = options.raw_epoch,
+                relation_id = release_relation.id,
+                endpoint_versions = release_relation.endpoint_versions,
+            },
+            writes = {
+                disposition = "released",
+                residue_unit_id = residue_unit and residue_unit.id,
+            },
+            dissolution = release,
+            residue = residue_unit,
+            loss = {
+                kind = "none",
+                amount = 0,
+                truth_status = "runtime_confirmed",
+            },
+            trace_event_id = release.trace_event_id,
+            event_truth_status = "runtime_confirmed",
+            content_truth_status = release_relation.content_truth_status,
+        }
+    end
     local target = target_state(options)
     if target ~= "weakened" and target ~= "dissolved" then
         return nil, "DISSOLVE target_state must be weakened or dissolved"

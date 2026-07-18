@@ -1,5 +1,6 @@
 local packet_core = require("core.packet")
 local topology = require("core.topology")
+local object_coverage = require("runtime.object_coverage")
 
 local field = {}
 
@@ -78,8 +79,13 @@ local function new_root()
         units = {},
         relations = {
             raw = {
+                protocol_version = "field.raw_relations.v1",
                 epoch = 0,
                 source_revision = 0,
+                source_potential_revision = 0,
+                probe_policy = nil,
+                object_coverage = nil,
+                outcome = "unprobed",
                 items = {},
             },
             active = {},
@@ -217,6 +223,14 @@ function field.plan_unit_ids(instance, count)
     return ids
 end
 
+function field.plan_identity_map_id(instance)
+    local root_value, root_err = root(instance)
+    if not root_value then
+        return nil, root_err
+    end
+    return "identity_map:" .. tostring(#root_value.identity_maps + 1)
+end
+
 function field.add_unit(instance, actor, input)
     local mutable, mutable_err = packet_core.assert_mutable(instance, "add field unit")
     if not mutable then
@@ -232,6 +246,10 @@ function field.add_unit(instance, actor, input)
     end
     if not add_unit_rights[glyph] then
         return nil, "field actor cannot add units"
+    end
+    local lease, lease_err = packet_core.assert_actor_tick(instance, glyph, "add field unit")
+    if not lease then
+        return nil, lease_err
     end
 
     input = input or {}
@@ -264,12 +282,13 @@ function field.add_unit(instance, actor, input)
     if type(input.created_event_id) ~= "string" or input.created_event_id == "" then
         return nil, "field unit created_event_id is required"
     end
-    local creation_event = find_event(instance, input.created_event_id)
+    local creation_event, creation_err = packet_core.event_in_current_tick(
+        instance,
+        glyph,
+        input.created_event_id
+    )
     if not creation_event then
-        return nil, "field unit creation event not found"
-    end
-    if creation_event.operator ~= glyph then
-        return nil, "field unit creation event actor mismatch"
+        return nil, creation_err
     end
 
     local expected_id = next_unit_id(root_value)
@@ -335,6 +354,10 @@ function field.set_activation(instance, actor, id, activation, source)
     if glyph == "☷" and activation ~= "dissolved" then
         return nil, "DISSOLVE may only dissolve field units"
     end
+    local lease, lease_err = packet_core.assert_actor_tick(instance, glyph, "set field activation")
+    if not lease then
+        return nil, lease_err
+    end
 
     local unit = root_value.units[id]
     if not unit then
@@ -347,12 +370,13 @@ function field.set_activation(instance, actor, id, activation, source)
     if type(source.event_id) ~= "string" or source.event_id == "" then
         return nil, "field activation source event is required"
     end
-    local source_event = find_event(instance, source.event_id)
+    local source_event, source_err = packet_core.event_in_current_tick(
+        instance,
+        glyph,
+        source.event_id
+    )
     if not source_event then
-        return nil, "field activation source event not found"
-    end
-    if source_event.operator ~= glyph then
-        return nil, "field activation source actor mismatch"
+        return nil, source_err
     end
     if unit.activation == activation then
         return copy_value(unit)
@@ -445,6 +469,10 @@ function field.snapshot_raw_relations(instance, actor, input)
     if glyph ~= "☰" then
         return nil, "only CONNECT may snapshot raw relations"
     end
+    local lease, lease_err = packet_core.assert_actor_tick(instance, glyph, "snapshot raw field relations")
+    if not lease then
+        return nil, lease_err
+    end
 
     input = input or {}
     if type(input.items) ~= "table" then
@@ -456,6 +484,17 @@ function field.snapshot_raw_relations(instance, actor, input)
     end
     if input.coverage ~= nil and type(input.coverage) ~= "table" then
         return nil, "raw relation snapshot coverage must be table"
+    end
+    if input.object_coverage ~= nil then
+        local coverage_ok, coverage_err = object_coverage.validate(input.object_coverage)
+        if not coverage_ok or input.object_coverage.domain ~= "relation" then
+            return nil, coverage_err or "raw relation coverage must use relation domain"
+        end
+    end
+    if input.probe_policy ~= nil and (type(input.probe_policy) ~= "table"
+        or type(input.probe_policy.policy_id) ~= "string"
+        or type(input.probe_policy.policy_version) ~= "number") then
+        return nil, "invalid raw relation probe policy"
     end
     if not valid_content_status(input.content_truth_status or "unknown") then
         return nil, "invalid raw relation snapshot content truth status"
@@ -491,14 +530,26 @@ function field.snapshot_raw_relations(instance, actor, input)
     local previous_revision = instance.revisions.relations_raw
     local snapshot = {
         kind = "raw_relation_snapshot",
+        protocol_version = "field.raw_relations.v1",
         epoch = (previous_raw.epoch or 0) + 1,
         source_revision = source_revision,
+        source_potential_revision = source_revision,
+        source_event_refs = copy_array(input.source_refs),
+        probe_policy = copy_value(input.probe_policy),
+        object_coverage = copy_value(input.object_coverage),
+        outcome = input.outcome or (#relations > 0 and "relations_recorded" or "empty"),
         items = relations,
         source_refs = copy_array(input.source_refs),
         coverage = copy_value(input.coverage or {}),
         event_truth_status = "runtime_confirmed",
         content_truth_status = input.content_truth_status or "unknown",
+        omitted_relations = input.coverage and input.coverage.omitted_relations or 0,
+        truncated = input.coverage and (input.coverage.truncated_units == true
+            or (input.coverage.omitted_relations or 0) > 0) or false,
     }
+    for _, relation in ipairs(relations) do
+        relation.epoch = snapshot.epoch
+    end
 
     root_value.relations.raw = snapshot
     root_value.next_relation_id = root_value.next_relation_id + #relations
@@ -517,10 +568,75 @@ function field.snapshot_raw_relations(instance, actor, input)
         return nil, event_err
     end
     snapshot.trace_event_id = event.id
+    if snapshot.object_coverage then
+        snapshot.object_coverage.capture_event_ref = event.id
+        root_value.relations.raw.object_coverage.capture_event_ref = event.id
+        root_value.relations.raw.trace_event_id = event.id
+    end
     for _, relation in ipairs(relations) do
         relation.origin_event_id = event.id
     end
     return copy_value(snapshot)
+end
+
+function field.coverage_domain(instance, domain, options)
+    local root_value, root_err = root(instance)
+    if not root_value then
+        return nil, root_err
+    end
+    options = options or {}
+    if domain ~= "relation" and domain ~= "upper_observation" then
+        return nil, "invalid field coverage domain"
+    end
+    local limit = options.limit or 256
+    if type(limit) ~= "number" or limit < 1 or limit ~= math.floor(limit) then
+        return nil, "field coverage limit must be a positive integer"
+    end
+
+    local prior = {}
+    for _, entry in ipairs(options.prior_coverage and options.prior_coverage.entries or {}) do
+        prior[entry.object_id] = entry
+    end
+    local unit_ids, unit_ids_err = normalize_filter(options.unit_ids)
+    if unit_ids_err then
+        return nil, unit_ids_err
+    end
+    local entries = {}
+    local total_count = 0
+    for _, id in ipairs(root_value.unit_order) do
+        local unit = root_value.units[id]
+        if unit and unit.generation == instance.generation
+            and (not unit_ids or unit_ids[id]) then
+            local visible = unit.activation == "live" or unit.activation == "selected"
+            if domain == "upper_observation" and not visible and prior[id]
+                and prior[id].version ~= unit.version then
+                visible = true
+            end
+            if visible then
+                total_count = total_count + 1
+                if #entries < limit then
+                    entries[#entries + 1] = {
+                        object_kind = "field_unit",
+                        object_id = unit.id,
+                        version = unit.version,
+                        activation_at_coverage = unit.activation,
+                        source_ref = unit.id,
+                        content_truth_status = unit.content_truth_status,
+                    }
+                end
+            end
+        end
+    end
+    return entries, {
+        domain = domain,
+        total_count = total_count,
+        stored_count = #entries,
+        omitted_count = total_count - #entries,
+        truncated = total_count > #entries,
+        global_revision = instance.revisions.potential,
+        generation = instance.generation,
+        event_truth_status = "runtime_confirmed",
+    }
 end
 
 local function raw_relation_by_id(root_value, relation_id)
@@ -547,6 +663,14 @@ function field.activate_relations(instance, actor, relation_ids, source)
     end
     if glyph ~= "☱" then
         return nil, "only RUNTIME may activate raw relations"
+    end
+    if instance.ingress
+        and instance.ingress.integration_protocol == "vertical_packet_life.v0" then
+        return nil, "RUNTIME raw relation activation is forbidden in vertical packet life"
+    end
+    local lease, lease_err = packet_core.assert_actor_tick(instance, glyph, "activate field relations")
+    if not lease then
+        return nil, lease_err
     end
     if type(relation_ids) ~= "table" then
         return nil, "relation_ids must be table"
@@ -668,6 +792,10 @@ function field.weaken_relation(instance, actor, relation_id, source)
     local reason_kind = source.reason_kind
     if not reason_rights(glyph, reason_kind, target_state) then
         return nil, "field actor cannot apply requested relation weakening"
+    end
+    local lease, lease_err = packet_core.assert_actor_tick(instance, glyph, "weaken field relation")
+    if not lease then
+        return nil, lease_err
     end
 
     local relation = root_value.relations.active[relation_id]
@@ -798,6 +926,269 @@ function field.relation_view(instance, refs)
     }
 end
 
+local function raw_snapshot_for_epoch(instance, epoch)
+    local current = instance.field and instance.field.relations
+        and instance.field.relations.raw
+    if current and current.epoch == epoch then
+        return copy_value(current), current.trace_event_id
+    end
+    for _, event in ipairs(instance.trace or {}) do
+        local payload = event.payload or {}
+        if event.type == "relation_snapshot" and payload.epoch == epoch then
+            return copy_value(payload), event.id
+        end
+    end
+    return nil
+end
+
+local function relation_in_snapshot(snapshot, relation_id)
+    for _, relation in ipairs(snapshot and snapshot.items or {}) do
+        if relation.id == relation_id then
+            return relation
+        end
+    end
+    return nil
+end
+
+local function same_endpoint_versions(left, right)
+    if type(left) ~= "table" or type(right) ~= "table" then
+        return false
+    end
+    for id, version in pairs(left) do
+        if right[id] ~= version then
+            return false
+        end
+    end
+    for id, version in pairs(right) do
+        if left[id] ~= version then
+            return false
+        end
+    end
+    return true
+end
+
+local function covers_endpoint_versions(provided, expected)
+    if type(provided) ~= "table" or type(expected) ~= "table" then
+        return false
+    end
+    for id, version in pairs(expected) do
+        if provided[id] ~= version then
+            return false
+        end
+    end
+    return true
+end
+
+local function list_contains(values, target)
+    for _, value in ipairs(values or {}) do
+        if value == target then
+            return true
+        end
+    end
+    return false
+end
+
+local function event_relation_input(event)
+    local payload = event.payload or {}
+    if event.type == "observation" then
+        local observed = payload.payload or {}
+        return observed.relation_input, observed.sensor
+    end
+    if event.type == "relation_formation" then
+        return payload.formed_from or payload.relation_input, "relation_formation"
+    end
+    if event.type == "relation_mutation" and payload.scope == "raw"
+        and payload.disposition == "released" then
+        return payload, "raw_release"
+    end
+    return nil
+end
+
+local function input_matches_relation(input, epoch, relation)
+    if type(input) ~= "table" or input.raw_epoch ~= epoch then
+        return false
+    end
+    local relation_match = input.relation_id == relation.id
+        or list_contains(input.relation_ids, relation.id)
+    return relation_match
+        and covers_endpoint_versions(input.endpoint_versions, relation.endpoint_versions)
+end
+
+function field.raw_relation_exact(instance, raw_epoch, relation_id, endpoint_versions)
+    if type(raw_epoch) ~= "number" or raw_epoch < 1
+        or raw_epoch ~= math.floor(raw_epoch) then
+        return nil, "raw relation epoch must be a positive integer"
+    end
+    if type(relation_id) ~= "string" or relation_id == "" then
+        return nil, "raw relation id required"
+    end
+    local snapshot, snapshot_event_ref = raw_snapshot_for_epoch(instance, raw_epoch)
+    if not snapshot then
+        return nil, "raw relation epoch not found"
+    end
+    local relation = relation_in_snapshot(snapshot, relation_id)
+    if not relation then
+        return nil, "raw relation not found"
+    end
+    if endpoint_versions ~= nil
+        and not covers_endpoint_versions(endpoint_versions, relation.endpoint_versions) then
+        return nil, "raw relation endpoint versions do not match"
+    end
+    return copy_value(relation), copy_value(snapshot), snapshot_event_ref
+end
+
+function field.raw_relation_phase(instance, raw_epoch, relation_id)
+    local relation, snapshot_or_err, snapshot_event_ref = field.raw_relation_exact(
+        instance,
+        raw_epoch,
+        relation_id
+    )
+    if not relation then
+        return nil, snapshot_or_err
+    end
+
+    local observed_event
+    local encoded_event
+    local released_event
+    for _, event in ipairs(instance.trace or {}) do
+        local input, disposition = event_relation_input(event)
+        if input_matches_relation(input, raw_epoch, relation) then
+            if disposition == "relation_native" then
+                observed_event = event
+            elseif disposition == "relation_formation" then
+                encoded_event = event
+            elseif disposition == "raw_release" then
+                released_event = event
+            end
+        end
+    end
+    if encoded_event and released_event then
+        return nil, "raw relation has contradictory terminal dispositions"
+    end
+
+    local phase
+    local disposition_event
+    if encoded_event then
+        phase = "encoded"
+        disposition_event = encoded_event
+    elseif released_event then
+        phase = "released"
+        disposition_event = released_event
+    else
+        local current = instance.field and instance.field.relations
+            and instance.field.relations.raw or {}
+        if type(current.epoch) == "number" and current.epoch > raw_epoch then
+            phase = "replaced"
+        else
+            local stale = false
+            for endpoint, version in pairs(relation.endpoint_versions or {}) do
+                local unit = root(instance).units[endpoint]
+                if not unit or unit.version ~= version then
+                    stale = true
+                    break
+                end
+            end
+            if stale then
+                phase = "stale"
+            elseif instance.terminal ~= nil or instance.status == "dead"
+                or instance.status == "dying" or instance.status == "manifested" then
+                phase = "expired"
+            elseif observed_event then
+                phase = "observed"
+                disposition_event = observed_event
+            else
+                phase = "available"
+            end
+        end
+    end
+
+    return {
+        kind = "raw_relation_phase",
+        phase = phase,
+        raw_epoch = raw_epoch,
+        relation_id = relation_id,
+        endpoint_versions = copy_value(relation.endpoint_versions),
+        raw_snapshot_event_ref = snapshot_or_err.trace_event_id
+            or relation.origin_event_id or snapshot_event_ref,
+        disposition_event_ref = disposition_event and disposition_event.id,
+        event_truth_status = "runtime_confirmed",
+        content_truth_status = relation.content_truth_status,
+    }
+end
+
+function field.release_raw_relation(instance, actor, input)
+    local mutable, mutable_err = packet_core.assert_mutable(instance, "release raw relation")
+    if not mutable then
+        return nil, mutable_err
+    end
+    local glyph, glyph_err = actor_glyph(actor)
+    if not glyph then
+        return nil, glyph_err
+    end
+    if glyph ~= "☷" then
+        return nil, "only DISSOLVE may release raw relation"
+    end
+    local lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        glyph,
+        "release raw relation"
+    )
+    if not lease then
+        return nil, lease_err
+    end
+    input = input or {}
+    local relation, relation_err = field.raw_relation_exact(
+        instance,
+        input.raw_epoch,
+        input.relation_id,
+        input.endpoint_versions
+    )
+    if not relation then
+        return nil, relation_err
+    end
+    local phase, phase_err = field.raw_relation_phase(
+        instance,
+        input.raw_epoch,
+        input.relation_id
+    )
+    if not phase then
+        return nil, phase_err
+    end
+    if phase.phase == "encoded" or phase.phase == "released"
+        or phase.phase == "expired" then
+        return nil, "raw relation is not releasable from phase " .. phase.phase
+    end
+    if type(input.reason) ~= "table" or type(input.reason.kind) ~= "string" then
+        return nil, "raw release requires typed reason"
+    end
+
+    local payload = {
+        kind = "raw_relation_release",
+        scope = "raw",
+        disposition = "released",
+        raw_epoch = input.raw_epoch,
+        relation_id = relation.id,
+        endpoint_versions = copy_value(relation.endpoint_versions),
+        reason = copy_value(input.reason),
+        reason_kind = input.reason.kind,
+        source_event_refs = copy_array(input.source_event_refs),
+        event_truth_status = "runtime_confirmed",
+        content_truth_status = relation.content_truth_status,
+    }
+    local event, event_err = packet_core.append_event(instance, {
+        type = "relation_mutation",
+        operator = "☷",
+        truth_status = "runtime_confirmed",
+        payload = payload,
+        cost = {},
+    })
+    if not event then
+        return nil, event_err
+    end
+    payload.trace_event_id = event.id
+    return copy_value(payload), relation
+end
+
 function field.record_identity_map(instance, actor, input)
     local mutable, mutable_err = packet_core.assert_mutable(instance, "record field identity map")
     if not mutable then
@@ -814,11 +1205,19 @@ function field.record_identity_map(instance, actor, input)
     if glyph ~= "☵" then
         return nil, "only ENCODE may record field identity maps"
     end
+    local lease, lease_err = packet_core.assert_actor_tick(instance, glyph, "record field identity map")
+    if not lease then
+        return nil, lease_err
+    end
 
     input = input or {}
-    local encode_event = find_event(instance, input.encode_event_id)
-    if not encode_event or encode_event.operator ~= "☵" then
-        return nil, "field identity map requires ENCODE event"
+    local encode_event, encode_err = packet_core.event_in_current_tick(
+        instance,
+        glyph,
+        input.encode_event_id
+    )
+    if not encode_event then
+        return nil, encode_err
     end
     if type(input.old_ids) ~= "table" or type(input.new_ids) ~= "table" or #input.new_ids == 0 then
         return nil, "field identity map requires old_ids and non-empty new_ids"
@@ -871,7 +1270,12 @@ function field.record_identity_map(instance, actor, input)
         consider_relation(relation)
     end
 
+    local expected_id = "identity_map:" .. tostring(#root_value.identity_maps + 1)
+    if input.id ~= nil and input.id ~= expected_id then
+        return nil, "field identity map id does not match next deterministic id"
+    end
     local record = {
+        id = expected_id,
         kind = "field_identity_map",
         encode_event_id = input.encode_event_id,
         old_ids = copy_array(input.old_ids),

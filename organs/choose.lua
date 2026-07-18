@@ -5,6 +5,22 @@ local canonical_field = require("runtime.field")
 
 local choose = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 local function activation_plan(instance, payload)
     local current = instance.calm and instance.calm.current or nil
     local shadow = type(current) == "table" and current.field_shadow or nil
@@ -141,18 +157,18 @@ function choose.run(instance, options)
     if not recorded then
         return nil, event_or_err
     end
-    local applied, apply_err = apply_activation_plan(instance, payload.field_shadow, event_or_err.id)
+    local applied, apply_err = apply_activation_plan(instance, recorded.field_shadow, event_or_err.id)
     if not applied then
         return nil, apply_err
     end
-    payload.trace_event_id = event_or_err.id
+    recorded.trace_event_id = event_or_err.id
     instance.tension.last_choice_pressure = {
-        selected_count = #payload.selected,
-        not_chosen_count = payload.not_chosen_count,
-        loss = payload.loss,
+        selected_count = #recorded.selected,
+        not_chosen_count = recorded.not_chosen_count,
+        loss = copy_value(recorded.loss),
     }
 
-    return instance, payload
+    return instance, recorded
 end
 
 return choose

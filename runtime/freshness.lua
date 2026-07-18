@@ -5,22 +5,46 @@ local freshness = {}
 -- warm_window default is vibed, not measured; tune when the body runs real tasks
 freshness.default_warm_window = 8
 
-local function verdict(zone, effective, reason, age)
-    return {
+local function verdict(zone, effective, reason, age, detail)
+    local result = {
         zone = zone,
         effective_truth_status = effective,
         reason = reason,
         age = age,
     }
+    for key, value in pairs(detail or {}) do
+        result[key] = value
+    end
+    return result
 end
 
-function freshness.evidence_fingerprint(instance)
+function freshness.evidence_fingerprint(instance, opts)
+    opts = opts or {}
     local evidence = instance and instance.runtime
         and instance.runtime.evidence or {}
+    local clock = instance and instance.physis and instance.physis.clock
+    local current_tick = opts.tick
+    if current_tick == nil then
+        current_tick = clock and clock.ticks
+    end
     local parts = {tostring(#evidence)}
     for _, item in ipairs(evidence) do
-        parts[#parts + 1] = tostring(item.intention_hash) .. ":"
-            .. tostring(item.cast_tick) .. ":" .. tostring(item.success)
+        local read = freshness.read(item, {
+            tick = current_tick,
+            warm_window = opts.warm_window,
+        })
+        parts[#parts + 1] = table.concat({
+            tostring(item.intention_hash),
+            tostring(item.cast_tick),
+            tostring(item.success),
+            tostring(item.referent),
+            tostring(item.referent_hash),
+            tostring(read.zone),
+            tostring(read.reason),
+            tostring(read.effective_truth_status),
+            tostring(read.current_referent_hash),
+            tostring(read.referent_present),
+        }, ":")
     end
     return spells.hash(table.concat(parts, "|"))
 end
@@ -34,21 +58,33 @@ function freshness.read(record, opts)
     if record.referent_hash ~= nil and record.referent ~= nil then
         local current = spells.referent_hash(record.referent)
         if current == record.referent_hash then
-            return verdict("hot", "runtime_confirmed", "referent_verified", nil)
+            return verdict("hot", "runtime_confirmed", "referent_verified", nil, {
+                current_referent_hash = current,
+                referent_present = current ~= nil,
+            })
         end
-        return verdict("cold", "semantic_proposal", "referent_changed", nil)
+        return verdict("cold", "semantic_proposal", "referent_changed", nil, {
+            current_referent_hash = current,
+            referent_present = current ~= nil,
+        })
     end
 
     if type(record.cast_tick) == "number" and type(opts.tick) == "number" then
         local window = opts.warm_window or freshness.default_warm_window
         local age = opts.tick - record.cast_tick
         if age <= window then
-            return verdict("warm", "runtime_confirmed", "inside_tick_window", age)
+            return verdict("warm", "runtime_confirmed", "inside_tick_window", age, {
+                referent_present = false,
+            })
         end
-        return verdict("cold", "semantic_proposal", "tick_window_expired", age)
+        return verdict("cold", "semantic_proposal", "tick_window_expired", age, {
+            referent_present = false,
+        })
     end
 
-    return verdict("unclocked", "semantic_proposal", "no_clock", nil)
+    return verdict("unclocked", "semantic_proposal", "no_clock", nil, {
+        referent_present = false,
+    })
 end
 
 local function sorted_keys(value)

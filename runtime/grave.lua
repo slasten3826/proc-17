@@ -2,13 +2,29 @@ local packet_core = require("core.packet")
 
 local grave = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 local function copy_array(source)
     local out = {}
     if type(source) ~= "table" then
         return out
     end
     for index, value in ipairs(source) do
-        out[index] = value
+        out[index] = copy_value(value)
     end
     return out
 end
@@ -78,10 +94,10 @@ local function base_record(normalized, grave_kind)
         grave_kind = grave_kind,
         source_packet_id = normalized.packet_id,
         source_status = normalized.status,
-        terminal = normalized.terminal,
+        terminal = copy_value(normalized.terminal),
         death_cause = death.cause,
-        death = death,
-        residue = normalized.residue or {},
+        death = copy_value(death),
+        residue = copy_value(normalized.residue or {}),
         trace_tail = copy_array(normalized.trace_tail),
         death_truth_status = "runtime_confirmed",
         applicability_truth_status = "grave_pressure",
@@ -107,7 +123,7 @@ local function bequest_record(normalized)
     local residue = normalized.residue or {}
     record.bequest = {
         remaining_work_count = residue.remaining_work_count,
-        progress = residue.progress,
+        progress = copy_value(residue.progress),
         trace_tail = copy_array(normalized.trace_tail),
     }
     return record
@@ -156,7 +172,7 @@ local function bequest_pressure(record)
         source_packet_id = record.source_packet_id,
         death_cause = record.death_cause,
         remaining_work_count = bequest.remaining_work_count,
-        progress = bequest.progress,
+        progress = copy_value(bequest.progress),
         trace_tail = copy_array(bequest.trace_tail),
         death_truth_status = record.death_truth_status,
         applicability_truth_status = record.applicability_truth_status,
@@ -204,13 +220,38 @@ function grave.classify(input)
     return neutral_record(normalized)
 end
 
+function grave.prepare(graves)
+    if type(graves) ~= "table" then
+        return nil, "graves required"
+    end
+
+    local records = {}
+    for _, item in ipairs(as_list(graves)) do
+        local record = copy_value(item)
+        if not (type(record) == "table" and record.kind == "grave") then
+            local classified, classify_err = grave.classify(item)
+            if not classified then
+                return nil, classify_err
+            end
+            record = classified
+        end
+        if record.grave_kind ~= "warning" and record.grave_kind ~= "bequest"
+            and record.grave_kind ~= "neutral" then
+            return nil, "unknown grave kind: " .. tostring(record.grave_kind)
+        end
+        records[#records + 1] = record
+    end
+    return records
+end
+
 function grave.attach(instance, graves)
     local mutable, mutable_err = packet_core.assert_mutable(instance, "attach grave")
     if not mutable then
         return nil, mutable_err
     end
-    if type(graves) ~= "table" then
-        return nil, "graves required"
+    local records, prepare_err = grave.prepare(graves)
+    if not records then
+        return nil, prepare_err
     end
 
     local karma = ensure_karma(instance)
@@ -224,28 +265,17 @@ function grave.attach(instance, graves)
         truth_status = "runtime_confirmed",
     }
 
-    for _, item in ipairs(as_list(graves)) do
-        local record = item
-        if not (type(record) == "table" and record.kind == "grave") then
-            local classified, classify_err = grave.classify(item)
-            if not classified then
-                return nil, classify_err
-            end
-            record = classified
-        end
-
+    for _, record in ipairs(records) do
         if record.grave_kind == "warning" then
-            karma.warnings[#karma.warnings + 1] = record
+            karma.warnings[#karma.warnings + 1] = copy_value(record)
             payload.warning_count = payload.warning_count + 1
         elseif record.grave_kind == "bequest" then
-            karma.bequests[#karma.bequests + 1] = record
+            karma.bequests[#karma.bequests + 1] = copy_value(record)
             chaos.unresolved_pressure[#chaos.unresolved_pressure + 1] = bequest_pressure(record)
             payload.bequest_count = payload.bequest_count + 1
         elseif record.grave_kind == "neutral" then
-            karma.neutral[#karma.neutral + 1] = record
+            karma.neutral[#karma.neutral + 1] = copy_value(record)
             payload.neutral_count = payload.neutral_count + 1
-        else
-            return nil, "unknown grave kind: " .. tostring(record.grave_kind)
         end
 
         payload.attached_count = payload.attached_count + 1

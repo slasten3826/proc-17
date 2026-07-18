@@ -46,6 +46,9 @@ function manifest_organ.input(instance, options)
     local reconciliation_payload = reconciliation_event and reconciliation_event.payload or nil
     local choice_loss = choose_payload and choose_payload.loss or {}
     local cycle_reason = cycle_payload and cycle_payload.reason or nil
+    local birth_event = last_trace_event(instance, "birth", "▽")
+    local relation_snapshot_event = last_trace_event(instance, "relation_snapshot", "☰")
+    local relation_formation_event = last_trace_event(instance, "relation_formation", "☵")
 
     return {
         work_mode = options.work_mode or "build",
@@ -54,6 +57,13 @@ function manifest_organ.input(instance, options)
             truth_status = response.truth_status or "semantic_proposal",
         },
         sources = {
+            birth_event = birth_event and birth_event.id,
+            flow_domain_event = birth_event and birth_event.payload
+                and birth_event.payload.flow_mark
+                and birth_event.payload.flow_mark.domain_event_ref,
+            raw_relation_event = relation_snapshot_event and relation_snapshot_event.id,
+            relation_formation_event = relation_formation_event
+                and relation_formation_event.id,
             substrate_result_event = observation_event and observation_event.id
                 or observe_payload.trace_event_id,
             encoded_field_event = last_trace_id(instance, "crystallization"),

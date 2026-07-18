@@ -126,6 +126,7 @@ assert_eq(debt.significant_frame_count, 1, "pressure exposes bounded causal coun
 
 assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "camera_test"}))
 assert(packet.commit_transition(p, {from = "☴", to = "☱", reason = "camera_test"}))
+assert(packet.begin_tick(p, "☱", {}))
 local ready = assert(runtime_organ.readiness(p))
 assert_true(ready.ready, "RUNTIME is ready while significant frames are pending")
 local record, reconciliation_event = assert(camera.reconcile(p, {

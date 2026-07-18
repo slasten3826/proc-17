@@ -2,6 +2,22 @@ local packet_core = require("core.packet")
 
 local loss = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 local function clamp(value, min, max)
     value = tonumber(value) or 0
     if value < min then
@@ -20,7 +36,7 @@ local function copy_array(source, limit)
     end
     local count = math.min(#source, limit or #source)
     for index = 1, count do
-        out[#out + 1] = source[index]
+        out[#out + 1] = copy_value(source[index])
     end
     return out
 end
@@ -33,7 +49,7 @@ local function tail(source, limit)
     limit = limit or 5
     local start = math.max(1, #source - limit + 1)
     for index = start, #source do
-        out[#out + 1] = source[index]
+        out[#out + 1] = copy_value(source[index])
     end
     return out
 end
@@ -96,6 +112,15 @@ function loss.apply(instance, input)
         return nil, mutable_err
     end
     input = input or {}
+    if type(input.amount) ~= "number"
+        or input.amount ~= input.amount
+        or input.amount == math.huge
+        or input.amount == -math.huge then
+        return nil, "loss amount must be finite number"
+    end
+    if input.amount < 0 then
+        return nil, "loss amount must be non-negative"
+    end
     local tension = ensure(instance)
     local amount = clamp(input.amount, 0, tension.loss_max or 1.0)
     tension.loss = (tension.loss or 0) + amount
@@ -111,7 +136,7 @@ function loss.apply(instance, input)
         amount = amount,
         loss_kind = input.kind,
         source = input.source or "manual",
-        detail = input.detail or {},
+        detail = copy_value(input.detail or {}),
         loss_after = tension.loss,
         loss_remaining_after = tension.loss_remaining,
         near_death = tension.loss_near_death,
@@ -119,7 +144,7 @@ function loss.apply(instance, input)
         truth_status = input.truth_status or "runtime_confirmed",
     }
     tension.loss_events[#tension.loss_events + 1] = record
-    return record
+    return copy_value(record)
 end
 
 function loss.snapshot(instance)

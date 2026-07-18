@@ -37,6 +37,7 @@ packet.event_types = {
     identity_map = true,
     relation_snapshot = true,
     relation_mutation = true,
+    relation_formation = true,
     observation = true,
     choice = true,
     validation = true,
@@ -59,6 +60,29 @@ packet.death_causes = {
     stalled = true,
     effect_failure = true,
     cancelled = true,
+}
+
+local dedicated_event_types = {
+    birth = true,
+    operator_tick = true,
+    route = true,
+    chaos_append = true,
+    crystallization = true,
+    manifest = true,
+    death = true,
+    terminal = true,
+}
+
+local event_actor_rights = {
+    identity_map = {['☵'] = true},
+    relation_snapshot = {['☰'] = true},
+    relation_mutation = {['☷'] = true, ['☶'] = true, ['☱'] = true},
+    relation_formation = {['☵'] = true},
+    observation = {['☴'] = true, ['☱'] = true},
+    choice = {['☳'] = true},
+    validation = {['☶'] = true},
+    cycle = {['☲'] = true},
+    runtime_reconciliation = {['☱'] = true},
 }
 
 local id_counter = 0
@@ -164,8 +188,13 @@ local function init_field()
         units = {},
         relations = {
             raw = {
+                protocol_version = "field.raw_relations.v1",
                 epoch = 0,
                 source_revision = 0,
+                source_potential_revision = 0,
+                probe_policy = nil,
+                object_coverage = nil,
+                outcome = "unprobed",
                 items = {},
             },
             active = {},
@@ -210,6 +239,34 @@ local function normalize_cost(cost)
         test_runs = cost and cost.test_runs or 0,
         loss = cost and cost.loss or 0,
     }
+end
+
+local function trace_event_with_index(instance, event_id)
+    for index, event in ipairs(instance and instance.trace or {}) do
+        if event.id == event_id then
+            return event, index
+        end
+    end
+    return nil
+end
+
+local function current_visit_lease(instance, actor)
+    for index = #(instance and instance.trace or {}), 1, -1 do
+        local event = instance.trace[index]
+        if event.type == "operator_tick" then
+            if event.operator == actor then
+                return event, index, "operator_tick"
+            end
+            return nil, nil, nil
+        end
+        if event.type == "route" then
+            return nil, nil, nil
+        end
+        if event.type == "birth" and actor == "▽" then
+            return event, index, "birth"
+        end
+    end
+    return nil, nil, nil
 end
 
 function packet.assert_mutable(instance, operation)
@@ -263,11 +320,88 @@ local function append_trace(instance, event)
     }
 
     instance.trace[#instance.trace + 1] = stored
-    return stored
+    return deep_copy(stored)
+end
+
+local function init_ingress(options)
+    local input = options.ingress
+    if input == nil then
+        return {
+            protocol_version = "packet.ingress.v0",
+            integration_protocol = nil,
+            flow_mark = nil,
+            l1_projection = nil,
+            carrier_ref = options.carrier_id,
+            inherited_grave_refs = {},
+        }
+    end
+    if type(input) ~= "table" or input.protocol_version ~= "packet.ingress.v0" then
+        error("invalid packet ingress contract")
+    end
+    if input.integration_protocol ~= "vertical_packet_life.v0" then
+        error("invalid packet ingress integration protocol")
+    end
+    local mark = input.flow_mark
+    if type(mark) ~= "table" or mark.protocol_version ~= "l1.flow_mark.v0"
+        or mark.l1_protocol_version ~= "l1.field.v0"
+        or mark.variant ~= "C"
+        or type(mark.stream_id) ~= "string" or mark.stream_id == ""
+        or type(mark.stream_epoch) ~= "number" or mark.stream_epoch < 1
+        or mark.stream_epoch ~= math.floor(mark.stream_epoch)
+        or type(mark.birth_seq) ~= "number" or mark.birth_seq < 1
+        or mark.birth_seq ~= math.floor(mark.birth_seq)
+        or type(mark.snapshot) ~= "table"
+        or mark.event_truth_status ~= "runtime_confirmed"
+        or mark.semantic_claim_status ~= "none" then
+        error("invalid L1 flow mark")
+    end
+    local projection = input.l1_projection
+    if projection ~= nil then
+        if type(projection) ~= "table"
+            or projection.protocol_version ~= "l1.fixture_projection.v0"
+            or (projection.adapter_id ~= "vertical_single.v0"
+                and projection.adapter_id ~= "vertical_pair.v0")
+            or type(projection.flow_ref) ~= "table"
+            or projection.flow_ref.stream_id ~= mark.stream_id
+            or projection.flow_ref.stream_epoch ~= mark.stream_epoch
+            or projection.flow_ref.birth_seq ~= mark.birth_seq
+            or type(projection.units) ~= "table" or #projection.units > 8
+            or type(projection.relation_candidates) ~= "table"
+            or #projection.relation_candidates > 8
+            or projection.event_truth_status ~= "runtime_confirmed"
+            or projection.content_truth_status ~= "non_semantic_measurement" then
+            error("invalid L1 ingress projection")
+        end
+        for _, unit in ipairs(projection.units) do
+            if type(unit) ~= "table" or type(unit.projection_key) ~= "string"
+                or unit.projection_key == "" or unit.kind ~= "l1_physical_sample"
+                or type(unit.carrier) ~= "table" or type(unit.source_refs) ~= "table"
+                or unit.event_truth_status ~= "runtime_confirmed"
+                or unit.content_truth_status ~= "non_semantic_measurement" then
+                error("invalid L1 ingress projection unit")
+            end
+        end
+    end
+    if input.inherited_grave_refs ~= nil and type(input.inherited_grave_refs) ~= "table" then
+        error("invalid ingress grave refs")
+    end
+    for _, ref in ipairs(input.inherited_grave_refs or {}) do
+        if type(ref) ~= "string" or ref == "" then
+            error("invalid ingress grave ref")
+        end
+    end
+    return {
+        protocol_version = "packet.ingress.v0",
+        integration_protocol = input.integration_protocol,
+        flow_mark = deep_copy(mark),
+        l1_projection = deep_copy(input.l1_projection),
+        carrier_ref = input.carrier_ref,
+        inherited_grave_refs = deep_copy(input.inherited_grave_refs or {}),
+    }
 end
 
 local function init_areas(prompt, options)
-    local budget = shallow_copy(options.budget or default_budget())
+    local budget = deep_copy(options.budget or default_budget())
     local upper_observations = {}
     local lower_observations = {}
     local memory_options = options.memory or {}
@@ -279,8 +413,8 @@ local function init_areas(prompt, options)
         physis = {
             budget = budget,
             clock = {ticks = 0},
-            sandbox = options.sandbox or {},
-            host = options.host or {},
+            sandbox = deep_copy(options.sandbox or {}),
+            host = deep_copy(options.host or {}),
         },
         chaos = {
             raw_prompt = prompt,
@@ -326,7 +460,8 @@ local function init_areas(prompt, options)
             evidence = {},
             memory = {
                 enabled = memory_enabled == true,
-                inherited_residue = memory_enabled == true and (options.inherited_residue or {}) or {},
+                inherited_residue = memory_enabled == true
+                    and deep_copy(options.inherited_residue or {}) or {},
             },
             karma = {
                 warnings = {},
@@ -354,6 +489,7 @@ function packet.new(prompt, options)
     local packet_id = options.id or next_id("packet")
     local identity = init_identity(packet_id, options)
     local areas = init_areas(prompt, options)
+    local ingress = init_ingress(options)
     local instance = {
         protocol_version = packet.protocol_version,
         id = packet_id,
@@ -382,7 +518,8 @@ function packet.new(prompt, options)
         death = nil,
         manifest = areas.manifest,
         terminal = nil,
-        metadata = options.metadata or {},
+        metadata = deep_copy(options.metadata or {}),
+        ingress = ingress,
     }
 
     append_trace(instance, {
@@ -400,11 +537,58 @@ function packet.new(prompt, options)
             carrier_id = instance.carrier_id,
             substrate_session_id = instance.substrate_session_id,
             inherited_residue_count = #(instance.runtime.memory.inherited_residue or {}),
+            ingress_protocol = instance.ingress.protocol_version,
+            integration_protocol = instance.ingress.integration_protocol,
+            flow_mark = instance.ingress.flow_mark,
         },
         cost = {},
     })
 
     return instance
+end
+
+function packet.assert_actor_tick(instance, actor, operation)
+    operation = operation or "mutate"
+    local mutable, mutable_err = packet.assert_mutable(instance, operation)
+    if not mutable then
+        return nil, mutable_err
+    end
+    local resolved = topology.resolve(actor)
+    if not resolved then
+        return nil, "invalid mutation actor"
+    end
+    if resolved ~= instance.operator then
+        return nil, "mutation actor does not match packet position"
+    end
+    local lease, _, lease_kind = current_visit_lease(instance, resolved)
+    if not lease then
+        return nil, "organ mutation requires current operator tick"
+    end
+    local result = deep_copy(lease)
+    result.lease_kind = lease_kind
+    return result
+end
+
+function packet.event_in_current_tick(instance, actor, event_id)
+    local lease, lease_err = packet.assert_actor_tick(instance, actor, "use mutation source")
+    if not lease then
+        return nil, lease_err
+    end
+    if type(event_id) ~= "string" or event_id == "" then
+        return nil, "mutation source event is required"
+    end
+    local source, source_index = trace_event_with_index(instance, event_id)
+    if not source then
+        return nil, "mutation source event not found"
+    end
+    local _, lease_index, lease_kind = current_visit_lease(instance, topology.resolve(actor))
+    if source.operator ~= topology.resolve(actor)
+        or source_index < lease_index
+        or (lease_kind == "birth" and source_index == lease_index and source.type ~= "birth")
+    then
+        return nil, "mutation source event is outside current operator tick"
+    end
+    return deep_copy(source)
 end
 
 function packet.begin_tick(instance, operator, input_refs)
@@ -561,26 +745,29 @@ function packet.commit_transition(instance, decision)
 end
 
 function packet.append_chaos(instance, fragment)
-    local alive, alive_err = packet.assert_mutable(instance, "append chaos")
-    if not alive then
-        return nil, alive_err
-    end
     fragment = fragment or {}
-    instance.chaos.fragments[#instance.chaos.fragments + 1] = fragment
+    local actor = fragment.operator or instance.operator
+    local lease, lease_err = packet.assert_actor_tick(instance, actor, "append chaos")
+    if not lease then
+        return nil, lease_err
+    end
+    local stored_fragment = deep_copy(fragment)
+    stored_fragment.operator = topology.resolve(actor)
+    instance.chaos.fragments[#instance.chaos.fragments + 1] = stored_fragment
     local event = append_trace(instance, {
         type = "chaos_append",
-        operator = fragment.operator or "☴",
-        truth_status = fragment.truth_status or "semantic_proposal",
-        payload = fragment,
-        cost = fragment.cost or {},
+        operator = stored_fragment.operator,
+        truth_status = stored_fragment.truth_status or "semantic_proposal",
+        payload = stored_fragment,
+        cost = stored_fragment.cost or {},
     })
     return instance, event
 end
 
 function packet.crystallize(instance, record)
-    local alive, alive_err = packet.assert_mutable(instance, "crystallize")
-    if not alive then
-        return nil, alive_err
+    local lease, lease_err = packet.assert_actor_tick(instance, "☵", "crystallize")
+    if not lease then
+        return nil, lease_err
     end
     record = record or {}
     if type(record.loss) ~= "table" then
@@ -593,34 +780,41 @@ function packet.crystallize(instance, record)
         return nil, "crystallization requires calm_delta table"
     end
 
+    local source_refs = deep_copy(record.source_chaos_refs or {})
+    local event_calm_delta = deep_copy(record.calm_delta)
+    local event_loss = deep_copy(record.loss)
+    local status = record.status or "accepted"
     local event = append_trace(instance, {
         type = "crystallization",
         operator = "☵",
         truth_status = record.truth_status or "runtime_confirmed",
         payload = {
-            source_chaos_refs = record.source_chaos_refs or {},
-            calm_delta = record.calm_delta,
-            loss = record.loss,
-            status = record.status or "accepted",
+            source_chaos_refs = source_refs,
+            calm_delta = event_calm_delta,
+            loss = event_loss,
+            status = status,
         },
         cost = {loss = record.loss.amount or 0},
     })
 
     local crystal = {
-        source_chaos_refs = record.source_chaos_refs or {},
-        calm_delta = record.calm_delta,
-        loss = record.loss,
-        status = record.status or "accepted",
+        source_chaos_refs = deep_copy(source_refs),
+        calm_delta = deep_copy(event_calm_delta),
+        loss = deep_copy(event_loss),
+        status = status,
         trace_event_id = event.id,
     }
 
     instance.boundary.crystallizations[#instance.boundary.crystallizations + 1] = crystal
     instance.boundary.loss_records[#instance.boundary.loss_records + 1] = {
-        loss = record.loss,
+        loss = deep_copy(event_loss),
         trace_event_id = event.id,
     }
-    instance.calm.structures[#instance.calm.structures + 1] = record.calm_delta
-    instance.calm.current = record.calm_delta
+    instance.calm.structures[#instance.calm.structures + 1] = deep_copy(event_calm_delta)
+    instance.calm.current = deep_copy(event_calm_delta)
+    if type(event_calm_delta.work_units) == "table" then
+        instance.calm.work_units = deep_copy(event_calm_delta.work_units)
+    end
     instance.calm.status = crystal.status
     instance.revisions.calm = instance.revisions.calm + 1
 
@@ -628,20 +822,23 @@ function packet.crystallize(instance, record)
 end
 
 function packet.measure_tension(instance, record)
-    local alive, alive_err = packet.assert_mutable(instance, "measure tension")
-    if not alive then
-        return nil, alive_err
-    end
     record = record or {}
+    local actor = record.operator or instance.operator
+    local lease, lease_err = packet.assert_actor_tick(instance, actor, "measure tension")
+    if not lease then
+        return nil, lease_err
+    end
+    local stored_record = deep_copy(record)
+    stored_record.operator = topology.resolve(actor)
     for key, value in pairs(record) do
-        instance.tension[key] = value
+        instance.tension[key] = deep_copy(value)
     end
     local event = append_trace(instance, {
         type = "tension_measure",
-        operator = record.operator or "☱",
-        truth_status = record.truth_status or "runtime_confirmed",
-        payload = record,
-        cost = record.cost or {},
+        operator = stored_record.operator,
+        truth_status = stored_record.truth_status or "runtime_confirmed",
+        payload = stored_record,
+        cost = stored_record.cost or {},
     })
     return instance, event
 end
@@ -754,12 +951,12 @@ function packet.freeze(instance, cause, residue)
         terminal_kind = instance.terminal.kind,
         terminal_event_id = instance.terminal.event_id,
     }
-    instance.residue = residue or {cause = cause}
+    instance.residue = deep_copy(residue or {cause = cause})
     instance.terminal.residue_ref = instance.terminal.residue_ref
         or ("packet:" .. tostring(instance.id) .. ":residue")
     instance.status = "dead"
 
-    return {
+    return deep_copy({
         kind = "packet_corpse_source",
         packet_id = instance.id,
         lineage_id = instance.lineage_id,
@@ -767,8 +964,9 @@ function packet.freeze(instance, cause, residue)
         terminal = instance.terminal,
         death = instance.death,
         residue = instance.residue,
+        flow_mark = instance.ingress and instance.ingress.flow_mark,
         truth_status = "runtime_confirmed",
-    }
+    })
 end
 
 function packet.manifest_packet(instance, payload, residue)
@@ -800,12 +998,13 @@ function packet.manifest_packet(instance, payload, residue)
     death_residue.manifest_type = death_residue.manifest_type
         or (payload.output and payload.output.type)
 
-    instance.manifest = payload
+    local stored_payload = deep_copy(payload)
+    instance.manifest = stored_payload
     local event = append_trace(instance, {
         type = "manifest",
         operator = "△",
         truth_status = truth_status,
-        payload = payload,
+        payload = stored_payload,
         cost = {},
     })
     local terminal_event, terminal_err = packet.begin_terminal(instance, {
@@ -842,7 +1041,7 @@ function packet.die(instance, cause, residue)
     if not terminal then
         return nil, terminal_err
     end
-    local death_residue = residue or {cause = cause}
+    local death_residue = deep_copy(residue or {cause = cause})
     local event = append_trace(instance, {
         type = "death",
         operator = instance.operator or "△",
@@ -862,9 +1061,24 @@ function packet.die(instance, cause, residue)
 end
 
 function packet.append_trace(instance, event)
-    local alive, alive_err = packet.assert_mutable(instance, "append trace")
-    if not alive then
-        return nil, alive_err
+    if type(event) ~= "table" or not packet.event_types[event.type] then
+        return nil, "valid event required"
+    end
+    if dedicated_event_types[event.type] then
+        return nil, "event type requires dedicated writer"
+    end
+    local actor = topology.resolve(event.operator)
+    local rights = event_actor_rights[event.type]
+    if rights and not rights[actor] then
+        return nil, "event actor has no right for event type"
+    end
+    local lease, lease_err = packet.assert_actor_tick(
+        instance,
+        actor,
+        "append trace"
+    )
+    if not lease then
+        return nil, lease_err
     end
     return append_trace(instance, event)
 end

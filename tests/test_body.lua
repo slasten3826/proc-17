@@ -19,6 +19,15 @@ local function assert_eq(left, right, message)
     end
 end
 
+local function enter(instance, target)
+    assert(packet.commit_transition(instance, {
+        from = instance.operator,
+        to = target,
+        reason = "body_fixture",
+    }))
+    assert(packet.begin_tick(instance, target, {}))
+end
+
 local p = packet.new("build notes app", {
     budget = {steps = 8, substrate_calls = 2},
 })
@@ -39,6 +48,8 @@ local calm_revision = p.revisions.calm
 body.apply_crystallized_work(p, p.calm.work_units, {status = p.calm.status})
 assert_eq(p.revisions.calm, calm_revision, "identical work projection does not advance calm revision")
 
+enter(p, "☴")
+enter(p, "☳")
 local choice = body.record_choice(p, {
     kind = "choice_payload",
     selected = {"test_runner"},
@@ -49,6 +60,7 @@ assert_true(choice, "choice recorded")
 assert_eq(#p.boundary.choices, 1, "choice boundary")
 assert_eq(p.trace[#p.trace].type, "choice", "choice trace")
 
+enter(p, "☶")
 local validation = body.record_validation(p, {
     kind = "validation_payload",
     status = "accepted",
@@ -58,6 +70,7 @@ assert_true(validation, "validation recorded")
 assert_eq(#p.boundary.validations, 1, "validation boundary")
 assert_eq(p.trace[#p.trace].type, "validation", "validation trace")
 
+enter(p, "☲")
 local cycle_payload, err = body.decide_cycle(p, {
     cycle_key = "notes_app",
     turn_count = 0,
@@ -79,6 +92,7 @@ local eyes = packet.new("observe revision physics", {
     budget = {steps = 4},
 })
 local _, flow_payload = assert(flow.run(eyes))
+enter(eyes, "☴")
 local upper = assert(body.record_observation(eyes, "upper", {
     scope_refs = {flow_payload.unit_id},
     payload = {kind = "upper_eye_test"},
@@ -110,6 +124,7 @@ assert_eq(stale_upper.changed_components[1].component, "potential", "potential i
 assert_eq(upper.read_revisions.potential, 1, "historical upper record is immutable under freshness read")
 
 assert(budget.init(eyes))
+enter(eyes, "☱")
 local lower = assert(body.record_observation(eyes, "☱", {
     scope_refs = {"physis:budget"},
     revision_components = {"budget"},

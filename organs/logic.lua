@@ -6,6 +6,22 @@ local freshness = require("runtime.freshness")
 
 local logic_organ = {}
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
 local function stamp_logic_verdict(instance, verdict, trace_event_id)
     instance.runtime = instance.runtime or {}
     instance.runtime.logic_stamp = {
@@ -25,8 +41,8 @@ local function record(instance, payload)
     if not recorded then
         return nil, event_or_err
     end
-    stamp_logic_verdict(instance, payload.status, event_or_err.id)
-    return instance, payload
+    stamp_logic_verdict(instance, recorded.status, event_or_err.id)
+    return instance, recorded
 end
 
 function logic_organ.readiness(instance)
@@ -82,7 +98,8 @@ function logic_organ.run(instance, options)
 
     local results = {}
     local status = "accepted"
-    for _, spell_input in ipairs(spell_inputs) do
+    for _, configured_spell in ipairs(spell_inputs) do
+        local spell_input = copy_value(configured_spell)
         if spell_input.tick == nil then
             spell_input.tick = instance.physis and instance.physis.clock
                 and instance.physis.clock.ticks or nil

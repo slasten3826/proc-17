@@ -208,6 +208,9 @@ assert_eq(blocked.death.cause, "blocked", "blocked Packet death cause")
 assert_eq(blocked.residue.cause, "blocked", "blocked corpse residue cause")
 assert_eq(blocked.residue.rejection, "missing_artifact", "blocked residue preserved")
 
+assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "chaos_fixture"}))
+assert(packet.begin_tick(p, "☴", {}))
+local trace_before_chaos = #p.trace
 local ok, event = packet.append_chaos(p, {
     operator = "☴",
     kind = "substrate_fragment",
@@ -217,8 +220,10 @@ local ok, event = packet.append_chaos(p, {
 assert_true(ok, "append chaos returns packet")
 assert_eq(event.type, "chaos_append", "chaos append event")
 assert_eq(#p.chaos.fragments, 1, "chaos fragment stored")
-assert_eq(#p.trace, 2, "chaos append traced")
+assert_eq(#p.trace, trace_before_chaos + 1, "chaos append traced")
 
+assert(packet.commit_transition(p, {from = "☴", to = "☵", reason = "crystal_fixture"}))
+assert(packet.begin_tick(p, "☵", {}))
 local bad, bad_err = packet.crystallize(p, {
     calm_delta = {kind = "work_shape"},
 })
@@ -251,7 +256,10 @@ assert_eq(p.calm.current.kind, "work_shape", "current calm set")
 assert_eq(p.calm.status, "accepted", "calm status")
 assert_eq(p.revisions.calm, 1, "crystallization advances calm revision")
 
+assert(packet.commit_transition(p, {from = "☵", to = "☱", reason = "tension_fixture"}))
+assert(packet.begin_tick(p, "☱", {}))
 local tension_packet, tension_event = packet.measure_tension(p, {
+    operator = "☱",
     chaos_pressure = 7,
     calm_rigidity = 3,
     boundary_load = 2,

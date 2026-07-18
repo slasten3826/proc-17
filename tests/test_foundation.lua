@@ -15,8 +15,16 @@ local function assert_eq(left, right, message)
     end
 end
 
+local function enter_logic(instance)
+    assert(packet.commit_transition(instance, {from = "▽", to = "☴", reason = "foundation_fixture"}))
+    assert(packet.commit_transition(instance, {from = "☴", to = "☳", reason = "foundation_fixture"}))
+    assert(packet.commit_transition(instance, {from = "☳", to = "☶", reason = "foundation_fixture"}))
+    assert(packet.begin_tick(instance, "☶", {}))
+end
+
 local p = packet.new("foundation test")
 assert_eq(foundation.state(p), "fluid", "new foundation state")
+enter_logic(p)
 
 local result = {
     kind = "spell_result",
@@ -67,6 +75,7 @@ write_file(scratch, "y = 1\n")
 
 local rent_packet = packet.new("truth rent probe")
 rent_packet.physis.clock.ticks = 5
+enter_logic(rent_packet)
 
 local live_cast = assert(spells.run({
     kind = "py_compile_python_file",

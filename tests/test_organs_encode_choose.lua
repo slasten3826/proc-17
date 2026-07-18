@@ -36,12 +36,16 @@ local p = packet.new("build notes app", {
     host = {secret = "do_not_encode"},
 })
 
+assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "organ_chaos_fixture"}))
+assert(packet.begin_tick(p, "☴", {}))
 packet.append_chaos(p, {
     operator = "☴",
     text = "write files\nrun tests\nobserve results",
     truth_status = "semantic_proposal",
 })
 
+assert(packet.commit_transition(p, {from = "☴", to = "☵", reason = "organ_encode_fixture"}))
+assert(packet.begin_tick(p, "☵", {}))
 local encoded_packet, encoded_payload = encode_organ.run(p)
 assert_true(encoded_packet, "encode organ should return packet")
 assert_eq(encoded_payload.kind, "encode_organ_payload", "encode payload kind")
@@ -63,11 +67,15 @@ assert_true(not contains_secret(p.calm.current), "encode must not encode substra
 local limited = packet.new("limit encode", {
     budget = {steps = 8, encode_items = 2},
 })
+assert(packet.commit_transition(limited, {from = "▽", to = "☴", reason = "limited_chaos_fixture"}))
+assert(packet.begin_tick(limited, "☴", {}))
 packet.append_chaos(limited, {
     operator = "☴",
     text = "a\nb\nc",
     truth_status = "semantic_proposal",
 })
+assert(packet.commit_transition(limited, {from = "☴", to = "☵", reason = "limited_encode_fixture"}))
+assert(packet.begin_tick(limited, "☵", {}))
 local limited_packet, limited_payload = encode_organ.run(limited)
 assert_true(limited_packet, "limited encode organ should return packet")
 assert_eq(#limited_payload.loss.loss_log, 1, "organ payload carries loss log")
@@ -75,6 +83,8 @@ assert_eq(#limited.boundary.loss_records[1].loss.loss_log, 1, "packet boundary s
 assert_eq(limited.calm.current.loss_log[1].content_preview, "c", "calm delta carries loss preview")
 
 local before_units = p.calm.work_units
+assert(packet.commit_transition(p, {from = "☵", to = "☳", reason = "organ_choose_fixture"}))
+assert(packet.begin_tick(p, "☳", {}))
 local chosen_packet, choice_payload = choose_organ.run(p, {
     limits = {max_selected = 1, max_killed_sample = 1},
     semantic_ranking = {
@@ -104,7 +114,14 @@ end
 assert_eq(choice_payload.can_continue, nil, "choose must not decide continuation")
 assert_eq(choice_payload.next_action, nil, "choose must not choose next action")
 assert_eq(p.death, nil, "choose must not kill packet")
+local stored_choice_loss_kind = p.tension.last_choice_pressure.loss.kind
+choice_payload.loss.kind = "forged_return"
+assert_eq(p.tension.last_choice_pressure.loss.kind, stored_choice_loss_kind,
+    "returned choice cannot rewrite tension pressure")
 
+assert(packet.commit_transition(p, {from = "☳", to = "☶", reason = "organ_cycle_fixture"}))
+assert(packet.commit_transition(p, {from = "☶", to = "☲", reason = "organ_cycle_fixture"}))
+assert(packet.begin_tick(p, "☲", {}))
 local cycle_payload = body.decide_cycle(p, {
     cycle_key = "encode_choose",
     turn_count = 0,

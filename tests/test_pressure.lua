@@ -42,6 +42,7 @@ assert(packet.commit_transition(p, {
     to = "☴",
     reason = "pressure_test",
 }))
+assert(packet.begin_tick(p, "☴", {}))
 assert(observe.run(p, fake, {work_mode = "plan"}))
 
 local trace_before = #p.trace

@@ -2,6 +2,15 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local tests = {
     "tests.test_l1",
+    "tests.test_flow_domain",
+    "tests.test_vertical_ingress",
+    "tests.test_object_coverage",
+    "tests.test_relation_phase",
+    "tests.test_relation_native_observe",
+    "tests.test_raw_dissolve",
+    "tests.test_relation_guided_encode",
+    "tests.test_vertical_packet_life",
+    "tests.test_vertical_packet_life_ablation",
     "tests.test_json",
     "tests.test_modes",
     "tests.test_sandbox",
@@ -14,6 +23,7 @@ local tests = {
     "tests.test_edge_evidence",
     "tests.test_edge_metric_roles",
     "tests.test_packet",
+    "tests.test_body_integrity",
     "tests.test_field",
     "tests.test_connect",
     "tests.test_dissolve",

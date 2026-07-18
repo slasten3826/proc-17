@@ -1,5 +1,6 @@
 local cycle = require("logic.cycle")
 local packet_core = require("core.packet")
+local object_coverage = require("runtime.object_coverage")
 
 local body = {}
 
@@ -160,13 +161,17 @@ function body.revision_snapshot(instance, eye, components)
 end
 
 function body.record_observation(instance, eye, input)
-    local mutable, mutable_err = packet_core.assert_mutable(instance, "record observation")
-    if not mutable then
-        return nil, mutable_err
-    end
     local spec, normalized_eye = eye_spec(eye)
     if not spec then
         return nil, "invalid observation eye"
+    end
+    local lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        spec.operator,
+        "record observation"
+    )
+    if not lease then
+        return nil, lease_err
     end
     input = input or {}
 
@@ -216,6 +221,12 @@ function body.record_observation(instance, eye, input)
     if input.fidelity ~= nil and (type(input.fidelity) ~= "string" or input.fidelity == "") then
         return nil, "observation fidelity must be non-empty string"
     end
+    if input.read_units ~= nil then
+        local coverage_ok, coverage_err = object_coverage.validate(input.read_units)
+        if not coverage_ok or input.read_units.domain ~= "upper_observation" then
+            return nil, coverage_err or "observation unit coverage must use upper domain"
+        end
+    end
 
     local stores = observation_store(instance)
     local records = stores[normalized_eye]
@@ -226,6 +237,7 @@ function body.record_observation(instance, eye, input)
         operator = spec.operator,
         scope_refs = copy_value(input.scope_refs or {}),
         read_revisions = copy_value(read_revisions),
+        read_units = copy_value(input.read_units),
         payload = copy_value(input.payload or {}),
         metrics = copy_value(input.metrics or {}),
         missing_scope = copy_value(input.missing_scope or {}),
@@ -248,8 +260,11 @@ function body.record_observation(instance, eye, input)
         return nil, event_err
     end
     record.trace_event_id = event.id
-    records[#records + 1] = record
-    return record, event
+    if record.read_units then
+        record.read_units.capture_event_ref = event.id
+    end
+    records[#records + 1] = copy_value(record)
+    return copy_value(record), event
 end
 
 function body.latest_observation(instance, eye)
@@ -327,11 +342,11 @@ function body.progress(instance, options)
 end
 
 function body.record_choice(instance, choice_payload)
-    local mutable, mutable_err = packet_core.assert_mutable(instance, "record choice")
-    if not mutable then
-        return nil, mutable_err
+    local lease, lease_err = packet_core.assert_actor_tick(instance, "☳", "record choice")
+    if not lease then
+        return nil, lease_err
     end
-    choice_payload = choice_payload or {}
+    choice_payload = copy_value(choice_payload or {})
     local event, event_err = packet_core.append_event(instance, {
         type = "choice",
         operator = "☳",
@@ -342,17 +357,18 @@ function body.record_choice(instance, choice_payload)
     if not event then
         return nil, event_err
     end
+    choice_payload.trace_event_id = event.id
     local choices = ensure_list(instance.boundary, "choices")
-    choices[#choices + 1] = choice_payload
-    return choice_payload, event
+    choices[#choices + 1] = copy_value(choice_payload)
+    return copy_value(choice_payload), event
 end
 
 function body.record_validation(instance, validation_payload)
-    local mutable, mutable_err = packet_core.assert_mutable(instance, "record validation")
-    if not mutable then
-        return nil, mutable_err
+    local lease, lease_err = packet_core.assert_actor_tick(instance, "☶", "record validation")
+    if not lease then
+        return nil, lease_err
     end
-    validation_payload = validation_payload or {}
+    validation_payload = copy_value(validation_payload or {})
     local event, event_err = packet_core.append_event(instance, {
         type = "validation",
         operator = "☶",
@@ -363,20 +379,21 @@ function body.record_validation(instance, validation_payload)
     if not event then
         return nil, event_err
     end
+    validation_payload.trace_event_id = event.id
     local validations = ensure_list(instance.boundary, "validations")
-    validations[#validations + 1] = validation_payload
+    validations[#validations + 1] = copy_value(validation_payload)
     if instance.revisions then
         instance.revisions.constraints = (instance.revisions.constraints or 0) + 1
     end
-    return validation_payload, event
+    return copy_value(validation_payload), event
 end
 
 function body.record_cycle(instance, cycle_payload)
-    local mutable, mutable_err = packet_core.assert_mutable(instance, "record cycle")
-    if not mutable then
-        return nil, mutable_err
+    local lease, lease_err = packet_core.assert_actor_tick(instance, "☲", "record cycle")
+    if not lease then
+        return nil, lease_err
     end
-    cycle_payload = cycle_payload or {}
+    cycle_payload = copy_value(cycle_payload or {})
     local event, event_err = packet_core.append_event(instance, {
         type = "cycle",
         operator = "☲",
@@ -387,9 +404,10 @@ function body.record_cycle(instance, cycle_payload)
     if not event then
         return nil, event_err
     end
+    cycle_payload.trace_event_id = event.id
     local cycles = ensure_list(instance.boundary, "cycles")
-    cycles[#cycles + 1] = cycle_payload
-    return cycle_payload
+    cycles[#cycles + 1] = copy_value(cycle_payload)
+    return copy_value(cycle_payload)
 end
 
 function body.cycle_input(instance, options)
@@ -434,7 +452,7 @@ function body.apply_crystallized_work(instance, units, options)
         return nil, mutable_err
     end
     options = options or {}
-    local next_units = copy_array(units)
+    local next_units = copy_value(units or {})
     local next_status = options.status or instance.calm.status or "accepted"
     local changed = not equal_value(instance.calm.work_units or {}, next_units)
         or instance.calm.status ~= next_status

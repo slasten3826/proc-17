@@ -1,4 +1,5 @@
 local packet_core = require("core.packet")
+local packet_birth = require("runtime.packet_birth")
 local operator_registry = require("runtime.operator_registry")
 local body = require("runtime.body")
 local router = require("runtime.router")
@@ -49,49 +50,65 @@ end
 
 local function charge_substrate_usage(instance, observe_payload)
     observe_payload = observe_payload or {}
+    if observe_payload.substrate_called == false
+        or observe_payload.sensor == "relation_native" then
+        return true
+    end
     local response = observe_payload.response or {}
     local call = observe_payload.call or {}
 
-    budget.charge(instance, {
+    local call_charge, call_charge_err = budget.charge(instance, {
         operator = "☴",
         event_id = observe_payload.trace_event_id,
         cost = {substrate_calls = 1},
         source = "substrate_call",
         truth_status = "runtime_confirmed",
     })
+    if not call_charge then
+        return nil, call_charge_err
+    end
 
-    local usage_cost = budget.from_usage(response.usage or {})
+    local usage_cost, usage_err = budget.from_usage(response.usage or {})
+    if not usage_cost then
+        return nil, usage_err
+    end
     if next(usage_cost) ~= nil then
-        budget.charge(instance, {
+        local usage_charge, usage_charge_err = budget.charge(instance, {
             operator = "☴",
             event_id = observe_payload.trace_event_id,
             cost = usage_cost,
             source = "substrate_usage",
             truth_status = "runtime_confirmed",
         })
-        return
+        if not usage_charge then
+            return nil, usage_charge_err
+        end
+        return true
     end
 
     local estimated = budget.estimate_tokens((call.prompt_payload or "") .. "\n" .. (response.text or ""))
     if estimated > 0 then
-        budget.charge(instance, {
+        local estimate_charge, estimate_charge_err = budget.charge(instance, {
             operator = "☴",
             event_id = observe_payload.trace_event_id,
             cost = {estimated_tokens = estimated},
             source = "local_estimator",
             truth_status = "estimated",
         })
+        if not estimate_charge then
+            return nil, estimate_charge_err
+        end
     end
+    return true
 end
 
 local function apply_operator_physics(instance, operator, payload)
     if operator == "☴" then
-        charge_substrate_usage(instance, payload)
-        return
+        return charge_substrate_usage(instance, payload)
     end
 
     if operator == "☵" and type(payload.loss) == "table" then
-        loss.apply(instance, {
+        local applied, apply_err = loss.apply(instance, {
             operator = "☵",
             event_id = payload.trace_event_id,
             amount = loss.from_encode_loss(payload.loss),
@@ -100,11 +117,14 @@ local function apply_operator_physics(instance, operator, payload)
             detail = payload.loss,
             truth_status = "runtime_confirmed",
         })
-        return
+        if not applied then
+            return nil, apply_err
+        end
+        return true
     end
 
     if operator == "☳" and type(payload.loss) == "table" then
-        loss.apply(instance, {
+        local applied, apply_err = loss.apply(instance, {
             operator = "☳",
             event_id = payload.trace_event_id,
             amount = loss.from_choose_loss(payload.loss),
@@ -113,7 +133,11 @@ local function apply_operator_physics(instance, operator, payload)
             detail = payload.loss,
             truth_status = "runtime_confirmed",
         })
+        if not applied then
+            return nil, apply_err
+        end
     end
+    return true
 end
 
 local function die_from_mortality(instance, result, current)
@@ -251,7 +275,34 @@ end
 function tension_runner.run(prompt, substrate, options)
     options = options or {}
 
-    local instance = packet_core.new(prompt, options.packet_options or {})
+    local packet_life = options.packet_life
+    local vertical_life = type(packet_life) == "table"
+        and packet_life.protocol_version == "vertical_packet_life.v0"
+    local prepared_graves
+    if vertical_life and options.inherited_graves ~= nil then
+        local prepare_err
+        prepared_graves, prepare_err = grave.prepare(options.inherited_graves)
+        if not prepared_graves then
+            return nil, stage_error("grave_preflight", prepare_err)
+        end
+    end
+
+    local instance
+    local birth_receipt
+    if vertical_life then
+        local birth_err
+        instance, birth_receipt = packet_birth.create(packet_life.flow_domain, prompt, {
+            packet_options = options.packet_options,
+            projection_adapter = packet_life.projection_adapter,
+            inherited_graves = prepared_graves,
+        })
+        if not instance then
+            birth_err = birth_receipt
+            return nil, stage_error("birth", birth_err)
+        end
+    else
+        instance = packet_core.new(prompt, options.packet_options or {})
+    end
     local budget_ready, budget_err = budget.init(instance)
     if not budget_ready then
         return nil, stage_error("budget", budget_err)
@@ -276,7 +327,16 @@ function tension_runner.run(prompt, substrate, options)
             and options.legacy_shadow ~= false or false,
         stop_reason = nil,
         final_status = instance.status,
+        birth = birth_receipt,
     }
+
+    if vertical_life and prepared_graves ~= nil then
+        local grave_payload, grave_err = grave.attach(instance, prepared_graves)
+        if not grave_payload then
+            return nil, stage_error("grave", grave_err)
+        end
+        result.grave = grave_payload
+    end
 
     local flow_payload, flow_err, flow_readiness = operator_registry.run(
         "▽",
@@ -289,7 +349,7 @@ function tension_runner.run(prompt, substrate, options)
     result.flow = flow_payload
     result.flow_readiness = flow_readiness
 
-    if options.inherited_graves ~= nil then
+    if not vertical_life and options.inherited_graves ~= nil then
         local grave_payload, grave_err = grave.attach(instance, options.inherited_graves)
         if not grave_payload then
             return nil, stage_error("grave", grave_err)
@@ -422,21 +482,27 @@ function tension_runner.run(prompt, substrate, options)
             if clock then
                 clock.ticks = (clock.ticks or 0) + 1
             end
-            budget.charge(instance, {
+            local tick_charge, tick_charge_err = budget.charge(instance, {
                 operator = current,
                 event_id = failure_event.id,
                 cost = {steps = 1},
                 source = "body_tick",
                 truth_status = "runtime_confirmed",
             })
+            if not tick_charge then
+                return nil, stage_error("budget", tick_charge_err)
+            end
             if next(failure.cost or {}) ~= nil then
-                budget.charge(instance, {
+                local failure_charge, failure_charge_err = budget.charge(instance, {
                     operator = current,
                     event_id = failure_event.id,
                     cost = failure.cost,
                     source = "failed_external_effect",
                     truth_status = "runtime_confirmed",
                 })
+                if not failure_charge then
+                    return nil, stage_error("budget", failure_charge_err)
+                end
             end
 
             local source_event_refs = event_refs(instance, trace_start)
@@ -501,13 +567,19 @@ function tension_runner.run(prompt, substrate, options)
         if clock then
             clock.ticks = (clock.ticks or 0) + 1
         end
-        budget.charge(instance, {
+        local tick_charge, tick_charge_err = budget.charge(instance, {
             operator = current,
             cost = {steps = 1},
             source = "body_tick",
             truth_status = "runtime_confirmed",
         })
-        apply_operator_physics(instance, current, payload)
+        if not tick_charge then
+            return nil, stage_error("budget", tick_charge_err)
+        end
+        local physics_ok, physics_err = apply_operator_physics(instance, current, payload)
+        if not physics_ok then
+            return nil, stage_error("physics", physics_err)
+        end
 
         local source_event_refs = event_refs(instance, trace_start)
         local runtime_frame, frame_err = camera.capture(instance, {

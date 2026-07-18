@@ -40,6 +40,7 @@ assert(budget.init(p))
 assert(loss.init(p))
 assert(flow.run(p))
 assert(packet.commit_transition(p, {from = "▽", to = "☴", reason = "tree_router_test"}))
+assert(packet.begin_tick(p, "☴", {}))
 assert(observe.run(p, fake, {work_mode = "plan"}))
 
 local snapshot = assert(pressure.derive(p, {operator = "☴"}, {

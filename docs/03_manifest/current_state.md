@@ -1,18 +1,20 @@
-# Current State - 2026-07-17
+# Current State - 2026-07-18
 
 Status: active packet-first body
 
 Current transition:
 
 ```text
-legacy route authority -> opt-in full-tree authority -> measured promotion
+integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
+-> rebuilt witnesses -> measured tree promotion
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
-terminal death, and inheritance. Its next architectural boundary is not another
-interpretation layer. It is the closed work loop: selected work must change the
-sandbox, create fresh runtime evidence, and become completed work inside the
-packet.
+terminal death, and inheritance. Body integrity is closed and one opt-in
+Vertical Packet Life now joins the selected L1/L2 contracts to the CALM-side
+body. The next implementation repairs the pressure witnesses over those grown
+facts. The closed repository work loop follows measured routing; hands must not
+be used to hide an unmeasured body.
 
 ## Runtime Shape
 
@@ -79,17 +81,25 @@ identity loss from ENCODE and CHOOSE. CYCLE spends budget but does not create
 identity loss. Budget, loss, foundation, grave, packet memory, organs, and body
 mutators all reject a terminal Packet; read snapshots do not mutate its corpse.
 
+The Body Integrity Gate now enforces ownership and current-visit authority at
+public mutation boundaries. Stored trace, CALM, boundary, economic, memory, and
+corpse records do not share caller-owned mutable children. Organ writes require
+the matching current glyph and tick, while field event references must come from
+that same visit. Budget and loss reject negative or non-finite values before
+mutation. LOGIC evidence fingerprints include current referent state, so a real
+referent change creates one validation debt and a recast discharges it.
+
 ### Operators and movement
 
 - `organs/flow.lua`: materializes user or lineage ingress as newborn potential.
 - `organs/connect.lua`: records bounded candidate relations as one transient
-  `E_raw` epoch without activating or preserving them.
-- `organs/dissolve.lua`: subtractively weakens or dissolves active relations
-  under runtime-confirmed reasons and returns mechanical residue when preserved.
-- `organs/observe.lua`: asks the substrate, records a confirmed upper-eye act,
-  and appends proposal content to CHAOS and the canonical field.
-- `organs/encode.lua`: forms packet-native structure in CALM with visible loss,
-  shadow field units, and an explicit identity map.
+  `field.raw_relations.v1` epoch with exact object-version probe coverage.
+- `organs/dissolve.lua`: releases raw vertical relations without activation,
+  while preserving the legacy formed-relation weakening path.
+- `organs/observe.lua`: offers semantic, relation-native and field-native
+  sensors; native sight requires no substrate and emits no proposal unit.
+- `organs/encode.lua`: forms text or relation-guided Packet structure in CALM
+  with visible loss, explicit formed ids, and an identity map.
 - `organs/choose.lua`: selects under pressure, records killed alternatives, and
   changes canonical unit activation without rewriting identity or carrier.
 - `organs/runtime.lua`, `organs/cycle.lua`, `organs/logic.lua`, and
@@ -150,6 +160,33 @@ witnesses, while several CALM consumers still read legacy-shaped projections.
 The migration remains observable and reversible, but the field is no longer
 purely passive in opt-in tree mode.
 
+### Opt-in L1/L2 vertical integration
+
+Roadmap steps 3 and 4 are complete. Four contracts separate the continuing
+medium, transient formation, versioned sight, and their assembled proof:
+
+- [`../02_crystall/blueprints/l1_flow_domain_birth.v0.md`](../02_crystall/blueprints/l1_flow_domain_birth.v0.md)
+  keeps session-owned L1 outside every mortal Packet and makes one birth one
+  atomic L1 tick plus immutable mark;
+- [`../02_crystall/blueprints/l2_transient_relation_phase.v0.md`](../02_crystall/blueprints/l2_transient_relation_phase.v0.md)
+  gives each raw relation exactly three dispositions: observe, release, or form;
+- [`../02_crystall/blueprints/object_version_coverage.v0.md`](../02_crystall/blueprints/object_version_coverage.v0.md)
+  defines per-object probe/sight stamps without pretending coverage is pressure;
+- [`../02_crystall/blueprints/vertical_packet_life_gate.v0.md`](../02_crystall/blueprints/vertical_packet_life_gate.v0.md)
+  defines opt-in grown lives A-F and keeps fixture routes out of promotion data.
+
+The contracts remain document decisions; their bounded opt-in implementation
+now has runtime evidence. `runtime/flow_domain.lua` and
+`runtime/packet_birth.lua` own atomic L1 birth. CONNECT writes exact raw probe
+coverage. OBSERVE, DISSOLVE and ENCODE implement the three raw dispositions.
+The old `relations.active` path remains compatibility code; vertical retention
+belongs to CALM crystallization plus identity-map provenance, and RUNTIME is
+forbidden from originating it from raw output.
+
+The permanent A-F and ablation evidence is manifested in
+[`vertical_packet_life.v0.md`](vertical_packet_life.v0.md). Fixture routes are
+`harness_override` and cannot count as pressure-router promotion.
+
 ### Two eyes and revision freshness
 
 `boundary.observations.upper` and `boundary.observations.lower` now use one
@@ -157,8 +194,10 @@ shared envelope. Each record separates the confirmed act of observation from
 the truth status of its content and stores a bounded scope plus the Packet
 revisions actually read.
 
-`☴` emits the upper record around substrate observation. `☱` emits the same
-shape for CALM, evidence, foundation, budget, and loss. The old
+`☴` emits the upper record around substrate or body-native observation. Exact
+unit coverage records id and version; native sight does not stale itself by
+creating an output. `☱` emits the same envelope shape for CALM, evidence,
+foundation, budget, and loss. The old
 `chaos.observations` name is an alias of the canonical upper store, while the
 old tension snapshot remains a compatibility projection.
 
@@ -240,7 +279,9 @@ mutation loop.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    45 suites passed
+lua tests/run.lua                    56 suites passed
+tests/test_vertical_packet_life.lua A-F passed
+tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
 tests/test_tree_instrumentation.lua  7/7 Gate B cases passed
 tests/test_edge_metric_roles.lua     passed
@@ -250,7 +291,15 @@ lua tests/smoke_runtime_camera_treatment.lua passed
 lua tests/smoke_pressure_ablation.lua passed
 lua tests/smoke_deepseek_tension_runner.lua passed through ☱ twice
 luac -p over all Lua sources         passed
+git diff --check                     passed
 ```
+
+The Body Integrity Gate was grown from a red baseline that reproduced caller
+aliasing, wrong-position writes, old-visit authorization, invalid economic
+charges, and unchanged fingerprints after referent mutation. All cases are now
+permanent green tests in `tests/test_body_integrity.lua`; the manifested
+treatment and explicit v0 limits are recorded in
+[`body_integrity_gate.v0.md`](body_integrity_gate.v0.md).
 
 The first confirmed opt-in tree build produced:
 
@@ -332,9 +381,9 @@ the checks outside the body.
 2. **Canonical field migration is incomplete.** FLOW/OBSERVE/ENCODE/CHOOSE and
    explicit tree routing consume field records, but CALM and several organ
    inputs still retain compatibility projections.
-3. **Relation authority is partial.** CONNECT executes in an opt-in tree life;
-   DISSOLVE has no live rigidity corpus and its readiness does not yet receive
-   the exact rigidity witness that created its pressure. ☱ does not yet apply
+3. **Relation pressure is not rebuilt.** Exact probe, sight, release and
+   formation facts exist, but relation need and pressure composition do not yet
+   consume them. Fixture routes prove physics only. ☱ does not yet apply formed
    relation momentum.
 4. **Camera pressure is uncalibrated.** Reconciliation debt can govern explicit
    tree lives, but all coefficients remain one and the default mode still grants
@@ -360,16 +409,27 @@ Several modules are currently standalone or partially integrated, including
 
 ## Next Architecture Target
 
-Gates A and B are complete. Finish the authority transition before granting
-repository mutation:
+The active roadmap is deliberately ordered so new power follows owned facts:
 
-1. grow a tree-life corpus containing manifest, stall, rejected validation,
-   typed external failure, mortality, CONNECT, and a real DISSOLVE witness;
-2. document calibration defects without hiding them behind legacy rails;
-3. change the default from `shadow` to `tree` only in a separate reviewed step,
-   preserving explicit legacy control.
+```text
+1. backup current body                                      complete
+2. Body Integrity Gate                                     complete
+3. crystallize the selected L1/L2 contracts                complete
+4. implement one opt-in Vertical Packet Life               complete
+5. rebuild pressure witnesses, then measure tree promotion next
+6. implement the outer lineage runner
+7. add capability-safe repository hands
+8. expose a machine CLI and then a Go TUI
+```
 
-Then close the first real work loop:
+Step 4 implemented those contracts in ten bounded substeps and proved grown
+lives for empty relation probes, body-native observation, raw release,
+relation-guided formation, version re-arm, and truth rent. Integration remains
+explicitly off/on and fixture-selected routes remain separate from promotion
+evidence.
+
+Only after those body facts and the resulting pressure corpus are measured does
+the first real repository work loop become lawful:
 
 ```text
 ☵ forms executable work

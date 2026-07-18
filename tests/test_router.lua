@@ -17,6 +17,17 @@ local function assert_eq(left, right, message)
     end
 end
 
+local function move(instance, target, tick)
+    assert(packet.commit_transition(instance, {
+        from = instance.operator,
+        to = target,
+        reason = "router_fixture",
+    }))
+    if tick then
+        assert(packet.begin_tick(instance, target, {}))
+    end
+end
+
 local p = packet.new("route packet", {
     budget = {steps = 8, substrate_calls = 1},
 })
@@ -60,13 +71,16 @@ d, err = router.after_tick(p, {
 assert_true(d, err)
 assert_eq(d.to, "☱", "observe runtime-ready routes to runtime")
 
-body.record_choice(p, {
+move(p, "☴")
+move(p, "☳", true)
+assert(body.record_choice(p, {
     kind = "choice_payload",
     selected = {{id = "a"}},
     killed_alternatives = {{id = "b"}},
     not_chosen_count = 1,
     truth_status = "runtime_confirmed",
-})
+}))
+move(p, "☴")
 
 d, err = router.after_tick(p, {operator = "☴"})
 assert_true(d, err)
@@ -126,12 +140,16 @@ assert_true(d, err)
 assert_eq(d.to, "☶", "build mode remaining work without evidence routes to logic")
 assert_eq(d.reason, "missing_build_evidence", "build evidence reason")
 
-body.record_cycle(build_packet, {
+move(build_packet, "☴")
+move(build_packet, "☵")
+move(build_packet, "☲", true)
+assert(body.record_cycle(build_packet, {
     kind = "cycle_decision_payload",
     decision = "stop_repetition",
     reason = "max_turns",
     truth_status = "runtime_confirmed",
-})
+}))
+move(build_packet, "☱")
 
 d, err = router.after_tick(build_packet, {
     operator = "☱",
@@ -184,12 +202,16 @@ assert_eq(d.to, "☲", "karma warning allows first cycle")
 assert_eq(d.reason, "remaining_work", "first cycle still normal")
 assert_eq(d.pressure.karma.warning_count, 1, "karma pressure visible")
 
-body.record_cycle(karma_packet, {
+move(karma_packet, "☴")
+move(karma_packet, "☵")
+move(karma_packet, "☲", true)
+assert(body.record_cycle(karma_packet, {
     kind = "cycle_decision_payload",
     decision = "again",
     reason = "remaining_work",
     truth_status = "runtime_confirmed",
-})
+}))
+move(karma_packet, "☱")
 
 d, err = router.after_tick(karma_packet, {
     operator = "☱",
@@ -206,11 +228,15 @@ local rejected_packet = packet.new("build rejected route", {
 body.apply_crystallized_work(rejected_packet, {
     {id = "a", status = "pending"},
 })
-body.record_validation(rejected_packet, {
+move(rejected_packet, "☴")
+move(rejected_packet, "☳")
+move(rejected_packet, "☶", true)
+assert(body.record_validation(rejected_packet, {
     kind = "logic_validation_payload",
     status = "rejected",
     truth_status = "runtime_confirmed",
-})
+}))
+move(rejected_packet, "☱")
 
 d, err = router.after_tick(rejected_packet, {
     operator = "☱",
