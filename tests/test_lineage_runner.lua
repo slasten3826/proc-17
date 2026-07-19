@@ -80,6 +80,7 @@ local function observing_runner(prompt, model, options)
     options.on_packet_birth = function(instance, receipt)
         born[#born + 1] = {
             id = instance.id,
+            session_id = instance.session_id,
             lineage_id = instance.lineage_id,
             generation = instance.generation,
             parent_id = instance.parent_id,
@@ -145,6 +146,8 @@ assert(two_report.carriers[1].target_generation == 2)
 
 assert(#born == 2)
 assert(born[1].generation == 1 and born[2].generation == 2)
+assert(born[1].session_id == "lineage-runner-two-session")
+assert(born[2].session_id == born[1].session_id)
 assert(born[1].id ~= born[2].id)
 assert(born[2].parent_id == born[1].id)
 assert(born[2].parent_corpse_id == two_report.corpses[1].corpse_id)

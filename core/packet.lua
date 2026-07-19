@@ -156,8 +156,13 @@ local function init_identity(packet_id, options)
     if birth_kind ~= "user" and (type(options.carrier_id) ~= "string" or options.carrier_id == "") then
         error(birth_kind .. " birth requires carrier id")
     end
+    if options.session_id ~= nil
+        and (type(options.session_id) ~= "string" or options.session_id == "") then
+        error("session id must be a non-empty string when present")
+    end
 
     return {
+        session_id = options.session_id,
         lineage_id = options.lineage_id or packet_id,
         generation = generation,
         parent_corpse_id = options.parent_corpse_id,
@@ -523,6 +528,7 @@ function packet.new(prompt, options)
     local instance = {
         protocol_version = packet.protocol_version,
         id = packet_id,
+        session_id = identity.session_id,
         lineage_id = identity.lineage_id,
         generation = identity.generation,
         parent_id = options.parent_id,
@@ -559,6 +565,7 @@ function packet.new(prompt, options)
         payload = {
             raw_prompt = prompt,
             packet_id = instance.id,
+            session_id = instance.session_id,
             lineage_id = instance.lineage_id,
             generation = instance.generation,
             parent_id = instance.parent_id,

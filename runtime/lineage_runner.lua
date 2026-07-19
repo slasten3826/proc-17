@@ -353,6 +353,7 @@ function lineage_runner.run(task, substrate, options)
             options.packet_runner_options and options.packet_runner_options.packet_options,
             ingress.packet_options
         )
+        packet_options.session_id = session.session_id
         packet_options.budget = copy_value(local_budget)
         local runner_options = merge(options.packet_runner_options, {
             work_mode = state.work_mode,

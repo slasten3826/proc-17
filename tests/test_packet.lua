@@ -24,6 +24,7 @@ end
 local p = packet.new("build a small body", {id = "packet-test"})
 
 assert_eq(p.protocol_version, "packet.next.v1", "protocol")
+assert_eq(p.session_id, nil, "standalone Packet has no implicit host session")
 assert_eq(p.lineage_id, "packet-test", "standalone lineage defaults to packet id")
 assert_eq(p.generation, 1, "standalone generation")
 assert_eq(p.birth_kind, "user", "standalone birth kind")
@@ -71,8 +72,10 @@ local child = packet.new("continue from carrier", {
     parent_corpse_id = "corpse-parent",
     birth_kind = "network_reentry",
     carrier_id = "carrier-parent",
+    session_id = "session-test",
     substrate_session_id = "substrate-session-test",
 })
+assert_eq(child.session_id, "session-test", "child host session")
 assert_eq(child.lineage_id, "lineage-test", "child lineage")
 assert_eq(child.generation, 2, "child generation")
 assert_eq(child.parent_id, "packet-parent", "child parent packet")
@@ -82,6 +85,7 @@ assert_eq(child.carrier_id, "carrier-parent", "child carrier")
 assert_eq(child.substrate_session_id, "substrate-session-test", "child substrate session")
 assert_eq(child.trace[1].payload.parent_corpse_id, "corpse-parent", "birth traces parent corpse")
 assert_eq(child.trace[1].payload.carrier_id, "carrier-parent", "birth traces carrier")
+assert_eq(child.trace[1].payload.session_id, "session-test", "birth traces host session")
 
 assert_error("generation must be integer >= 1", function()
     packet.new("invalid generation", {generation = 0})
@@ -98,6 +102,9 @@ end, "carrier required for reentry")
 assert_error("user birth generation 1 cannot have parent corpse", function()
     packet.new("impossible parent", {parent_corpse_id = "corpse"})
 end, "standalone user birth rejects parent corpse")
+assert_error("session id must be a non-empty string", function()
+    packet.new("invalid session", {session_id = ""})
+end, "empty host session rejected")
 
 local isolated = packet.new("fresh mutable roots", {id = "packet-isolated"})
 child.revisions.potential = 9

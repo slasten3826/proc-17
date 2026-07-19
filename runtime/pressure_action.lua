@@ -4,6 +4,7 @@ local field = require("runtime.field")
 local choice_inspection = require("runtime.choice_inspection")
 local plan_completion = require("runtime.plan_completion")
 local structure_inspection = require("runtime.structure_inspection")
+local repository_action = require("runtime.repository_action")
 
 local action = {
     protocol_version = "pressure.action_plan.v0",
@@ -19,6 +20,9 @@ local mode_targets = {
     semantic_observe = "☴",
     field_native_observe = "☴",
     relation_native_observe = "☴",
+    repository_action_review = "☱",
+    repository_effect = "☶",
+    repository_reconcile = "☱",
 }
 
 local mode_option_roots = {
@@ -31,6 +35,9 @@ local mode_option_roots = {
     semantic_observe = "observe",
     field_native_observe = "observe",
     relation_native_observe = "observe",
+    repository_action_review = "runtime",
+    repository_effect = "logic",
+    repository_reconcile = "runtime",
 }
 
 local mode_effect_types = {
@@ -43,6 +50,15 @@ local mode_effect_types = {
     semantic_observe = "observe_organ_payload",
     field_native_observe = "observe_organ_payload",
     relation_native_observe = "observe_organ_payload",
+    repository_action_review = "runtime_eye_payload",
+    repository_effect = "logic_validation_payload",
+    repository_reconcile = "runtime_eye_payload",
+}
+
+local repository_option_keys = {
+    repository_action_review = "repository_action_review",
+    repository_effect = "repository_effect",
+    repository_reconcile = "repository_reconcile",
 }
 
 local mergeable_modes = {
@@ -507,6 +523,59 @@ local function normalize_plan_input(value)
     return identity
 end
 
+local function normalize_repository_input(value, mode)
+    local valid, valid_err = validate_keys(value, {
+        action = true,
+        action_id = true,
+        work_unit_id = true,
+        work_unit_version = true,
+        formation_event_ref = true,
+        grant_id = true,
+        grant_revision = true,
+        evidence_refs = true,
+    }, "repository_input")
+    if not valid then
+        return nil, valid_err
+    end
+    local action_ok, action_err = repository_action.validate_projection(value.action)
+    if not action_ok then
+        return nil, action_err
+    end
+    local action_value = value.action
+    if value.action_id ~= action_value.action_id
+        or value.work_unit_id ~= action_value.work_unit.id
+        or value.work_unit_version ~= action_value.work_unit.version
+        or value.formation_event_ref ~= action_value.work_unit.formation_event_ref
+        or value.grant_id ~= action_value.capability.grant_id
+        or value.grant_revision ~= action_value.capability.revision then
+        return nil, "repository_input identity does not match action"
+    end
+    local evidence_refs, evidence_err = sorted_unique(
+        value.evidence_refs or {},
+        "repository_input evidence_refs",
+        true
+    )
+    if not evidence_refs then
+        return nil, evidence_err
+    end
+    if mode == "repository_action_review" and #evidence_refs ~= 0 then
+        return nil, "repository action review begins without effect evidence"
+    end
+    if mode ~= "repository_action_review" and #evidence_refs == 0 then
+        return nil, mode .. " requires evidence refs"
+    end
+    return {
+        action = copy_value(action_value),
+        action_id = value.action_id,
+        work_unit_id = value.work_unit_id,
+        work_unit_version = value.work_unit_version,
+        formation_event_ref = value.formation_event_ref,
+        grant_id = value.grant_id,
+        grant_revision = value.grant_revision,
+        evidence_refs = evidence_refs,
+    }
+end
+
 local function normalize_options(mode, options)
     local root = mode_option_roots[mode]
     local root_valid, root_err = validate_keys(options, {[root] = true}, "action options")
@@ -516,6 +585,26 @@ local function normalize_options(mode, options)
     local configured = options[root]
     if type(configured) ~= "table" then
         return nil, "action options require " .. root
+    end
+
+    local repository_key = repository_option_keys[mode]
+    if repository_key then
+        local valid, valid_err = validate_keys(
+            configured,
+            {[repository_key] = true},
+            "repository " .. mode .. " action"
+        )
+        if not valid then
+            return nil, valid_err
+        end
+        local input, input_err = normalize_repository_input(
+            configured[repository_key],
+            mode
+        )
+        if not input then
+            return nil, input_err
+        end
+        return {[root] = {[repository_key] = input}}
     end
 
     if mode == "connect_probe" then
@@ -731,6 +820,31 @@ local function normalize_preconditions(value)
 end
 
 local function validate_mode_contract(mode, scope_refs, preconditions, options)
+    local repository_key = repository_option_keys[mode]
+    if repository_key then
+        local root = mode_option_roots[mode]
+        local input = options[root][repository_key]
+        local expected_refs = copy_value(input.action.scope_refs)
+        expected_refs[#expected_refs + 1] = input.action_id
+        table.sort(expected_refs)
+        if not same_value(scope_refs, expected_refs) then
+            return nil, mode .. " requires exact work/action scope"
+        end
+        local version_count = 0
+        for _ in pairs(preconditions.object_versions) do
+            version_count = version_count + 1
+        end
+        if version_count ~= 1
+            or preconditions.object_versions[input.work_unit_id]
+                ~= input.work_unit_version then
+            return nil, mode .. " requires one exact work version"
+        end
+        if preconditions.raw_epoch ~= nil
+            or next(preconditions.relevant_revisions) ~= nil then
+            return nil, mode .. " preconditions exceed exact action scope"
+        end
+        return true
+    end
     if mode ~= "structure_formation" and mode ~= "alternative_collapse"
         and mode ~= "plan_completion_review" and mode ~= "plan_delivery" then
         return true
@@ -855,6 +969,9 @@ function action.build(mode, input)
     input = input or {}
     local target = mode_targets[mode]
     if not target then
+        if type(mode) == "string" and mode:match("^repository_") then
+            return nil, "repository pressure action mode is not installed"
+        end
         return nil, "unknown pressure action mode"
     end
     local requested_target = topology.resolve(input.target_operator or target)
@@ -1243,10 +1360,23 @@ function action.registry_context(plan, base_context)
     end
     local options = copy_value(base_context.options or {})
     local root = mode_option_roots[plan.mode]
-    if type(options[root]) == "table" and next(options[root]) ~= nil then
-        return nil, "caller options override action-owned scope"
+    local repository_key = repository_option_keys[plan.mode]
+    if repository_key then
+        if options[root] ~= nil and type(options[root]) ~= "table" then
+            return nil, "caller options override action-owned scope"
+        end
+        options[root] = copy_value(options[root] or {})
+        if options[root][repository_key] ~= nil
+            or options[root].qualified_action ~= nil then
+            return nil, "caller options override action-owned scope"
+        end
+        options[root][repository_key] = copy_value(plan.options[root][repository_key])
+    else
+        if type(options[root]) == "table" and next(options[root]) ~= nil then
+            return nil, "caller options override action-owned scope"
+        end
+        options[root] = copy_value(plan.options[root])
     end
-    options[root] = copy_value(plan.options[root])
     options[root].qualified_action = {
         plan_id = plan.plan_id,
         scope_refs = copy_value(plan.scope_refs),
