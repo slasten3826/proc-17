@@ -38,7 +38,7 @@ The repository currently contains:
   through terminal △ under the explicit qualified treatment;
 - a bounded in-memory lineage runner with cumulative economics, immutable
   corpses, deterministic recovery carriers, and NETWORK@▽ rebirth;
-- 76 Lua test suites plus mortality and live-substrate smoke programs.
+- 77 Lua test suites plus mortality and live-substrate smoke programs.
 
 The fixed single-pass runner remains as a smoke rail. The tension runner is the
 active experiment: movement is chosen from packet pressure rather than a fixed
@@ -89,6 +89,7 @@ Live DeepSeek smoke programs require the corresponding API configuration.
 - [`docs/02_crystall/blueprints`](docs/02_crystall/blueprints) contains executable contracts.
 - [`docs/03_manifest/current_state.md`](docs/03_manifest/current_state.md) is the current implementation map.
 - [`docs/03_manifest/lineage_in_memory_slice.v0.md`](docs/03_manifest/lineage_in_memory_slice.v0.md) records the first task ancestry across mortal Packet lives.
+- [`docs/03_manifest/lineage_completion_continuation_separation.v0.md`](docs/03_manifest/lineage_completion_continuation_separation.v0.md) separates task truth from lineage affordability and recovery policy.
 - [`docs/03_manifest/proc17_assembly_map.md`](docs/03_manifest/proc17_assembly_map.md) records the July 15 assembly pass.
 - [`docs/00_chaos/full_project_audit_2026-07-15_notes.md`](docs/00_chaos/full_project_audit_2026-07-15_notes.md) is the full repository audit.
 - [`docs/00_chaos/proc17_capability_handoff_2026-07-19.md`](docs/00_chaos/proc17_capability_handoff_2026-07-19.md) is the dated machine handoff: proven abilities, open boundaries, and the next product-bearing pressure.

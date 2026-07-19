@@ -6,6 +6,7 @@ document_role: machine_handoff
 stability:      dated_snapshot / supersedable
 audience:       external machine review
 authority:      descriptive, not a canonical contract
+follow_up:      completion/economy defect treated after this snapshot
 ```
 
 This document is a compact handoff of what proc-17 can currently do, what it
@@ -15,6 +16,11 @@ grounded in the implementation and test corpus. The proposed next step is a
 
 The canonical implementation map remains
 [`../03_manifest/current_state.md`](../03_manifest/current_state.md).
+
+Post-handoff treatment: an external cold audit found that lineage affordability
+could relabel one unfinished corpse as blocked. The reproduced defect and
+accepted correction are manifested in
+[`../03_manifest/lineage_completion_continuation_separation.v0.md`](../03_manifest/lineage_completion_continuation_separation.v0.md).
 
 ## State In One Sentence
 
@@ -103,9 +109,10 @@ agent, not yet a complete coding agent.
   dies from its own budget; generation 2 enters through the carrier, starts
   clean and completes the exact plan.
 
-The latest measured baseline contains 76 Lua test suites, an 8/8 mortality
-battery, camera and pressure-ablation smokes, syntax validation and live
-DeepSeek smoke programs.
+The baseline at handoff creation contained 76 Lua test suites. The follow-up
+completion/economy treatment adds the 77th suite. The 8/8 mortality battery,
+camera and pressure-ablation smokes, syntax validation and prior live DeepSeek
+smoke evidence remain green.
 
 ## What Is Not Implemented
 

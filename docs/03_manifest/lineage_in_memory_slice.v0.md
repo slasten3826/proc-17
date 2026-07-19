@@ -12,6 +12,11 @@ scope: linear in-memory ancestry and exact plan.v0 completion
 decision truth status: document_decision
 ```
 
+Amendment 2026-07-19: the first implementation combined terminal
+recoverability, recovery policy and lineage economics in one `recoverable`
+field. That defect is superseded by
+[`lineage_completion_continuation_separation.v0.md`](lineage_completion_continuation_separation.v0.md).
+
 ## Result
 
 proc-17 now owns two different forms of recurrence without confusing them:
@@ -141,9 +146,10 @@ runtime-confirmed plan completion assessment named by the manifest
 Body assembly and death are runtime-confirmed. Plan item content remains
 `semantic_proposal` or its inherited content status.
 
-Local `budget_exhausted`, `identity_loss` and `stalled` deaths may be recoverable
-when policy and cumulative economics permit. Unknown completion contracts do
-not become implicit success.
+Local `budget_exhausted`, `identity_loss` and `stalled` deaths are intrinsically
+recoverable in this bounded contract. Policy and cumulative economics separately
+decide whether this lineage may create another generation. Unknown completion
+contracts do not become implicit success.
 
 ## Economics
 
@@ -195,13 +201,14 @@ transactions, duplicate child attempts and cumulative charge deduplication.
 Verification:
 
 ```text
-lua tests/run.lua                              76 suites passed
+lua tests/run.lua                              77 suites passed
 tests/test_digest.lua                          passed
 tests/test_lineage_budget.lua                  passed
 tests/test_lineage.lua                         passed
 tests/test_lineage_birth_hook.lua              passed
 tests/test_corpse.lua                          passed
 tests/test_lineage_completion.lua              passed
+tests/test_lineage_completion_separation.lua   passed
 tests/test_carrier.lua                         passed
 tests/test_network_ingress.lua                 passed
 tests/test_lineage_runner.lua                  passed

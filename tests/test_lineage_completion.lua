@@ -30,7 +30,9 @@ local plan_corpse = assert(corpse.capture(plan_packet, {
 }))
 local complete = assert(completion.evaluate(state_for(plan_corpse), plan_corpse))
 assert(complete.task_state == "complete")
-assert(complete.recoverable == false)
+assert(complete.terminal_recoverable == false)
+assert(complete.terminal_recovery_basis == nil)
+assert(complete.recoverable == nil)
 assert(complete.progress.delivered_item_count == 3)
 assert(complete.basis_truth_statuses[2] == "semantic_proposal")
 
@@ -47,14 +49,16 @@ local budget_corpse = assert(corpse.capture(budget_packet, {
 }))
 local unfinished = assert(completion.evaluate(state_for(budget_corpse), budget_corpse))
 assert(unfinished.task_state == "unfinished")
-assert(unfinished.recoverable == true)
+assert(unfinished.terminal_recoverable == true)
+assert(unfinished.terminal_recovery_basis == "budget_exhausted")
+assert(unfinished.recoverable == nil)
 
 local unknown = assert(completion.evaluate(
     state_for(budget_corpse, "build.v9"),
     budget_corpse
 ))
 assert(unknown.task_state == "unknown")
-assert(unknown.recoverable == false)
+assert(unknown.terminal_recoverable == false)
 
 local forged = assert(corpse.capture(plan_packet, {
     corpse_id = "corpse-lineage-completion-forged",
@@ -72,6 +76,6 @@ end)())
 local forged_state = state_for(forged)
 local blocked = assert(completion.evaluate(forged_state, forged))
 assert(blocked.task_state == "blocked")
-assert(blocked.recoverable == false)
+assert(blocked.terminal_recoverable == false)
 
 print("test_lineage_completion ok")

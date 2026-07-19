@@ -559,20 +559,6 @@ function lineage_runner.run(task, substrate, options)
             return state, finished
         end
 
-        if state.budget.exhausted == true then
-            assert(lineage.finish(state, {
-                status = "exhausted",
-                cause = "lineage_budget_exhausted",
-                assessment_id = assessment.assessment_id,
-                source_refs = {assessment_event.id, dead.corpse_id},
-            }))
-            local finished, finish_err = finish_report(state, report, session, ledger_cursor)
-            if not finished then
-                return terminate_loud(state, session, ledger_cursor, finish_err)
-            end
-            return state, finished
-        end
-
         if assessment.task_state == "unsafe" then
             assert(lineage.finish(state, {
                 status = "terminated",
@@ -587,11 +573,53 @@ function lineage_runner.run(task, substrate, options)
             return state, finished
         end
 
-        if assessment.task_state == "unknown" or assessment.recoverable ~= true then
+        if assessment.task_state == "unknown" then
             assert(lineage.finish(state, {
                 status = "suspended",
-                cause = assessment.task_state == "unknown"
-                    and "unknown_completion_contract" or "no_recovery_path",
+                cause = "unknown_completion_contract",
+                assessment_id = assessment.assessment_id,
+                source_refs = {assessment_event.id, dead.corpse_id},
+            }))
+            local finished, finish_err = finish_report(state, report, session, ledger_cursor)
+            if not finished then
+                return terminate_loud(state, session, ledger_cursor, finish_err)
+            end
+            return state, finished
+        end
+
+        if assessment.task_state ~= "unfinished"
+            or assessment.terminal_recoverable ~= true then
+            assert(lineage.finish(state, {
+                status = "suspended",
+                cause = "terminal_not_recoverable",
+                assessment_id = assessment.assessment_id,
+                source_refs = {assessment_event.id, dead.corpse_id},
+            }))
+            local finished, finish_err = finish_report(state, report, session, ledger_cursor)
+            if not finished then
+                return terminate_loud(state, session, ledger_cursor, finish_err)
+            end
+            return state, finished
+        end
+
+        if state.budget.exhausted == true then
+            assert(lineage.finish(state, {
+                status = "exhausted",
+                cause = "lineage_budget_exhausted",
+                assessment_id = assessment.assessment_id,
+                source_refs = {assessment_event.id, dead.corpse_id},
+            }))
+            local finished, finish_err = finish_report(state, report, session, ledger_cursor)
+            if not finished then
+                return terminate_loud(state, session, ledger_cursor, finish_err)
+            end
+            return state, finished
+        end
+
+        if state.policy.allow_recovery ~= true then
+            assert(lineage.finish(state, {
+                status = "suspended",
+                cause = "recovery_disabled_by_policy",
                 assessment_id = assessment.assessment_id,
                 source_refs = {assessment_event.id, dead.corpse_id},
             }))

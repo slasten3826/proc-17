@@ -29,6 +29,7 @@ local tests = {
     "tests.test_lineage_birth_hook",
     "tests.test_corpse",
     "tests.test_lineage_completion",
+    "tests.test_lineage_completion_separation",
     "tests.test_carrier",
     "tests.test_network_ingress",
     "tests.test_lineage_runner",

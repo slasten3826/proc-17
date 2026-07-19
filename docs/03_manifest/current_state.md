@@ -334,6 +334,13 @@ completion only. Persistence, crash recovery, branching, provider substrate
 sessions and build completion are deferred. Lua/invariant failures remain loud
 world failures and do not fabricate corpses or graves.
 
+Completion and continuation are now explicitly separated. One immutable corpse
+receives the same `task_state`, `terminal_recoverable` and canonical assessment
+id regardless of lineage wallet or automatic-recovery policy. The lineage
+runner separately applies intrinsic task state, cumulative affordability and
+policy, producing exact `lineage_budget_exhausted` or
+`recovery_disabled_by_policy` outcomes without relabelling unfinished work.
+
 ### Substrates and tools
 
 Substrate adapters exist for fake and OpenAI-compatible models, including
@@ -349,7 +356,7 @@ mutation loop.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    76 suites passed
+lua tests/run.lua                    77 suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -365,6 +372,7 @@ tests/test_post_collapse_plan_life.lua passed
 tests/test_digest.lua                passed SHA-256 known vectors
 tests/test_lineage_budget.lua        passed
 tests/test_corpse.lua                passed
+tests/test_lineage_completion_separation.lua passed matched corpse/policy/economy
 tests/test_carrier.lua               passed
 tests/test_network_ingress.lua       passed
 tests/test_lineage_runner.lua        passed one- and two-generation lives

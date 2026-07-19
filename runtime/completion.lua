@@ -5,6 +5,12 @@ local completion = {
     protocol_version = "lineage.completion.v0",
 }
 
+local RECOVERABLE_TERMINALS = {
+    budget_exhausted = true,
+    identity_loss = true,
+    stalled = true,
+}
+
 local function copy_value(value, seen)
     if type(value) ~= "table" then
         return value
@@ -79,12 +85,13 @@ local function build_assessment(lineage, corpse, input)
         assessment_id = nil,
         contract_id = lineage.completion_contract_id,
         task_state = input.task_state,
+        terminal_recoverable = input.terminal_recoverable == true,
+        terminal_recovery_basis = input.terminal_recovery_basis,
         progress = copy_value(input.progress or {}),
         remaining_work = copy_value(input.remaining_work or {}),
         evidence_refs = copy_value(input.evidence_refs or {}),
         manifest_refs = copy_value(input.manifest_refs or {}),
         missing_requirements = copy_value(input.missing_requirements or {}),
-        recoverable = input.recoverable == true,
         event_truth_status = "runtime_confirmed",
         basis_truth_statuses = copy_value(input.basis_truth_statuses or {
             corpse.truth_status,
@@ -118,7 +125,6 @@ function completion.evaluate(lineage, corpse)
             task_state = "unsafe",
             evidence_refs = {corpse.terminal_trace_ref},
             missing_requirements = {"safe continuation"},
-            recoverable = false,
         })
     end
 
@@ -138,7 +144,6 @@ function completion.evaluate(lineage, corpse)
                     corpse.manifest.assembly.assessment_ref,
                 },
                 manifest_refs = {corpse.manifest_trace_ref},
-                recoverable = false,
                 basis_truth_statuses = {
                     "runtime_confirmed",
                     corpse.manifest.content_truth_status or "unknown",
@@ -152,27 +157,21 @@ function completion.evaluate(lineage, corpse)
             missing_requirements = {
                 "known completion contract: " .. tostring(lineage.completion_contract_id),
             },
-            recoverable = false,
         })
     end
 
-    local recoverable_causes = {
-        budget_exhausted = true,
-        identity_loss = true,
-        stalled = true,
-    }
-    local recoverable = lineage.policy.allow_recovery == true
-        and recoverable_causes[corpse.death_cause] == true
-        and not (lineage.budget and lineage.budget.exhausted == true)
+    local terminal_recoverable = RECOVERABLE_TERMINALS[corpse.death_cause] == true
     return build_assessment(lineage, corpse, {
-        task_state = recoverable and "unfinished" or "blocked",
+        task_state = terminal_recoverable and "unfinished" or "blocked",
+        terminal_recoverable = terminal_recoverable,
+        terminal_recovery_basis = terminal_recoverable and corpse.death_cause or nil,
         progress = copy_value(corpse.residue and corpse.residue.progress or {}),
         remaining_work = {
             count = corpse.residue and corpse.residue.remaining_work_count,
         },
         evidence_refs = {corpse.terminal_trace_ref},
-        missing_requirements = recoverable and {} or {"recoverable terminal state"},
-        recoverable = recoverable,
+        missing_requirements = terminal_recoverable
+            and {} or {"recoverable terminal state"},
     })
 end
 

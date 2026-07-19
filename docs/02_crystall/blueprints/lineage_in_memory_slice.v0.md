@@ -270,6 +270,12 @@ Identity projection includes allocated `corpse_id` and excludes
 
 ## 8. Completion
 
+Amendment 2026-07-19: the decision order originally written below is rejected
+because it lets lineage economics relabel task state. The active replacement is
+[`lineage_completion_continuation_separation.v0.md`](lineage_completion_continuation_separation.v0.md).
+The old order remains visible only to preserve the path by which the defect was
+found.
+
 Module:
 
 ```lua
@@ -288,6 +294,13 @@ lineage budget exhausted                 -> blocked/exhausted
 budget_exhausted|identity_loss|stalled
   and policy allows recovery             -> unfinished, recoverable
 everything else                          -> blocked, not recoverable
+```
+
+Active law:
+
+```text
+completion classifies task state and intrinsic terminal recoverability
+lineage runner separately applies task state, policy and cumulative economics
 ```
 
 Exact `plan.v0` requires all of:

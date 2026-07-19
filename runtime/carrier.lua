@@ -34,9 +34,12 @@ function carrier.build_recovery(lineage, corpse, assessment, options)
         or type(assessment) ~= "table" or assessment.kind ~= "lineage_completion_assessment" then
         return nil, "recovery carrier requires lineage, corpse and assessment"
     end
-    if assessment.recoverable ~= true or corpse.corpse_id ~= lineage.current_corpse_id
+    if assessment.task_state ~= "unfinished"
+        or assessment.terminal_recoverable ~= true
+        or type(assessment.terminal_recovery_basis) ~= "string"
+        or corpse.corpse_id ~= lineage.current_corpse_id
         or corpse.lineage_id ~= lineage.lineage_id then
-        return nil, "terminal state is not recoverable by this lineage"
+        return nil, "terminal assessment cannot produce a recovery carrier"
     end
     local max_bytes = options.max_bytes
         or lineage.policy and lineage.policy.carrier and lineage.policy.carrier.max_bytes

@@ -245,6 +245,12 @@ No `NETWORK` event enters the Packet trace.
 
 ## 10. Completion Assessment
 
+Amendment 2026-07-19: the original first-slice schema below combined intrinsic
+terminal recoverability with lineage policy. That field is superseded by
+[`lineage_completion_continuation_separation_yellowprint.v0.md`](lineage_completion_continuation_separation_yellowprint.v0.md).
+The original text is retained here as the defect's archaeological source; it is
+not an alternative active contract.
+
 ```lua
 {
   kind = "lineage_completion_assessment",
@@ -282,6 +288,13 @@ Recoverable first-slice predicates:
 budget_exhausted | identity_loss | stalled
 policy.allow_recovery=true
 not unsafe/cancelled
+```
+
+Active replacement:
+
+```text
+completion assessment: terminal cause -> terminal_recoverable
+continuation decision: policy + lineage budget -> child eligibility
 ```
 
 Unknown completion contract produces `unknown`, never an implicit complete.

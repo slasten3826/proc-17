@@ -10,6 +10,12 @@ with current Packet/L1/plan-delivery runtime
 code not authorized by this document alone
 ```
 
+Follow-up 2026-07-19: the bounded implementation collapsed intrinsic terminal
+recoverability, policy and lineage economics into one boolean. The grown defect
+and treatment begin at
+[`lineage_completion_economy_separation_notes_2026-07-19.md`](lineage_completion_economy_separation_notes_2026-07-19.md).
+This document remains the historical source of that first-slice decision.
+
 ## Why This Is Next
 
 Repository hands are the next product-bearing absence, but they are not the

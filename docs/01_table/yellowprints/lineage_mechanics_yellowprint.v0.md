@@ -301,6 +301,11 @@ machine/self re-entry carrier
 
 ## 11. Continuation Decision Table
 
+Amendment 2026-07-19: `recoverable` in the older completion schema is split into
+`terminal_recoverable` and a separate lineage continuation decision by
+[`lineage_completion_continuation_separation_yellowprint.v0.md`](lineage_completion_continuation_separation_yellowprint.v0.md).
+This restores the separation already implied by the two-stage table below.
+
 ### 11.1 Inputs
 
 | Input | Required status | Meaning |

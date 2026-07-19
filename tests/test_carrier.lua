@@ -24,7 +24,8 @@ state.current_generation = dead.generation
 state.current_packet_id = dead.packet_id
 state.current_corpse_id = dead.corpse_id
 local assessment = assert(completion.evaluate(state, dead))
-assert(assessment.recoverable == true)
+assert(assessment.task_state == "unfinished")
+assert(assessment.terminal_recoverable == true)
 
 local record = assert(carrier.build_recovery(state, dead, assessment, {
     carrier_id = "carrier-test-2",
@@ -39,6 +40,20 @@ assert(carrier.verify(record, {
 assert(record.payload.original_task == "prepare a plan")
 assert(record.target_generation == 2)
 assert(record.payload_bytes > 0)
+
+local rejected_assessment = {}
+for key, value in pairs(assessment) do
+    rejected_assessment[key] = value
+end
+rejected_assessment.terminal_recoverable = false
+local rejected, rejected_err = carrier.build_recovery(
+    state,
+    dead,
+    rejected_assessment,
+    {max_bytes = 65536}
+)
+assert(rejected == nil)
+assert(rejected_err == "terminal assessment cannot produce a recovery carrier")
 
 local same = assert(carrier.build_recovery(state, dead, assessment, {
     carrier_id = "carrier-test-2",

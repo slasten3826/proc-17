@@ -483,6 +483,11 @@ Packet identity/provenance.
 
 ## 11. Completion Contract
 
+Amendment 2026-07-19: the ambiguous `recoverable` field in this pre-runtime
+schema is superseded by `terminal_recoverable` plus the separate continuation
+evaluation in section 12. See
+[`lineage_completion_continuation_separation.v0.md`](lineage_completion_continuation_separation.v0.md).
+
 Target:
 
 ```text
@@ -508,7 +513,8 @@ Assessment:
   evidence_refs = table,
   manifest_refs = table,
   missing_requirements = table,
-  recoverable = boolean,
+  terminal_recoverable = boolean,
+  terminal_recovery_basis = string | nil,
   event_truth_status = "runtime_confirmed",
   basis_truth_statuses = table,
 }
