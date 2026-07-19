@@ -9,7 +9,8 @@ cost, death, inheritance, and manifestation.
 ```text
 procesis   law / soul / source orientation
 proc-17    executable body
-packet     mortal life of one task
+packet     one mortal generation of a task
+lineage    task ancestry across terminal packet lives
 LLM        replaceable semantic current inside OBSERVE
 router     next movement derived from packet pressure
 trace      packet life ledger
@@ -33,7 +34,11 @@ The repository currently contains:
 - truth freshness, spell evidence, and a LOGIC stamp for lower-triangle closure;
 - a 22-edge evidence ledger that separates candidate, committed, and executed,
   with observer- and authority-typed promotion channels;
-- 45 Lua test suites plus mortality and live-substrate smoke programs.
+- exact plan completion through ☱ and Packet-local `plan.result.v0` delivery
+  through terminal △ under the explicit qualified treatment;
+- a bounded in-memory lineage runner with cumulative economics, immutable
+  corpses, deterministic recovery carriers, and NETWORK@▽ rebirth;
+- 76 Lua test suites plus mortality and live-substrate smoke programs.
 
 The fixed single-pass runner remains as a smoke rail. The tension runner is the
 active experiment: movement is chosen from packet pressure rather than a fixed
@@ -48,8 +53,10 @@ agent.
   repository and feed the resulting evidence back into the packet by itself.
 - Coding battery outputs are manifested by proc-17, then written and executed by
   the external test harness. That is real delivery evidence, not body-side work.
-- Session and packet memory components exist, but are not yet one runner-managed
-  lifecycle. Bequests and compost patterns still need named readers.
+- The first runner-managed lineage is in memory only. Disk recovery, branching,
+  provider-owned substrate sessions, and automatic resume are not implemented.
+  Bequests and compost patterns still need general named readers beyond direct
+  newborn grave attachment.
 - The default legacy router cannot select CONNECT or DISSOLVE. Explicit tree
   authority has executed CONNECT; DISSOLVE still needs a live rigidity witness.
 - The binary full-tree pressure policy is uncalibrated. Explicit
@@ -81,8 +88,10 @@ Live DeepSeek smoke programs require the corresponding API configuration.
 - [`docs/01_table/yellowprints`](docs/01_table/yellowprints) contains first structured forms.
 - [`docs/02_crystall/blueprints`](docs/02_crystall/blueprints) contains executable contracts.
 - [`docs/03_manifest/current_state.md`](docs/03_manifest/current_state.md) is the current implementation map.
+- [`docs/03_manifest/lineage_in_memory_slice.v0.md`](docs/03_manifest/lineage_in_memory_slice.v0.md) records the first task ancestry across mortal Packet lives.
 - [`docs/03_manifest/proc17_assembly_map.md`](docs/03_manifest/proc17_assembly_map.md) records the July 15 assembly pass.
 - [`docs/00_chaos/full_project_audit_2026-07-15_notes.md`](docs/00_chaos/full_project_audit_2026-07-15_notes.md) is the full repository audit.
+- [`docs/00_chaos/proc17_capability_handoff_2026-07-19.md`](docs/00_chaos/proc17_capability_handoff_2026-07-19.md) is the dated machine handoff: proven abilities, open boundaries, and the next product-bearing pressure.
 
 The previous laboratory body remains available in Git history on the
 `old-body-lab` branch.

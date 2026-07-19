@@ -1,8 +1,12 @@
 local json = require("core.json")
 local topology = require("core.topology")
 local field = require("runtime.field")
+local choice_inspection = require("runtime.choice_inspection")
+local plan_completion = require("runtime.plan_completion")
 local pressure_action = require("runtime.pressure_action")
+local reconciliation = require("runtime.reconciliation")
 local relation_inspection = require("runtime.relation_inspection")
+local structure_inspection = require("runtime.structure_inspection")
 local upper_coverage = require("runtime.upper_coverage")
 
 local qualified = {
@@ -22,6 +26,34 @@ local relation_consumer = {
         ["connect.parent_carrier.v0"] = true,
         ["connect.l1_registered_projection.v0"] = true,
     },
+}
+
+local structure_consumer = {
+    id = structure_inspection.receiver_contract_id,
+    causal_class = "causal_affordance",
+}
+
+local choice_consumer = {
+    id = choice_inspection.consumer_contract_id,
+    causal_class = "blocking_demand",
+}
+
+local plan_review_consumer = {
+    id = plan_completion.review_consumer_id,
+    causal_class = "blocking_demand",
+}
+
+local plan_delivery_consumer = {
+    id = plan_completion.delivery_consumer_id,
+    causal_class = "terminal_boundary",
+}
+
+local normal_plan_absence = {
+    plan_mode_absent = true,
+    plan_structure_formation_missing = true,
+    plan_material_absent = true,
+    plan_choice_incomplete = true,
+    plan_material_stale = true,
 }
 
 local function copy_value(value, seen)
@@ -362,6 +394,377 @@ function qualified.relation_witnesses(instance, context, options)
     return witnesses, diagnostics
 end
 
+local function structure_witness(instance, current, candidate)
+    return build_witness(instance, current, {
+        kind = "encoding_need",
+        target_operator = "☵",
+        causal_class = structure_consumer.causal_class,
+        source_domain = "packet_structure_proposal",
+        scope_refs = {candidate.exact_ref},
+        provenance_refs = merge_refs({
+            candidate.source_creation_event_ref,
+            candidate.source_observation_event_ref,
+            "consumer:" .. structure_consumer.id,
+        }),
+        source_truth_status = candidate.source_content_truth_status,
+        action_mode = "structure_formation",
+        action_input = {
+            preconditions = {
+                packet_id = instance.id,
+                generation = instance.generation,
+                object_versions = {
+                    [candidate.source_unit_id] = candidate.source_version,
+                },
+                relevant_revisions = {},
+            },
+            options = {encode = {structure_input = {
+                source_unit_id = candidate.source_unit_id,
+                source_version = candidate.source_version,
+                envelope_fingerprint = candidate.envelope_fingerprint,
+                receiver_contract_id = candidate.receiver_contract_id,
+                requested_shape = candidate.requested_shape,
+                adapter_policy_id = structure_inspection.adapter_policy_id,
+                bounds = {
+                    max_output_units = candidate.bounds.max_output_units,
+                    max_loss_log_entries = candidate.bounds.max_loss_log_entries,
+                },
+            }}},
+            expected_effect = {
+                discharge_reader = "encoding_need",
+            },
+            content_truth_status = candidate.source_content_truth_status,
+        },
+        metadata = {
+            consumer_contract = structure_consumer.id,
+            requested_shape = candidate.requested_shape,
+            envelope_fingerprint = candidate.envelope_fingerprint,
+            promotion_source = "body",
+        },
+    })
+end
+
+function qualified.structure_witnesses(instance, context, options)
+    options = options or {}
+    local current = current_operator(instance, context)
+    if not current then
+        return nil, "invalid current operator"
+    end
+    if options.ablate_structure_consumer == true then
+        return {}, {{
+            kind = "qualified_consumer_ablation",
+            consumer_contract = structure_consumer.id,
+            event_truth_status = "runtime_confirmed",
+        }}
+    end
+
+    local result, result_err = structure_inspection.derive(
+        instance,
+        options.structure_bounds
+    )
+    if not result then
+        return nil, result_err
+    end
+    local diagnostics = copy_value(result.diagnostics or {})
+    if result.qualification_status ~= "qualified" then
+        diagnostics[#diagnostics + 1] = {
+            kind = "incomplete_structure_scope",
+            event_truth_status = "runtime_confirmed",
+        }
+        return {}, diagnostics
+    end
+    if not topology.is_adjacent(current, "☵") then
+        return {}, diagnostics
+    end
+
+    local witnesses = {}
+    for _, candidate in ipairs(result.missing or {}) do
+        local witness, witness_err = structure_witness(instance, current, candidate)
+        if not witness then
+            return nil, witness_err
+        end
+        witnesses[#witnesses + 1] = witness
+    end
+    return witnesses, diagnostics
+end
+
+local function choice_witness(instance, current, set)
+    return build_witness(instance, current, {
+        kind = "choice_need",
+        target_operator = "☳",
+        causal_class = choice_consumer.causal_class,
+        source_domain = "formation_choice_set",
+        scope_refs = set.scope_refs,
+        provenance_refs = merge_refs(
+            {set.choice_set_ref, "consumer:" .. choice_consumer.id},
+            set.observation_event_refs
+        ),
+        source_truth_status = set.selection_basis_truth_status,
+        action_mode = "alternative_collapse",
+        action_input = {
+            preconditions = {
+                packet_id = instance.id,
+                generation = instance.generation,
+                object_versions = set.alternative_versions,
+                relevant_revisions = {},
+            },
+            options = {choose = {choice_input = {
+                choice_set_ref = set.choice_set_ref,
+                alternative_ids = set.alternative_ids,
+                alternative_versions = set.alternative_versions,
+                max_selected = set.max_selected,
+                selection_policy_id = set.selection_policy_id,
+                max_killed_sample = set.max_killed_sample,
+            }}},
+            expected_effect = {
+                discharge_reader = "choice_need",
+            },
+            content_truth_status = set.selection_basis_truth_status,
+        },
+        metadata = {
+            consumer_contract = choice_consumer.id,
+            choice_set_ref = set.choice_set_ref,
+            alternative_ids = set.alternative_ids,
+            required_max_selected = set.max_selected,
+            selection_policy_id = set.selection_policy_id,
+            promotion_source = "body",
+        },
+    })
+end
+
+function qualified.choice_witnesses(instance, context, options)
+    options = options or {}
+    local current = current_operator(instance, context)
+    if not current then
+        return nil, "invalid current operator"
+    end
+    if options.ablate_choice_consumer == true then
+        return {}, {{
+            kind = "qualified_consumer_ablation",
+            consumer_contract = choice_consumer.id,
+            event_truth_status = "runtime_confirmed",
+        }}
+    end
+    local result, result_err = choice_inspection.derive(
+        instance,
+        options.choice_bounds
+    )
+    if not result then
+        return nil, result_err
+    end
+    local diagnostics = copy_value(result.diagnostics or {})
+    if result.qualification_status ~= "qualified" then
+        return {}, diagnostics
+    end
+    if not topology.is_adjacent(current, "☳") then
+        return {}, diagnostics
+    end
+
+    local witnesses = {}
+    for _, set in ipairs(result.missing or {}) do
+        local witness, witness_err = choice_witness(instance, current, set)
+        if not witness then
+            return nil, witness_err
+        end
+        witnesses[#witnesses + 1] = witness
+    end
+    return witnesses, diagnostics
+end
+
+local function plan_review_witness(instance, current, candidate, runtime_view, scope)
+    return build_witness(instance, current, {
+        kind = "plan_completion_review_need",
+        target_operator = "☱",
+        causal_class = plan_review_consumer.causal_class,
+        source_domain = "plan_completion_candidate",
+        scope_refs = scope.scope_refs,
+        provenance_refs = scope.provenance_refs,
+        source_truth_status = candidate.source_truth_status,
+        action_mode = "plan_completion_review",
+        action_input = {
+            preconditions = {
+                packet_id = instance.id,
+                generation = instance.generation,
+                object_versions = candidate.formed_unit_versions,
+                relevant_revisions = plan_completion.relevant_revisions(instance),
+            },
+            options = {runtime = {plan_completion_input = {
+                candidate_id = candidate.candidate_id,
+                formation_event_ref = candidate.formation_event_ref,
+                formed_unit_ids = candidate.formed_unit_ids,
+                formed_unit_versions = candidate.formed_unit_versions,
+                coverage_event_refs = candidate.coverage_event_refs,
+                choice_event_ref = candidate.choice_event_ref,
+                through_seq = runtime_view.through_seq,
+                significant_frame_refs = scope.significant_frame_refs,
+            }}},
+            expected_effect = {
+                discharge_reader = "plan_completion_review_need",
+            },
+            content_truth_status = candidate.source_truth_status,
+        },
+        metadata = {
+            consumer_contract = plan_review_consumer.id,
+            candidate_id = candidate.candidate_id,
+            formation_event_ref = candidate.formation_event_ref,
+            promotion_source = "body",
+        },
+    })
+end
+
+local function plan_delivery_witness(instance, current, candidate, assessment)
+    local scope_refs = merge_refs(
+        candidate.scope_refs,
+        {assessment.event.id}
+    )
+    return build_witness(instance, current, {
+        kind = "plan_delivery_need",
+        target_operator = "△",
+        causal_class = plan_delivery_consumer.causal_class,
+        source_domain = "plan_completion_assessment",
+        scope_refs = scope_refs,
+        provenance_refs = merge_refs({
+            assessment.event.id,
+            assessment.assessment.runtime_reconciliation_ref,
+            candidate.formation_event_ref,
+            "consumer:" .. plan_delivery_consumer.id,
+        }),
+        source_truth_status = candidate.source_truth_status,
+        action_mode = "plan_delivery",
+        action_input = {
+            preconditions = {
+                packet_id = instance.id,
+                generation = instance.generation,
+                object_versions = candidate.formed_unit_versions,
+                relevant_revisions = plan_completion.relevant_revisions(instance),
+            },
+            options = {manifest = {plan_input = {
+                assessment_event_ref = assessment.event.id,
+                assessment_id = assessment.assessment.assessment_id,
+                candidate_id = candidate.candidate_id,
+                formation_event_ref = candidate.formation_event_ref,
+                formed_unit_ids = candidate.formed_unit_ids,
+                formed_unit_versions = candidate.formed_unit_versions,
+                coverage_event_refs = candidate.coverage_event_refs,
+                choice_event_ref = candidate.choice_event_ref,
+            }}},
+            expected_effect = {
+                discharge_reader = "plan_delivery_need",
+            },
+            content_truth_status = candidate.source_truth_status,
+        },
+        metadata = {
+            consumer_contract = plan_delivery_consumer.id,
+            candidate_id = candidate.candidate_id,
+            assessment_event_ref = assessment.event.id,
+            promotion_source = "body",
+        },
+    })
+end
+
+function qualified.plan_witnesses(instance, context, options)
+    options = options or {}
+    local current = current_operator(instance, context)
+    if not current then
+        return nil, "invalid current operator"
+    end
+    local inspection, inspection_err = plan_completion.inspect(instance, {
+        structure_bounds = options.structure_bounds,
+        upper_bounds = options.upper_bounds,
+        choice_bounds = options.choice_bounds,
+    })
+    if not inspection then
+        return nil, inspection_err
+    end
+    local diagnostics = copy_value(inspection.diagnostics or {})
+    if inspection.state ~= "complete_candidate" then
+        local unqualified = {}
+        for _, item in ipairs(diagnostics) do
+            if not normal_plan_absence[item.kind] then
+                unqualified[#unqualified + 1] = item
+            end
+        end
+        return {}, unqualified
+    end
+    local candidate = inspection.candidate
+    local assessment, assessment_err = plan_completion.find_assessment(
+        instance,
+        candidate
+    )
+    if not assessment and assessment_err ~= "plan_assessment_absent" then
+        if tostring(assessment_err):find("plan_assessment_stale:", 1, true) == 1 then
+            diagnostics[#diagnostics + 1] = {
+                kind = "plan_assessment_stale",
+                reason = assessment_err,
+                event_truth_status = "runtime_confirmed",
+            }
+            return {}, diagnostics
+        end
+        return nil, assessment_err
+    end
+
+    if current == "☴" and assessment == nil then
+        if options.ablate_plan_completion_consumer == true then
+            diagnostics[#diagnostics + 1] = {
+                kind = "qualified_consumer_ablation",
+                consumer_contract = plan_review_consumer.id,
+                event_truth_status = "runtime_confirmed",
+            }
+            return {}, diagnostics
+        end
+        local runtime_view, runtime_err = reconciliation.inspect(instance)
+        if not runtime_view then
+            return nil, runtime_err
+        end
+        local scope, scope_err = plan_completion.review_scope(
+            instance,
+            candidate,
+            runtime_view
+        )
+        if not scope then
+            diagnostics[#diagnostics + 1] = {
+                kind = "plan_runtime_effect_absent",
+                reason = scope_err,
+                event_truth_status = "runtime_confirmed",
+            }
+            return {}, diagnostics
+        end
+        local witness, witness_err = plan_review_witness(
+            instance,
+            current,
+            candidate,
+            runtime_view,
+            scope
+        )
+        if not witness then
+            return nil, witness_err
+        end
+        return {witness}, diagnostics
+    end
+
+    if current == "☱" and assessment ~= nil then
+        if options.ablate_plan_delivery_consumer == true then
+            diagnostics[#diagnostics + 1] = {
+                kind = "qualified_consumer_ablation",
+                consumer_contract = plan_delivery_consumer.id,
+                event_truth_status = "runtime_confirmed",
+            }
+            return {}, diagnostics
+        end
+        local witness, witness_err = plan_delivery_witness(
+            instance,
+            current,
+            candidate,
+            assessment
+        )
+        if not witness then
+            return nil, witness_err
+        end
+        return {witness}, diagnostics
+    end
+
+    return {}, diagnostics
+end
+
 local function upper_sensor(instance, need)
     if need.sensor ~= "field_native" then
         return need.sensor
@@ -506,11 +909,44 @@ function qualified.derive(instance, tick_result, options)
     if not upper then
         return nil, upper_diagnostics
     end
+    local structure, structure_diagnostics = qualified.structure_witnesses(
+        instance,
+        context,
+        options
+    )
+    if not structure then
+        return nil, structure_diagnostics
+    end
+    local choice, choice_diagnostics = qualified.choice_witnesses(
+        instance,
+        context,
+        options
+    )
+    if not choice then
+        return nil, choice_diagnostics
+    end
+    local plan, plan_diagnostics = qualified.plan_witnesses(
+        instance,
+        context,
+        options
+    )
+    if not plan then
+        return nil, plan_diagnostics
+    end
     local witnesses = {}
     for _, witness in ipairs(relation) do
         witnesses[#witnesses + 1] = witness
     end
     for _, witness in ipairs(upper) do
+        witnesses[#witnesses + 1] = witness
+    end
+    for _, witness in ipairs(structure) do
+        witnesses[#witnesses + 1] = witness
+    end
+    for _, witness in ipairs(choice) do
+        witnesses[#witnesses + 1] = witness
+    end
+    for _, witness in ipairs(plan) do
         witnesses[#witnesses + 1] = witness
     end
     table.sort(witnesses, function(left, right)
@@ -521,6 +957,15 @@ function qualified.derive(instance, tick_result, options)
         unqualified[#unqualified + 1] = diagnostic
     end
     for _, diagnostic in ipairs(upper_diagnostics or {}) do
+        unqualified[#unqualified + 1] = diagnostic
+    end
+    for _, diagnostic in ipairs(structure_diagnostics or {}) do
+        unqualified[#unqualified + 1] = diagnostic
+    end
+    for _, diagnostic in ipairs(choice_diagnostics or {}) do
+        unqualified[#unqualified + 1] = diagnostic
+    end
+    for _, diagnostic in ipairs(plan_diagnostics or {}) do
         unqualified[#unqualified + 1] = diagnostic
     end
     local clock = instance.physis and instance.physis.clock or {}
@@ -541,5 +986,9 @@ function qualified.derive(instance, tick_result, options)
 end
 
 qualified.relation_consumer = copy_value(relation_consumer)
+qualified.structure_consumer = copy_value(structure_consumer)
+qualified.choice_consumer = copy_value(choice_consumer)
+qualified.plan_review_consumer = copy_value(plan_review_consumer)
+qualified.plan_delivery_consumer = copy_value(plan_delivery_consumer)
 
 return qualified

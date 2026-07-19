@@ -1,6 +1,9 @@
 local json = require("core.json")
 local topology = require("core.topology")
 local field = require("runtime.field")
+local choice_inspection = require("runtime.choice_inspection")
+local plan_completion = require("runtime.plan_completion")
+local structure_inspection = require("runtime.structure_inspection")
 
 local action = {
     protocol_version = "pressure.action_plan.v0",
@@ -9,6 +12,10 @@ local action = {
 local mode_targets = {
     connect_probe = "☰",
     relation_formation = "☵",
+    structure_formation = "☵",
+    alternative_collapse = "☳",
+    plan_completion_review = "☱",
+    plan_delivery = "△",
     semantic_observe = "☴",
     field_native_observe = "☴",
     relation_native_observe = "☴",
@@ -17,6 +24,10 @@ local mode_targets = {
 local mode_option_roots = {
     connect_probe = "connect",
     relation_formation = "encode",
+    structure_formation = "encode",
+    alternative_collapse = "choose",
+    plan_completion_review = "runtime",
+    plan_delivery = "manifest",
     semantic_observe = "observe",
     field_native_observe = "observe",
     relation_native_observe = "observe",
@@ -25,6 +36,10 @@ local mode_option_roots = {
 local mode_effect_types = {
     connect_probe = "connect_organ_payload",
     relation_formation = "encode_organ_payload",
+    structure_formation = "encode_organ_payload",
+    alternative_collapse = "choose_collapse_payload",
+    plan_completion_review = "runtime_eye_payload",
+    plan_delivery = "manifest_payload",
     semantic_observe = "observe_organ_payload",
     field_native_observe = "observe_organ_payload",
     relation_native_observe = "observe_organ_payload",
@@ -83,6 +98,28 @@ local function normalize_string_array(values, name)
     return sorted_unique(values, name, false)
 end
 
+local function normalize_ordered_string_array(values, name)
+    if type(values) ~= "table" or #values == 0 then
+        return nil, name .. " must be non-empty table"
+    end
+    local result = {}
+    local seen = {}
+    for index, value in ipairs(values) do
+        if type(value) ~= "string" or value == "" or seen[value] then
+            return nil, name .. " must contain unique non-empty strings"
+        end
+        seen[value] = true
+        result[index] = value
+    end
+    for key in pairs(values) do
+        if type(key) ~= "number" or key < 1 or key > #result
+            or key ~= math.floor(key) then
+            return nil, name .. " must be an array"
+        end
+    end
+    return result
+end
+
 local function validate_keys(value, allowed, name)
     if type(value) ~= "table" then
         return nil, name .. " must be table"
@@ -135,6 +172,10 @@ local function versions_match_ids(ids, versions, name)
         return nil, name .. " does not cover the exact object scope"
     end
     return true
+end
+
+local function exact_unit_ref(id, version)
+    return table.concat({"coverage", "field_unit", id, tostring(version)}, ":")
 end
 
 local function normalize_revisions(value)
@@ -230,6 +271,242 @@ local function normalize_relation_input(value)
     }
 end
 
+local function normalize_structure_bounds(value)
+    local valid, valid_err = validate_keys(value, {
+        max_output_units = true,
+        max_loss_log_entries = true,
+    }, "structure formation bounds")
+    if not valid then
+        return nil, valid_err
+    end
+    local result = {}
+    for _, key in ipairs({"max_output_units", "max_loss_log_entries"}) do
+        local number = value[key]
+        if type(number) ~= "number" or number < 1 or number ~= math.floor(number) then
+            return nil, "structure formation bounds require positive integers"
+        end
+        result[key] = number
+    end
+    return result
+end
+
+local function normalize_structure_input(value)
+    local valid, valid_err = validate_keys(value, {
+        source_unit_id = true,
+        source_version = true,
+        envelope_fingerprint = true,
+        receiver_contract_id = true,
+        requested_shape = true,
+        adapter_policy_id = true,
+        bounds = true,
+    }, "structure_input")
+    if not valid then
+        return nil, valid_err
+    end
+    if type(value.source_unit_id) ~= "string" or value.source_unit_id == ""
+        or type(value.source_version) ~= "number" or value.source_version < 1
+        or value.source_version ~= math.floor(value.source_version)
+        or type(value.envelope_fingerprint) ~= "string"
+        or value.envelope_fingerprint == "" then
+        return nil, "structure_input requires exact source identity"
+    end
+    if value.receiver_contract_id ~= structure_inspection.receiver_contract_id
+        or value.adapter_policy_id ~= structure_inspection.adapter_policy_id
+        or not structure_inspection.accepted_shapes[value.requested_shape] then
+        return nil, "structure_input names unsupported body contract"
+    end
+    local bounds, bounds_err = normalize_structure_bounds(value.bounds)
+    if not bounds then
+        return nil, bounds_err
+    end
+    return {
+        source_unit_id = value.source_unit_id,
+        source_version = value.source_version,
+        envelope_fingerprint = value.envelope_fingerprint,
+        receiver_contract_id = value.receiver_contract_id,
+        requested_shape = value.requested_shape,
+        adapter_policy_id = value.adapter_policy_id,
+        bounds = bounds,
+    }
+end
+
+local function normalize_choice_input(value)
+    local valid, valid_err = validate_keys(value, {
+        choice_set_ref = true,
+        alternative_ids = true,
+        alternative_versions = true,
+        max_selected = true,
+        selection_policy_id = true,
+        max_killed_sample = true,
+    }, "choice_input")
+    if not valid then
+        return nil, valid_err
+    end
+    if type(value.choice_set_ref) ~= "string" or value.choice_set_ref == "" then
+        return nil, "choice_input choice_set_ref required"
+    end
+    local ids, ids_err = normalize_ordered_string_array(
+        value.alternative_ids,
+        "choice_input alternative_ids"
+    )
+    if not ids then
+        return nil, ids_err
+    end
+    local versions, versions_err = normalize_versions(
+        value.alternative_versions,
+        "choice_input alternative_versions",
+        false
+    )
+    if not versions then
+        return nil, versions_err
+    end
+    local exact, exact_err = versions_match_ids(
+        ids,
+        versions,
+        "choice_input alternative_versions"
+    )
+    if not exact then
+        return nil, exact_err
+    end
+    if value.max_selected ~= 1
+        or value.selection_policy_id ~= choice_inspection.selection_policy_id
+        or type(value.max_killed_sample) ~= "number"
+        or value.max_killed_sample < 1
+        or value.max_killed_sample ~= math.floor(value.max_killed_sample) then
+        return nil, "choice_input names unsupported collapse policy"
+    end
+    return {
+        choice_set_ref = value.choice_set_ref,
+        alternative_ids = ids,
+        alternative_versions = versions,
+        max_selected = 1,
+        selection_policy_id = value.selection_policy_id,
+        max_killed_sample = value.max_killed_sample,
+    }
+end
+
+local function normalize_plan_material_identity(value, name)
+    if type(value) ~= "table" then
+        return nil, name .. " must be table"
+    end
+    if type(value.candidate_id) ~= "string" or value.candidate_id == ""
+        or type(value.formation_event_ref) ~= "string"
+        or value.formation_event_ref == "" then
+        return nil, name .. " requires candidate and formation identity"
+    end
+    local ids, ids_err = normalize_ordered_string_array(
+        value.formed_unit_ids,
+        name .. " formed_unit_ids"
+    )
+    if not ids then
+        return nil, ids_err
+    end
+    local versions, versions_err = normalize_versions(
+        value.formed_unit_versions,
+        name .. " formed_unit_versions",
+        false
+    )
+    if not versions then
+        return nil, versions_err
+    end
+    local exact, exact_err = versions_match_ids(
+        ids,
+        versions,
+        name .. " formed_unit_versions"
+    )
+    if not exact then
+        return nil, exact_err
+    end
+    local coverage_refs, coverage_err = normalize_string_array(
+        value.coverage_event_refs,
+        name .. " coverage_event_refs"
+    )
+    if not coverage_refs then
+        return nil, coverage_err
+    end
+    if value.choice_event_ref ~= nil
+        and (type(value.choice_event_ref) ~= "string"
+            or value.choice_event_ref == "") then
+        return nil, name .. " choice_event_ref must be non-empty string"
+    end
+    return {
+        candidate_id = value.candidate_id,
+        formation_event_ref = value.formation_event_ref,
+        formed_unit_ids = ids,
+        formed_unit_versions = versions,
+        coverage_event_refs = coverage_refs,
+        choice_event_ref = value.choice_event_ref,
+    }
+end
+
+local function normalize_plan_completion_input(value)
+    local valid, valid_err = validate_keys(value, {
+        candidate_id = true,
+        formation_event_ref = true,
+        formed_unit_ids = true,
+        formed_unit_versions = true,
+        coverage_event_refs = true,
+        choice_event_ref = true,
+        through_seq = true,
+        significant_frame_refs = true,
+    }, "plan_completion_input")
+    if not valid then
+        return nil, valid_err
+    end
+    local identity, identity_err = normalize_plan_material_identity(
+        value,
+        "plan_completion_input"
+    )
+    if not identity then
+        return nil, identity_err
+    end
+    if type(value.through_seq) ~= "number" or value.through_seq < 1
+        or value.through_seq ~= math.floor(value.through_seq) then
+        return nil, "plan_completion_input through_seq must be positive integer"
+    end
+    local frame_refs, frames_err = normalize_string_array(
+        value.significant_frame_refs,
+        "plan_completion_input significant_frame_refs"
+    )
+    if not frame_refs then
+        return nil, frames_err
+    end
+    identity.through_seq = value.through_seq
+    identity.significant_frame_refs = frame_refs
+    return identity
+end
+
+local function normalize_plan_input(value)
+    local valid, valid_err = validate_keys(value, {
+        assessment_event_ref = true,
+        assessment_id = true,
+        candidate_id = true,
+        formation_event_ref = true,
+        formed_unit_ids = true,
+        formed_unit_versions = true,
+        coverage_event_refs = true,
+        choice_event_ref = true,
+    }, "plan_input")
+    if not valid then
+        return nil, valid_err
+    end
+    if type(value.assessment_event_ref) ~= "string"
+        or value.assessment_event_ref == ""
+        or type(value.assessment_id) ~= "string" or value.assessment_id == "" then
+        return nil, "plan_input requires assessment identity"
+    end
+    local identity, identity_err = normalize_plan_material_identity(
+        value,
+        "plan_input"
+    )
+    if not identity then
+        return nil, identity_err
+    end
+    identity.assessment_event_ref = value.assessment_event_ref
+    identity.assessment_id = value.assessment_id
+    return identity
+end
+
 local function normalize_options(mode, options)
     local root = mode_option_roots[mode]
     local root_valid, root_err = validate_keys(options, {[root] = true}, "action options")
@@ -294,6 +571,64 @@ local function normalize_options(mode, options)
             return nil, input_err
         end
         return {encode = {relation_input = input}}
+    end
+
+    if mode == "structure_formation" then
+        local valid, valid_err = validate_keys(configured, {
+            structure_input = true,
+        }, "structure formation action")
+        if not valid then
+            return nil, valid_err
+        end
+        local input, input_err = normalize_structure_input(configured.structure_input)
+        if not input then
+            return nil, input_err
+        end
+        return {encode = {structure_input = input}}
+    end
+
+    if mode == "alternative_collapse" then
+        local valid, valid_err = validate_keys(configured, {
+            choice_input = true,
+        }, "alternative collapse action")
+        if not valid then
+            return nil, valid_err
+        end
+        local input, input_err = normalize_choice_input(configured.choice_input)
+        if not input then
+            return nil, input_err
+        end
+        return {choose = {choice_input = input}}
+    end
+
+    if mode == "plan_completion_review" then
+        local valid, valid_err = validate_keys(configured, {
+            plan_completion_input = true,
+        }, "runtime plan completion action")
+        if not valid then
+            return nil, valid_err
+        end
+        local input, input_err = normalize_plan_completion_input(
+            configured.plan_completion_input
+        )
+        if not input then
+            return nil, input_err
+        end
+        return {runtime = {plan_completion_input = input}}
+    end
+
+    if mode == "plan_delivery" then
+        local valid, valid_err = validate_keys(configured, {
+            plan_input = true,
+        }, "manifest plan delivery action")
+        if not valid then
+            return nil, valid_err
+        end
+        local input, input_err = normalize_plan_input(configured.plan_input)
+        if not input then
+            return nil, input_err
+        end
+        return {manifest = {plan_input = input}}
     end
 
     if mode == "semantic_observe" or mode == "field_native_observe" then
@@ -395,6 +730,111 @@ local function normalize_preconditions(value)
     }
 end
 
+local function validate_mode_contract(mode, scope_refs, preconditions, options)
+    if mode ~= "structure_formation" and mode ~= "alternative_collapse"
+        and mode ~= "plan_completion_review" and mode ~= "plan_delivery" then
+        return true
+    end
+
+    if mode == "plan_completion_review" or mode == "plan_delivery" then
+        local input = mode == "plan_completion_review"
+            and options.runtime.plan_completion_input or options.manifest.plan_input
+        local exact, exact_err = versions_match_ids(
+            input.formed_unit_ids,
+            preconditions.object_versions,
+            mode .. " object_versions"
+        )
+        if not exact then
+            return nil, exact_err
+        end
+        if not same_value(preconditions.object_versions, input.formed_unit_versions)
+            or preconditions.raw_epoch ~= nil then
+            return nil, mode .. " precondition mismatch"
+        end
+        local scoped = {}
+        for _, ref in ipairs(scope_refs) do
+            scoped[ref] = true
+        end
+        for _, id in ipairs(input.formed_unit_ids) do
+            if not scoped[exact_unit_ref(id, input.formed_unit_versions[id])] then
+                return nil, mode .. " requires exact formed unit scope"
+            end
+        end
+        if mode == "plan_completion_review" then
+            for _, ref in ipairs(input.significant_frame_refs) do
+                if not scoped[ref] then
+                    return nil, "plan completion review requires frame scope"
+                end
+            end
+        else
+            local expected = {input.assessment_event_ref}
+            for _, id in ipairs(input.formed_unit_ids) do
+                expected[#expected + 1] = exact_unit_ref(
+                    id,
+                    input.formed_unit_versions[id]
+                )
+            end
+            table.sort(expected)
+            if not same_value(expected, scope_refs) then
+                return nil, "plan delivery requires exact assessment/material scope"
+            end
+        end
+        return true
+    end
+
+
+    if mode == "alternative_collapse" then
+        local input = options.choose.choice_input
+        local expected_refs = {}
+        for _, id in ipairs(input.alternative_ids) do
+            expected_refs[#expected_refs + 1] = exact_unit_ref(
+                id,
+                input.alternative_versions[id]
+            )
+        end
+        table.sort(expected_refs)
+        if not same_value(scope_refs, expected_refs) then
+            return nil, "alternative collapse action requires exact operand scope"
+        end
+        local exact, exact_err = versions_match_ids(
+            input.alternative_ids,
+            preconditions.object_versions,
+            "alternative collapse object_versions"
+        )
+        if not exact then
+            return nil, exact_err
+        end
+        if not same_value(preconditions.object_versions, input.alternative_versions) then
+            return nil, "alternative collapse version precondition mismatch"
+        end
+        if preconditions.raw_epoch ~= nil or next(preconditions.relevant_revisions) ~= nil then
+            return nil, "alternative collapse preconditions exceed exact operand scope"
+        end
+        return true
+    end
+
+    local input = options.encode.structure_input
+    local expected_ref = exact_unit_ref(input.source_unit_id, input.source_version)
+    if #scope_refs ~= 1 or scope_refs[1] ~= expected_ref then
+        return nil, "structure formation action requires exact source scope"
+    end
+    local exact, exact_err = versions_match_ids(
+        {input.source_unit_id},
+        preconditions.object_versions,
+        "structure formation object_versions"
+    )
+    if not exact then
+        return nil, exact_err
+    end
+    if preconditions.object_versions[input.source_unit_id] ~= input.source_version then
+        return nil, "structure formation source version precondition mismatch"
+    end
+    if preconditions.raw_epoch ~= nil or next(preconditions.relevant_revisions) ~= nil then
+        return nil, "structure formation preconditions exceed exact source scope"
+    end
+    return true
+end
+
 local function plan_identity(plan)
     return "pressure-action:" .. json.encode({
         protocol_version = plan.protocol_version,
@@ -443,6 +883,15 @@ function action.build(mode, input)
     local options, options_err = normalize_options(mode, input.options or {})
     if not options then
         return nil, options_err
+    end
+    local mode_ok, mode_err = validate_mode_contract(
+        mode,
+        scope_refs,
+        preconditions,
+        options
+    )
+    if not mode_ok then
+        return nil, mode_err
     end
 
     local expected_input = input.expected_effect or {}
@@ -548,6 +997,15 @@ function action.validate(plan)
     local options, options_err = normalize_options(plan.mode, plan.options or {})
     if not options then
         return nil, options_err
+    end
+    local mode_ok, mode_err = validate_mode_contract(
+        plan.mode,
+        scope_refs,
+        preconditions,
+        options
+    )
+    if not mode_ok then
+        return nil, mode_err
     end
     if not same_value(preconditions, plan.preconditions)
         or not same_value(options, plan.options) then
@@ -822,7 +1280,7 @@ function action.verify_readiness(plan, readiness)
     return true
 end
 
-function action.verify_effect(plan, payload)
+function action.verify_effect(plan, payload, instance)
     local valid, valid_err = action.validate(plan)
     if not valid then
         return nil, valid_err
@@ -840,6 +1298,18 @@ function action.verify_effect(plan, payload)
     end
     if not same_value(refs, plan.scope_refs) then
         return nil, "pressure action effect scope mismatch"
+    end
+    if plan.mode == "structure_formation" then
+        return structure_inspection.verify_effect(instance, plan, payload)
+    end
+    if plan.mode == "alternative_collapse" then
+        return choice_inspection.verify_effect(instance, plan, payload)
+    end
+    if plan.mode == "plan_completion_review" then
+        return plan_completion.verify_review_effect(instance, plan, payload)
+    end
+    if plan.mode == "plan_delivery" then
+        return plan_completion.verify_delivery_effect(instance, plan, payload)
     end
     return true
 end

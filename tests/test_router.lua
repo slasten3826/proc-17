@@ -29,6 +29,7 @@ local function move(instance, target, tick)
 end
 
 local p = packet.new("route packet", {
+    work_mode = "plan",
     budget = {steps = 8, substrate_calls = 1},
 })
 

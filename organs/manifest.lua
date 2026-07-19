@@ -1,7 +1,80 @@
 local packet_core = require("core.packet")
+local json = require("core.json")
 local manifest_logic = require("logic.manifest")
+local plan_completion = require("runtime.plan_completion")
 
 local manifest_organ = {}
+
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
+local function same_value(left, right)
+    return json.encode(left) == json.encode(right)
+end
+
+local function sorted_unique(values)
+    local seen = {}
+    local result = {}
+    for _, value in ipairs(values or {}) do
+        if type(value) == "string" and value ~= "" and not seen[value] then
+            seen[value] = true
+            result[#result + 1] = value
+        end
+    end
+    table.sort(result)
+    return result
+end
+
+local function plan_delivery(instance, options)
+    local input = options and options.plan_input
+    if type(input) ~= "table" then
+        return nil, "plan delivery input required"
+    end
+    local assessment, candidate_or_err = plan_completion.resolve_assessment(
+        instance,
+        input
+    )
+    if not assessment then
+        return nil, candidate_or_err
+    end
+    local candidate = candidate_or_err
+    local scope_refs = copy_value(candidate.scope_refs)
+    scope_refs[#scope_refs + 1] = assessment.event.id
+    scope_refs = sorted_unique(scope_refs)
+    local action_scope = options.qualified_action and options.qualified_action.scope_refs
+    if action_scope ~= nil and not same_value(action_scope, scope_refs) then
+        return nil, "plan delivery action scope mismatch"
+    end
+    local projected, residue, sources = plan_completion.project(
+        instance,
+        assessment,
+        candidate
+    )
+    if not projected then
+        return nil, residue
+    end
+    return {
+        assessment = assessment,
+        candidate = candidate,
+        projected = projected,
+        residue = residue,
+        sources = sources,
+        scope_refs = scope_refs,
+    }
+end
 
 local function last_trace_event(instance, event_type, operator)
     for index = #(instance.trace or {}), 1, -1 do
@@ -101,6 +174,30 @@ function manifest_organ.input(instance, options)
 end
 
 function manifest_organ.readiness(instance, options)
+    options = options or {}
+    if options.plan_input ~= nil then
+        local delivery, delivery_err = plan_delivery(instance, options)
+        if not delivery then
+            return {
+                operator = "△",
+                ready = false,
+                reason = delivery_err,
+                source_refs = {},
+                required_capabilities = {},
+                missing_capabilities = {},
+                event_truth_status = "runtime_confirmed",
+            }
+        end
+        return {
+            operator = "△",
+            ready = true,
+            reason = "plan_delivery_ready",
+            source_refs = delivery.scope_refs,
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     local input = manifest_organ.input(instance, options)
     local source_refs = {}
     for _, ref in pairs(input.sources or {}) do
@@ -125,6 +222,46 @@ function manifest_organ.run(instance, options)
     local mutable, mutable_err = packet_core.assert_mutable(instance, "assemble manifest")
     if not mutable then
         return nil, mutable_err
+    end
+    options = options or {}
+    if options.plan_input ~= nil then
+        local delivery, delivery_err = plan_delivery(instance, options)
+        if not delivery then
+            return nil, delivery_err
+        end
+        local item_count = #(delivery.projected.items or {})
+        local suppressed_count = #(delivery.residue.suppressed_items or {})
+        return instance, {
+            kind = "manifest_payload",
+            mode = "plan_delivery",
+            output = {
+                type = "plan",
+                text = json.encode(delivery.projected),
+                structured = delivery.projected,
+                status = "complete",
+                content_truth_status = delivery.candidate.source_truth_status,
+            },
+            sources = delivery.sources,
+            assembly = {
+                rule = "plan_delivery.v0",
+                work_mode = "plan",
+                input_provenance = "packet_state",
+                outcome = "complete",
+                assessment_ref = delivery.assessment.event.id,
+            },
+            residue = delivery.residue,
+            summary = {
+                type = "plan",
+                status = "complete",
+                item_count = item_count,
+                suppressed_count = suppressed_count,
+                source_event = delivery.assessment.event.id,
+            },
+            terminal_cause = "complete",
+            truth_status = "runtime_confirmed",
+            content_truth_status = delivery.candidate.source_truth_status,
+            effect_scope_refs = delivery.scope_refs,
+        }
     end
     local payload, err = manifest_logic.assemble(manifest_organ.input(instance, options))
     if not payload then

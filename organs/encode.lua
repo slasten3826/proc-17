@@ -1,8 +1,33 @@
 local logic_encode = require("logic.encode")
 local packet_core = require("core.packet")
+local json = require("core.json")
 local field = require("runtime.field")
+local structure_inspection = require("runtime.structure_inspection")
 
 local encode = {}
+
+local shape_loss = {
+    work_sequence = 0.25,
+    work_hierarchy = 0.30,
+    alternative_set = 0.40,
+    artifact_set = 0.15,
+}
+
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
 
 local function exact_ref(id, version)
     return table.concat({"coverage", "field_unit", id, tostring(version)}, ":")
@@ -91,6 +116,21 @@ function encode.readiness(instance, options)
             event_truth_status = "runtime_confirmed",
         }, scope
     end
+    if options.structure_input ~= nil then
+        local candidate, candidate_err = structure_inspection.resolve(
+            instance,
+            options.structure_input
+        )
+        return {
+            operator = "☵",
+            ready = candidate ~= nil,
+            reason = candidate and "structure_formation_ready" or candidate_err,
+            source_refs = candidate and {candidate.exact_ref} or {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }, candidate
+    end
     local chaos = instance and instance.chaos or {}
     local refs = {}
     for index, fragment in ipairs(chaos.fragments or {}) do
@@ -109,6 +149,291 @@ function encode.readiness(instance, options)
         required_capabilities = {},
         missing_capabilities = {},
         event_truth_status = "runtime_confirmed",
+    }
+end
+
+local function structure_description(value)
+    if type(value) == "string" then
+        return value
+    end
+    return json.encode(value)
+end
+
+local function structure_choice_contract(instance, shape, unit_ids, content_status)
+    if shape ~= "alternative_set" then
+        return nil
+    end
+    local configured = instance.regime and instance.regime.choice or {}
+    local bounds = configured.bounds or {}
+    if configured.consumer_contract_id ~= structure_inspection.choice_consumer_id
+        or configured.policy_id ~= structure_inspection.choice_policy_id
+        or (bounds.max_selected or 1) ~= 1 then
+        return nil
+    end
+    return {
+        consumer_contract_id = configured.consumer_contract_id,
+        ordered_alternative_ids = copy_value(unit_ids),
+        max_selected = 1,
+        selection_policy_id = configured.policy_id,
+        selection_basis_truth_status = content_status,
+    }
+end
+
+local function unique_refs(values)
+    local result = {}
+    local seen = {}
+    for _, value in ipairs(values or {}) do
+        if type(value) == "string" and value ~= "" and not seen[value] then
+            seen[value] = true
+            result[#result + 1] = value
+        end
+    end
+    return result
+end
+
+local function structure_projection(candidate, planned_ids, max_loss_log_entries)
+    local envelope = candidate.envelope
+    local retained_count = #planned_ids
+    local items = {}
+    local work_units = {}
+    local key_to_id = {}
+    for index = 1, retained_count do
+        local source = envelope.items[index]
+        local unit_id = planned_ids[index]
+        key_to_id[source.key] = unit_id
+        items[index] = {
+            id = unit_id,
+            key = source.key,
+            kind = source.kind,
+            value = copy_value(source.value),
+            source_keys = copy_value(source.source_keys),
+            position = index,
+            role = envelope.shape == "alternative_set" and "alternative" or "work",
+            content_truth_status = candidate.source_content_truth_status,
+        }
+        work_units[index] = {
+            id = unit_id,
+            status = "pending",
+            description = structure_description(source.value),
+            source_item_key = source.key,
+            kind = source.kind,
+            content_truth_status = candidate.source_content_truth_status,
+        }
+    end
+
+    local connections = {}
+    local omitted_edge_count = 0
+    for _, source in ipairs(envelope.edges or {}) do
+        local from = key_to_id[source.from_key]
+        local to = key_to_id[source.to_key]
+        if from and to then
+            connections[#connections + 1] = {
+                from = from,
+                to = to,
+                relation = source.relation,
+                source_from_key = source.from_key,
+                source_to_key = source.to_key,
+            }
+        else
+            omitted_edge_count = omitted_edge_count + 1
+        end
+    end
+
+    local input_count = #envelope.items
+    local omitted_count = input_count - retained_count
+    local loss_log = {}
+    for index = retained_count + 1, math.min(
+        input_count,
+        retained_count + max_loss_log_entries
+    ) do
+        loss_log[#loss_log + 1] = {
+            kind = "omitted_structure_item",
+            item_key = envelope.items[index].key,
+            input_position = index,
+        }
+    end
+    local omission_ratio = input_count > 0 and omitted_count / input_count or 0
+    local loss_percentage = math.min(1, (shape_loss[envelope.shape] or 0) + omission_ratio)
+    local loss = {
+        kind = "structure_projection_loss",
+        policy_id = structure_inspection.adapter_policy_id,
+        calculation_status = "estimated_policy",
+        amount = loss_percentage,
+        input_count = input_count,
+        output_count = retained_count,
+        omitted_count = omitted_count,
+        omitted_edge_count = omitted_edge_count,
+        truncated = omitted_count > 0,
+        loss_log_truncated = omitted_count > #loss_log,
+        loss_percentage = loss_percentage,
+        encoding_type = envelope.shape,
+        loss_log = loss_log,
+    }
+    return items, work_units, connections, loss
+end
+
+local function structure_formation_run(instance, options)
+    local readiness, candidate_or_err = encode.readiness(instance, options)
+    if not readiness.ready then
+        return nil, readiness.reason
+    end
+    local candidate = candidate_or_err
+    local input = options.structure_input
+    local retained_count = math.min(
+        #candidate.envelope.items,
+        input.bounds.max_output_units
+    )
+    local planned_ids, plan_err = field.plan_unit_ids(instance, retained_count)
+    if not planned_ids then
+        return nil, plan_err
+    end
+    local identity_map_id, map_plan_err = field.plan_identity_map_id(instance)
+    if not identity_map_id then
+        return nil, map_plan_err
+    end
+    local items, work_units, connections, projection_loss = structure_projection(
+        candidate,
+        planned_ids,
+        input.bounds.max_loss_log_entries
+    )
+    local choice_contract = structure_choice_contract(
+        instance,
+        candidate.requested_shape,
+        planned_ids,
+        candidate.source_content_truth_status
+    )
+    local source_refs = unique_refs({
+        candidate.exact_ref,
+        candidate.source_creation_event_ref,
+        candidate.source_observation_event_ref,
+    })
+    local calm_delta = {
+        kind = "structured_work_calm",
+        source_area = "field.potential",
+        source_refs = copy_value(source_refs),
+        receiver_contract_id = candidate.receiver_contract_id,
+        requested_shape = candidate.requested_shape,
+        formation_basis = "packet_structure",
+        field = {
+            kind = "structured_work_field",
+            shape = candidate.requested_shape,
+            items = copy_value(items),
+            truth_status = candidate.source_content_truth_status,
+        },
+        connections = copy_value(connections),
+        hierarchy = candidate.requested_shape == "work_hierarchy"
+            and copy_value(connections) or {},
+        work_units = copy_value(work_units),
+        choice_contract = copy_value(choice_contract),
+        structure_formation = {
+            protocol_version = structure_inspection.formation_protocol,
+            source_unit_id = candidate.source_unit_id,
+            source_version = candidate.source_version,
+            envelope_fingerprint = candidate.envelope_fingerprint,
+            formed_unit_ids = copy_value(planned_ids),
+            identity_map_ref = identity_map_id,
+        },
+    }
+
+    local crystallized, crystallization_event = packet_core.crystallize(instance, {
+        source_chaos_refs = source_refs,
+        calm_delta = calm_delta,
+        loss = projection_loss,
+        status = "accepted",
+        truth_status = "runtime_confirmed",
+    })
+    if not crystallized then
+        return nil, crystallization_event
+    end
+
+    local formed_versions = {}
+    for index, item in ipairs(items) do
+        local unit, unit_err = field.add_unit(instance, "☵", {
+            id = planned_ids[index],
+            kind = "structured_item",
+            carrier = item,
+            source_refs = source_refs,
+            event_truth_status = "runtime_confirmed",
+            content_truth_status = candidate.source_content_truth_status,
+            created_event_id = crystallization_event.id,
+            migration = {
+                status = "packet_structure_formed",
+                protocol_version = structure_inspection.formation_protocol,
+                source_item_key = item.key,
+                source_unit_id = candidate.source_unit_id,
+                source_version = candidate.source_version,
+            },
+        })
+        if not unit then
+            return nil, unit_err
+        end
+        formed_versions[unit.id] = unit.version
+    end
+
+    local identity_map, identity_err = field.record_identity_map(instance, "☵", {
+        id = identity_map_id,
+        encode_event_id = crystallization_event.id,
+        old_ids = {candidate.source_unit_id},
+        new_ids = planned_ids,
+        mapping = {[candidate.source_unit_id] = planned_ids},
+        mapping_kind = "packet_structure",
+        source_event_refs = source_refs,
+        source_versions = {[candidate.source_unit_id] = candidate.source_version},
+        receiver_contract_id = candidate.receiver_contract_id,
+        requested_shape = candidate.requested_shape,
+        envelope_fingerprint = candidate.envelope_fingerprint,
+        shadow_only = false,
+    })
+    if not identity_map then
+        return nil, identity_err
+    end
+
+    local formation_payload = {
+        protocol_version = structure_inspection.formation_protocol,
+        source = {
+            unit_id = candidate.source_unit_id,
+            version = candidate.source_version,
+            observation_event_ref = candidate.source_observation_event_ref,
+            content_truth_status = candidate.source_content_truth_status,
+        },
+        receiver_contract_id = candidate.receiver_contract_id,
+        requested_shape = candidate.requested_shape,
+        envelope_fingerprint = candidate.envelope_fingerprint,
+        formed_unit_ids = copy_value(planned_ids),
+        formed_unit_versions = formed_versions,
+        identity_map_ref = identity_map.id,
+        identity_map_event_ref = identity_map.trace_event_id,
+        crystallization_event_ref = crystallization_event.id,
+        loss_record_ref = crystallization_event.id,
+        choice_contract = copy_value(choice_contract),
+        event_truth_status = "runtime_confirmed",
+        content_truth_status = candidate.source_content_truth_status,
+    }
+    local formation_event, formation_err = packet_core.append_event(instance, {
+        type = "structure_formation",
+        operator = "☵",
+        truth_status = "runtime_confirmed",
+        payload = formation_payload,
+        cost = {},
+    })
+    if not formation_event then
+        return nil, formation_err
+    end
+
+    return instance, {
+        kind = "encode_organ_payload",
+        mode = "structure_formation",
+        formation_basis = "packet_structure",
+        structure_formation = formation_payload,
+        identity_map = identity_map,
+        calm_delta = calm_delta,
+        loss = projection_loss,
+        work_units = work_units,
+        trace_event_id = crystallization_event.id,
+        formation_event_id = formation_event.id,
+        effect_scope_refs = {candidate.exact_ref},
+        truth_status = "runtime_confirmed",
+        content_truth_status = candidate.source_content_truth_status,
     }
 end
 
@@ -454,6 +779,9 @@ function encode.run(instance, options)
     end
     if options.relation_input ~= nil then
         return relation_guided_run(instance, options)
+    end
+    if options.structure_input ~= nil then
+        return structure_formation_run(instance, options)
     end
     local text, source_refs = chaos_text(instance)
     if text == "" then

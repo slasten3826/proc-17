@@ -1,5 +1,16 @@
 # Qualified Pressure Treatment Manifest v0
 
+Amendment 2026-07-19:
+
+```text
+The action-mode inventory and partial-pressure limits in this W0 record are
+historical. Exact structure_formation and alternative_collapse treatment is
+manifested in qualified_encode_choose_treatment.v0.md. Exact plan completion
+and delivery are manifested in post_collapse_plan_delivery.v0.md. Keep this
+document as the route-to-effect foundation; read the newer manifests for the
+current action surface. Default-authority restrictions remain unchanged.
+```
+
 Status:
 
 ```text

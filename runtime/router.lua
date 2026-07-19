@@ -89,13 +89,16 @@ local function legacy_pressure_snapshot(instance, tick)
     local evidence = runtime.evidence or {}
     local last_validation = last(instance and instance.boundary and instance.boundary.validations)
     local last_cycle = last(instance and instance.boundary and instance.boundary.cycles)
+    local work_regime = instance and instance.regime and instance.regime.work or {}
+    local packet_work_mode = work_regime.mode
+        or (instance and instance.metadata and instance.metadata.work_mode)
     return {
         loss = loss_pressure(instance),
         budget = budget_pressure(instance),
         karma = karma_pressure(instance),
         progress = progress,
         payload = payload_pressure or {},
-        work_mode = payload.work_mode or tick.work_mode or (instance and instance.metadata and instance.metadata.work_mode),
+        work_mode = payload.work_mode or tick.work_mode or packet_work_mode,
         last_choice = last(instance and instance.boundary and instance.boundary.choices),
         last_validation = last_validation,
         last_cycle = last_cycle,

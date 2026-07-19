@@ -6,17 +6,26 @@ Current transition:
 
 ```text
 integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
--> qualified relation/upper witnesses -> expand actions -> measured promotion
+-> qualified relation/upper witnesses -> exact structure/choice actions
+-> exact plan assessment/delivery -> in-memory lineage -> build hands
+-> measured promotion
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
 terminal death, and inheritance. Body integrity is closed and one opt-in
 Vertical Packet Life now joins the selected L1/L2 contracts to the CALM-side
-body. The first qualified pressure treatment now joins exact relation and upper
-facts to bounded actions carried through route events. Remaining pressure
-families must receive the same treatment before full promotion measurement.
-The closed repository work loop follows measured routing; hands must not
-be used to hide an unmeasured body.
+body. The first qualified pressure treatment joined exact relation and upper
+facts to bounded actions carried through route events. The second treatment now
+joins one strict machine proposal to exact structure formation and one exact
+alternative set to exact collapse. A third bounded treatment now lets ☱ assess
+one complete exact plan and △ project it from Packet state into a terminal
+`plan.result.v0`. These chains are accepted inside the explicit treatment
+policy; default authority and full-tree promotion remain blocked. Remaining
+pressure families must receive the same treatment before full promotion
+measurement. The first outer lineage now owns a linear task across terminal
+Packet generations in memory: one real local death can produce one bounded
+carrier and one clean descendant. The closed repository work loop follows this
+owned ancestry; hands must not be used to hide an unmeasured body.
 
 ## Runtime Shape
 
@@ -100,13 +109,19 @@ referent change creates one validation debt and a recast discharges it.
   while preserving the legacy formed-relation weakening path.
 - `organs/observe.lua`: offers semantic, relation-native and field-native
   sensors; native sight requires no substrate and emits no proposal unit.
-- `organs/encode.lua`: forms text or relation-guided Packet structure in CALM
-  with visible loss, explicit formed ids, and an identity map.
-- `organs/choose.lua`: selects under pressure, records killed alternatives, and
-  changes canonical unit activation without rewriting identity or carrier.
-- `organs/runtime.lua`, `organs/cycle.lua`, `organs/logic.lua`, and
-  `organs/manifest.lua`: expose the lower operators through the same organ
-  contract as the upper field operators.
+- `organs/encode.lua`: retains text and relation compatibility paths, and under
+  an exact `structure_formation` action turns one strict machine proposal into
+  CALM work, canonical units, a non-shadow identity map, and linked loss proof.
+- `organs/choose.lua`: retains semantic-ranking compatibility, and under an
+  exact `alternative_collapse` action selects one declared current alternative,
+  suppresses the rest, records killed history, advances activation versions,
+  and emits explicit provisional choice loss.
+- `organs/runtime.lua`: reconciles camera consequences and, under one exact
+  plan review action, is the sole writer of a completion assessment.
+- `organs/manifest.lua`: retains compatibility assembly and, under one exact
+  plan delivery action, projects `plan.result.v0` solely from Packet state.
+- `organs/cycle.lua` and `organs/logic.lua`: expose the remaining lower
+  operators through the same organ contract as the upper field operators.
 - `logic/cycle.lua`: decides bounded continuation without choosing task meaning.
 - `logic/spells.lua`: executes configured validation spells and records whether reality changed.
 - `logic/manifest.lua`: classifies and assembles the outward result.
@@ -141,18 +156,42 @@ than a hidden fallback. Router movement remains separate from semantic ☳ and
 creates no CHOOSE loss.
 
 Alongside that historical control, `pressure_policy=qualified_need_v0` derives
-`pressure.witness.v1` records for relation recognition, relation formation and
-versioned upper sight. Every witness carries a validated
-`pressure.action_plan.v0`. `runtime/pressure_composition.lua` orders terminal,
-blocking and affordance classes without numeric weights, preserves typed
-ambiguity, and rejects unavailable actions before selection. The committed
-route event carries the chosen action into registry execution; witness, plan,
-readiness and effect scopes must match exactly.
+`pressure.witness.v1` records for relation recognition, relation formation,
+versioned upper sight, strict structure formation, and exact alternative
+collapse, plus exact plan completion review and delivery. Every witness carries
+a validated `pressure.action_plan.v0`.
+`runtime/pressure_composition.lua` orders terminal, blocking and affordance
+classes without numeric weights, preserves typed ambiguity, and rejects
+unavailable actions before selection. The committed route event carries the
+chosen action into registry execution; witness, plan, readiness and effect
+scopes must match exactly.
+
+The exact structure producer accepts only `packet.structure.proposal.v0` for a
+named `calm.work_structure.v0` receiver. Plain prose and malformed envelopes
+remain diagnostics, not pressure. Exact CHOOSE derives only from an observed
+`alternative_set` formation with a frozen `calm.singular_focus.v0` contract;
+the pressure does not contain its winner. The organ applies the declared
+`formation_order.v0` policy and the body verifies one selected member, complete
+suppressed history, exact version advances, one common event, and explicit
+count-based loss.
+
+The plan completion reader accepts only one current exact plan formation in
+plan mode, with complete loss accounting and current field-native coverage for
+every formed version. ☱ joins that candidate to significant camera effects and
+writes one revision-bound assessment. △ consumes the assessment through the
+canonical `☱ -> △` edge and assembles the outward result without reading runner
+ticks or substrate text. Body acts remain `runtime_confirmed`; item content
+retains its semantic truth status.
 
 Qualified pressure remains an explicit treatment policy. In default shadow
 mode it has no physical mass; matched ablation leaves routes, budget, loss,
 substrate calls and revisions unchanged. Its complete record is
 [`pressure_need_and_action_composition_treatment.v0.md`](pressure_need_and_action_composition_treatment.v0.md).
+The accepted bounded ☵/☳ extension and its unchanged promotion gates are
+recorded in
+[`qualified_encode_choose_treatment.v0.md`](qualified_encode_choose_treatment.v0.md).
+The accepted plan terminal extension is recorded in
+[`post_collapse_plan_delivery.v0.md`](post_collapse_plan_delivery.v0.md).
 
 `runtime/router.lua` records pressure snapshots and immutable route derivations
 as append-only trace data. In the default shadow mode it also records the
@@ -280,6 +319,21 @@ Warnings can alter a descendant route. Session-scoped graves are bounded by
 `runtime/session_memory.lua`; old individual graves compost into aggregate
 patterns instead of persisting forever.
 
+`runtime/lineage_runner.lua` now owns the first bounded ancestry outside one
+Packet life. It reuses one `flow_domain`, commits each generation through a
+guarded birth hook, captures an immutable hashed corpse, reconciles cumulative
+economics, evaluates exact completion, and either finishes the lineage or
+builds one deterministic bounded recovery carrier. `runtime/network_ingress.lua`
+validates that carrier and supplies the next prompt plus ancestry header to ▽;
+NETWORK is not a Packet operator or trace event. ☲ remains recurrence inside
+one identity.
+
+The first lineage slice is deliberately in memory. It is linear, permits one
+living Packet and at most one child per corpse, and knows exact `plan.v0`
+completion only. Persistence, crash recovery, branching, provider substrate
+sessions and build completion are deferred. Lua/invariant failures remain loud
+world failures and do not fabricate corpses or graves.
+
 ### Substrates and tools
 
 Substrate adapters exist for fake and OpenAI-compatible models, including
@@ -295,16 +349,29 @@ mutation loop.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    61 suites passed
+lua tests/run.lua                    76 suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
 tests/test_tree_instrumentation.lua  7/7 Gate B cases passed
 tests/test_edge_metric_roles.lua     passed
 tests/test_tree_manifest_honesty.lua 4/4 Gate 4.2 cases passed
+tests/test_structure_formation.lua   passed
+tests/test_choice_need.lua           passed
+tests/test_encode_choose_pair.lua    passed
+tests/test_plan_completion.lua       passed
+tests/test_plan_delivery.lua         passed
+tests/test_post_collapse_plan_life.lua passed
+tests/test_digest.lua                passed SHA-256 known vectors
+tests/test_lineage_budget.lua        passed
+tests/test_corpse.lua                passed
+tests/test_carrier.lua               passed
+tests/test_network_ingress.lua       passed
+tests/test_lineage_runner.lua        passed one- and two-generation lives
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
 lua tests/smoke_runtime_camera_treatment.lua passed
 lua tests/smoke_pressure_ablation.lua passed
+lua tests/smoke_deepseek_qualified_encode_choose.lua 2/2 strict forms passed
 lua tests/smoke_deepseek_tension_runner.lua passed through ☱ twice
 luac -p over all Lua sources         passed
 git diff --check                     passed
@@ -355,6 +422,54 @@ accepted build remains `complete`. The permanent grown-life gate is `4/4`
 green; the treatment record is preserved in
 [`../00_chaos/tree_manifest_honesty_treatment_results_2026-07-17.md`](../00_chaos/tree_manifest_honesty_treatment_results_2026-07-17.md).
 
+The exact plan corpus now grows both complete lives without fixture routes:
+
+```text
+work_sequence:    ▽ -> ☴ -> ☵ -> ☴ -> ☱ -> △ -> dead/complete
+alternative_set: ▽ -> ☴ -> ☵ -> ☴ -> ☳ -> ☴ -> ☱ -> △ -> dead/complete
+```
+
+Matched producer and consumer ablations remove only the corresponding shadow
+prediction; legacy route, economics, loss, revisions, terminal outcome and
+pre-execution choices remain equal. A committed edge to ☳ creates no choice or
+loss by itself. Review and delivery have separate matched ablations: removing
+either producer removes only its exact prediction/effect, while route commitment
+alone creates neither an assessment nor a terminal Packet.
+
+Before the terminal treatment, one live `deepseek-chat` smoke crossed the strict
+formation boundary twice:
+
+```text
+work_sequence:    trace=☴☵☴       choices=0 loss=0.250 stalled
+alternative_set: trace=☴☵☴☳☴   choices=1 loss=0.900 stalled
+```
+
+Those historical stalls remain compatibility evidence for explicitly requested
+strict envelopes, not current terminal expectations and not a claim that
+arbitrary model prose reliably becomes production structure. Packet-local
+assessment and delivery required no additional model call.
+
+The first lineage corpus grows two different ancestry outcomes:
+
+```text
+one generation:
+  user birth -> exact plan delivery -> corpse -> lineage complete
+
+two generations:
+  generation 1 -> real budget_exhausted death after 2 paid ticks
+  -> hashed corpse -> bounded recovery carrier -> NETWORK@▽
+  -> clean generation 2 -> exact plan delivery -> lineage complete
+```
+
+The descendant has a new Packet id and exact parent Packet, parent corpse and
+carrier refs. At birth it has empty CALM, field relations and local loss. The
+lineage ledger sums both Packet budgets plus generation/carrier boundary costs;
+the source corpse remains immutable after the descendant finishes. History
+on/off changes grave attachment only, while ancestry and cumulative accounting
+remain body-owned. An injected runner exception creates no synthetic grave.
+The treatment record is
+[`lineage_in_memory_slice.v0.md`](lineage_in_memory_slice.v0.md).
+
 A local L0/L1 fake-substrate treatment confirms that the continuous camera does
 not alter the live route, step/substrate budget, or identity loss. In both plan
 and build lives, sampled lower pressure produced six lower debts and five
@@ -397,11 +512,13 @@ the checks outside the body.
 2. **Canonical field migration is incomplete.** FLOW/OBSERVE/ENCODE/CHOOSE and
    explicit tree routing consume field records, but CALM and several organ
    inputs still retain compatibility projections.
-3. **Qualified pressure is partial.** Relation recognition/formation and upper
-   sight now have exact witnesses and route-carried actions. Generic semantic
-   ENCODE, CHOOSE, DISSOLVE, the lower triangle and body-owned terminal action
-   still need equivalent producers. Fixture relation routes prove mechanics,
-   not production promotion. ☱ does not yet apply formed relation momentum.
+3. **Qualified pressure is partial.** Relation recognition/formation, upper
+   sight, strict structure formation, exact alternative collapse and complete
+   plan delivery now have route-carried witnesses and actions. Generic semantic
+   ENCODE, DISSOLVE, build execution and most of the lower triangle still need
+   equivalent producers. Exact choice loss is a provisional count proxy, not
+   calibrated potential mass. Bounded chains prove mechanics, not production
+   promotion. ☱ does not yet apply formed relation momentum.
 4. **Camera pressure is uncalibrated.** Reconciliation debt can govern explicit
    tree lives, but all coefficients remain one and the default mode still grants
    movement to legacy control.
@@ -411,8 +528,9 @@ the checks outside the body.
 6. **Memory has writers without readers.** Bequests enter unresolved pressure,
    but ENCODE does not consume it. Compost patterns are stored but do not yet
    affect router or foundation.
-7. **Session lifecycle is not runner-owned.** Session and packet memory modules
-   exist as libraries, not one automatic birth-to-grave lifecycle.
+7. **Lineage is not persistent.** The linear runner owns automatic birth,
+   corpse, grave, carrier and rebirth in memory, but cannot survive host restart,
+   branch descendants or own a provider conversation session yet.
 8. **Tree authority is opt-in v0.** It is a deterministic, binary function of
    explicit Packet records and can manifest a build life, but its constants are
    unmeasured. The legacy observer and v2 evidence roles are isolated and
@@ -421,7 +539,7 @@ the checks outside the body.
 
 Several modules are currently standalone or partially integrated, including
 `runtime/pressure_snapshot.lua`, `runtime/trace_store.lua`,
-`runtime/packet_memory.lua`, `runtime/session_memory.lua`, `tools/fs.lua`,
+`runtime/packet_memory.lua`, `tools/fs.lua`,
 `logic/repo_selection.lua`, and `logic/trace_validator.lua`.
 
 ## Next Architecture Target
@@ -433,9 +551,13 @@ The active roadmap is deliberately ordered so new power follows owned facts:
 2. Body Integrity Gate                                     complete
 3. crystallize the selected L1/L2 contracts                complete
 4. implement one opt-in Vertical Packet Life               complete
-5. expand qualified pressure actions, then measure tree promotion next
-6. implement the outer lineage runner
-7. add capability-safe repository hands
+5. expand qualified pressure actions                         in progress
+   - exact ☵/☳ formation and collapse                        complete
+   - complete plan assessment and delivery                    complete
+   - build execution / evidence                               next
+   - full promotion measurement                              blocked by coverage
+6. implement the outer lineage runner                         complete (in-memory v0)
+7. add capability-safe repository hands                       next
 8. expose a machine CLI and then a Go TUI
 ```
 
@@ -444,6 +566,13 @@ lives for empty relation probes, body-native observation, raw release,
 relation-guided formation, version re-arm, and truth rent. Integration remains
 explicitly off/on and fixture-selected routes remain separate from promotion
 evidence.
+
+The next bounded step is not a smarter natural-language ENCODE, another
+completion classifier, or persistent lineage storage. The complete-plan and
+first in-memory ancestry branches are closed. The next product-bearing branch
+is unrealized build work: a selected exact work unit must acquire one
+capability-safe repository action, fresh LOGIC evidence and a body-owned
+progress transition. Qualified DISSOLVE remains a separate repair treatment.
 
 Only after those body facts and the resulting pressure corpus are measured does
 the first real repository work loop become lawful:

@@ -38,12 +38,14 @@ packet.event_types = {
     relation_snapshot = true,
     relation_mutation = true,
     relation_formation = true,
+    structure_formation = true,
     observation = true,
     choice = true,
     validation = true,
     cycle = true,
     runtime_frame = true,
     runtime_reconciliation = true,
+    plan_completion_assessment = true,
     tension_measure = true,
     manifest = true,
     death = true,
@@ -78,11 +80,13 @@ local event_actor_rights = {
     relation_snapshot = {['☰'] = true},
     relation_mutation = {['☷'] = true, ['☶'] = true, ['☱'] = true},
     relation_formation = {['☵'] = true},
+    structure_formation = {['☵'] = true},
     observation = {['☴'] = true, ['☱'] = true},
     choice = {['☳'] = true},
     validation = {['☶'] = true},
     cycle = {['☲'] = true},
     runtime_reconciliation = {['☱'] = true},
+    plan_completion_assessment = {['☱'] = true},
 }
 
 local id_counter = 0
@@ -204,15 +208,28 @@ local function init_field()
     }
 end
 
-local function init_regime()
+local function init_regime(work_mode)
     return {
+        work = {
+            protocol_version = "packet.work_regime.v0",
+            mode = work_mode,
+        },
         encoding = {
-            policy_id = nil,
-            bounds = {},
+            policy_id = "encode.packet_structure.v0",
+            receiver_contract_id = "calm.work_structure.v0",
+            bounds = {
+                max_source_units = 1,
+                max_output_units = 128,
+                max_loss_log_entries = 32,
+            },
         },
         choice = {
-            policy_id = nil,
-            bounds = {},
+            policy_id = "formation_order.v0",
+            consumer_contract_id = "calm.singular_focus.v0",
+            bounds = {
+                max_selected = 1,
+                max_killed_sample = 8,
+            },
         },
         cycle = {
             phase = 0,
@@ -485,6 +502,19 @@ function packet.new(prompt, options)
     if type(prompt) ~= "string" or prompt == "" then
         error("prompt must be non-empty string")
     end
+    if options.metadata ~= nil and type(options.metadata) ~= "table" then
+        error("packet metadata must be table")
+    end
+    local metadata_mode = options.metadata and options.metadata.work_mode
+    local work_mode = options.work_mode or metadata_mode or "build"
+    if work_mode ~= "plan" and work_mode ~= "build" then
+        error("packet work_mode must be plan or build")
+    end
+    if metadata_mode ~= nil and metadata_mode ~= work_mode then
+        error("packet work_mode conflicts with metadata mirror")
+    end
+    local metadata = deep_copy(options.metadata or {})
+    metadata.work_mode = work_mode
 
     local packet_id = options.id or next_id("packet")
     local identity = init_identity(packet_id, options)
@@ -510,7 +540,7 @@ function packet.new(prompt, options)
         field = init_field(),
         boundary = areas.boundary,
         calm = areas.calm,
-        regime = init_regime(),
+        regime = init_regime(work_mode),
         tension = areas.tension,
         runtime = areas.runtime,
         trace = {},
@@ -518,7 +548,7 @@ function packet.new(prompt, options)
         death = nil,
         manifest = areas.manifest,
         terminal = nil,
-        metadata = deep_copy(options.metadata or {}),
+        metadata = metadata,
         ingress = ingress,
     }
 
@@ -537,6 +567,7 @@ function packet.new(prompt, options)
             carrier_id = instance.carrier_id,
             substrate_session_id = instance.substrate_session_id,
             inherited_residue_count = #(instance.runtime.memory.inherited_residue or {}),
+            work_mode = work_mode,
             ingress_protocol = instance.ingress.protocol_version,
             integration_protocol = instance.ingress.integration_protocol,
             flow_mark = instance.ingress.flow_mark,

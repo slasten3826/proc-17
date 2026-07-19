@@ -80,7 +80,11 @@ local function recursive_contains(value, needle, seen)
 end
 
 local function provenance_resolves(instance, ref)
-    if ref == "consumer:encode.relation_formation.v0" then
+    if ref == "consumer:encode.relation_formation.v0"
+        or ref == "consumer:calm.work_structure.v0"
+        or ref == "consumer:calm.singular_focus.v0"
+        or ref == "consumer:runtime.plan_completion.v0"
+        or ref == "consumer:manifest.plan_delivery.v0" then
         return true
     end
     for _, event in ipairs(instance.trace or {}) do

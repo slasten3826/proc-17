@@ -22,6 +22,9 @@ assert_eq(#generated.grave.bequests, 0, "generated bequest grave empty")
 assert_eq(#generated.grave.neutral, 0, "generated neutral grave empty")
 assert_eq(#generated.compost.patterns, 0, "generated compost empty")
 assert_eq(generated.compost.next_insert_id, 1, "generated compost insert id")
+assert_eq(#generated.lineage_ids, 0, "generated lineage index empty")
+assert_eq(generated.current_lineage_id, nil, "generated current lineage empty")
+assert_eq(#generated.lineage_ledger, 0, "generated lineage ledger empty")
 
 local session = assert(session_memory.create("session-grave-test", {
     label = "grave scope",
@@ -36,6 +39,24 @@ assert(session_memory.append_packet(session, "packet-a"))
 assert(session_memory.append_packet(session, "packet-b"))
 assert_eq(#session.packet_ids, 2, "packet ids appended")
 assert_eq(session.current_packet_id, "packet-b", "current packet updated")
+
+assert(session_memory.append_lineage(session, "lineage:session-test"))
+assert_eq(session.current_lineage_id, "lineage:session-test", "current lineage updated")
+assert_eq(#session.lineage_ids, 1, "lineage indexed once")
+assert(session_memory.append_lineage(session, "lineage:session-test"))
+assert_eq(#session.lineage_ids, 1, "lineage index deduplicates")
+local lineage_event = {
+    id = "lineage-event:1",
+    kind = "lineage_created",
+    lineage_id = "lineage:session-test",
+    event_truth_status = "runtime_confirmed",
+}
+assert(session_memory.append_lineage_event(session, lineage_event))
+lineage_event.kind = "tampered"
+assert_eq(session.lineage_ledger[1].kind, "lineage_created",
+    "session copies lineage event")
+assert(session_memory.append_lineage_event(session, session.lineage_ledger[1]))
+assert_eq(#session.lineage_ledger, 1, "lineage ledger deduplicates")
 
 local warning = assert(session_memory.add_grave(session, {
     packet_id = "dead-loop",

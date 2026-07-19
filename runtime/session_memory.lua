@@ -43,6 +43,16 @@ local function safe_packet_id(id)
     return id
 end
 
+local function safe_lineage_id(id)
+    if type(id) ~= "string" or id == "" then
+        return nil, "lineage id is required"
+    end
+    if not id:match("^[%w%._:%-]+$") then
+        return nil, "lineage id contains unsafe characters"
+    end
+    return id
+end
+
 local function safe_root(root)
     root = root or session_memory.default_root
     local ok, reason = sandbox.check_path(root)
@@ -130,6 +140,8 @@ end
 local function ensure_session_storage(session)
     ensure_grave(session)
     ensure_compost(session)
+    session.lineage_ids = session.lineage_ids or {}
+    session.lineage_ledger = session.lineage_ledger or {}
     return session
 end
 
@@ -283,6 +295,9 @@ function session_memory.create(session_id, options)
         updated_at = now,
         packet_ids = {},
         current_packet_id = nil,
+        lineage_ids = {},
+        current_lineage_id = nil,
+        lineage_ledger = {},
         residue_policy = options.residue_policy or "last_packet",
         grave = empty_grave(),
         compost = empty_compost(),
@@ -349,6 +364,54 @@ function session_memory.append_packet(session, packet_id)
     session.current_packet_id = id
     session.updated_at = os.time()
     ensure_session_storage(session)
+    return session
+end
+
+function session_memory.append_lineage(session, lineage_id)
+    if type(session) ~= "table" or session.kind ~= "proc17_session" then
+        return nil, "session required"
+    end
+    local id, id_err = safe_lineage_id(lineage_id)
+    if not id then
+        return nil, id_err
+    end
+    ensure_session_storage(session)
+    for _, existing in ipairs(session.lineage_ids) do
+        if existing == id then
+            session.current_lineage_id = id
+            return session
+        end
+    end
+    session.lineage_ids[#session.lineage_ids + 1] = id
+    session.current_lineage_id = id
+    session.updated_at = os.time()
+    return session
+end
+
+function session_memory.append_lineage_event(session, event)
+    if type(session) ~= "table" or session.kind ~= "proc17_session" then
+        return nil, "session required"
+    end
+    if type(event) ~= "table" or type(event.id) ~= "string"
+        or type(event.lineage_id) ~= "string"
+        or event.event_truth_status ~= "runtime_confirmed" then
+        return nil, "valid lineage event required"
+    end
+    local id, id_err = safe_lineage_id(event.lineage_id)
+    if not id then
+        return nil, id_err
+    end
+    ensure_session_storage(session)
+    if session.current_lineage_id ~= id then
+        return nil, "lineage event does not belong to current session lineage"
+    end
+    for _, existing in ipairs(session.lineage_ledger) do
+        if existing.lineage_id == id and existing.id == event.id then
+            return session
+        end
+    end
+    session.lineage_ledger[#session.lineage_ledger + 1] = copy_value(event)
+    session.updated_at = os.time()
     return session
 end
 

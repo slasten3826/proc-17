@@ -388,6 +388,12 @@ function field.set_activation(instance, actor, id, activation, source)
     if type(source.event_id) ~= "string" or source.event_id == "" then
         return nil, "field activation source event is required"
     end
+    if source.restamp ~= nil and type(source.restamp) ~= "boolean" then
+        return nil, "field activation restamp must be boolean"
+    end
+    if source.restamp == true and glyph ~= "☳" then
+        return nil, "only CHOOSE may restamp field activation"
+    end
     local source_event, source_err = packet_core.event_in_current_tick(
         instance,
         glyph,
@@ -396,7 +402,7 @@ function field.set_activation(instance, actor, id, activation, source)
     if not source_event then
         return nil, source_err
     end
-    if unit.activation == activation then
+    if unit.activation == activation and source.restamp ~= true then
         return copy_value(unit)
     end
 
@@ -1259,6 +1265,25 @@ function field.record_identity_map(instance, actor, input)
     if type(input.mapping) ~= "table" then
         return nil, "field identity map mapping must be table"
     end
+    if input.source_versions ~= nil and type(input.source_versions) ~= "table" then
+        return nil, "field identity map source_versions must be table"
+    end
+    for id, version in pairs(input.source_versions or {}) do
+        if type(id) ~= "string" or id == ""
+            or type(version) ~= "number" or version < 1
+            or version ~= math.floor(version) then
+            return nil, "invalid field identity map source version"
+        end
+    end
+    for _, key in ipairs({
+        "receiver_contract_id",
+        "requested_shape",
+        "envelope_fingerprint",
+    }) do
+        if input[key] ~= nil and (type(input[key]) ~= "string" or input[key] == "") then
+            return nil, "invalid field identity map " .. key
+        end
+    end
     for _, existing in ipairs(root_value.identity_maps) do
         if existing.encode_event_id == input.encode_event_id then
             return nil, "field identity map already recorded for ENCODE event"
@@ -1317,6 +1342,10 @@ function field.record_identity_map(instance, actor, input)
         mapping = copy_value(input.mapping),
         mapping_kind = input.mapping_kind or "explicit",
         source_event_refs = copy_array(input.source_event_refs),
+        source_versions = copy_value(input.source_versions or {}),
+        receiver_contract_id = input.receiver_contract_id,
+        requested_shape = input.requested_shape,
+        envelope_fingerprint = input.envelope_fingerprint,
         invalidated_relation_ids = invalidated_relations,
         invalidated_observation_ids = copy_array(input.invalidated_observation_ids),
         shadow_only = input.shadow_only == true,

@@ -10,8 +10,61 @@ local grave = require("runtime.grave")
 local camera = require("runtime.camera")
 local freshness = require("runtime.freshness")
 local pressure_action = require("runtime.pressure_action")
+local digest = require("core.digest")
 
 local tension_runner = {}
+
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
+local function prepare_options(options)
+    local prepared = {}
+    for key, value in pairs(options or {}) do
+        prepared[key] = value
+    end
+    if prepared.packet_options ~= nil and type(prepared.packet_options) ~= "table" then
+        return nil, "packet_options must be table"
+    end
+    local packet_options = copy_value(prepared.packet_options or {})
+    if packet_options.metadata ~= nil and type(packet_options.metadata) ~= "table" then
+        return nil, "packet metadata must be table"
+    end
+    local metadata = copy_value(packet_options.metadata or {})
+    local runner_mode = prepared.work_mode
+    local packet_mode = packet_options.work_mode
+    local metadata_mode = metadata.work_mode
+    local work_mode = runner_mode or packet_mode or metadata_mode or "build"
+    if work_mode ~= "plan" and work_mode ~= "build" then
+        return nil, "work_mode must be plan or build"
+    end
+    for _, declared in ipairs({runner_mode, packet_mode, metadata_mode}) do
+        if declared ~= nil and declared ~= work_mode then
+            return nil, "work_mode declarations disagree"
+        end
+    end
+    metadata.work_mode = work_mode
+    packet_options.metadata = metadata
+    packet_options.work_mode = work_mode
+    prepared.work_mode = work_mode
+    prepared.packet_options = packet_options
+    if prepared.on_packet_birth ~= nil and type(prepared.on_packet_birth) ~= "function" then
+        return nil, "on_packet_birth must be function"
+    end
+    return prepared
+end
 
 local function stage_error(stage, err)
     return stage .. ":" .. tostring(err)
@@ -303,7 +356,11 @@ local function failed_effect_residue(instance, operator, failure, pending_arriva
 end
 
 function tension_runner.run(prompt, substrate, options)
-    options = options or {}
+    local prepared_options, options_err = prepare_options(options or {})
+    if not prepared_options then
+        return nil, stage_error("birth_config", options_err)
+    end
+    options = prepared_options
 
     local packet_life = options.packet_life
     local vertical_life = type(packet_life) == "table"
@@ -340,6 +397,34 @@ function tension_runner.run(prompt, substrate, options)
     local loss_ready, loss_err = loss.init(instance, options.loss or {})
     if not loss_ready then
         return nil, stage_error("loss", loss_err)
+    end
+
+    if options.on_packet_birth ~= nil then
+        if not vertical_life or type(birth_receipt) ~= "table" then
+            return nil, stage_error("birth_hook", "trusted birth hook requires vertical Packet life")
+        end
+        local before_hash, before_hash_err = digest.record(instance)
+        if not before_hash then
+            return nil, stage_error("birth_hook", before_hash_err)
+        end
+        local called, accepted, hook_err = pcall(
+            options.on_packet_birth,
+            instance,
+            copy_value(birth_receipt)
+        )
+        if not called then
+            return nil, stage_error("birth_hook", accepted)
+        end
+        if accepted ~= true then
+            return nil, stage_error("birth_hook", hook_err or "birth hook rejected Packet")
+        end
+        local after_hash, after_hash_err = digest.record(instance)
+        if not after_hash then
+            return nil, stage_error("birth_hook", after_hash_err)
+        end
+        if after_hash ~= before_hash then
+            return nil, stage_error("birth_hook", "birth hook mutated Packet")
+        end
     end
 
     local result = {
@@ -604,7 +689,8 @@ function tension_runner.run(prompt, substrate, options)
             end
             local effect_ok, effect_err = pressure_action.verify_effect(
                 committed_plan,
-                payload
+                payload,
+                instance
             )
             if not effect_ok then
                 return nil, stage_error("qualified_action", effect_err)

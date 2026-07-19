@@ -46,6 +46,20 @@ local function main_options(context)
     return context and context.options or {}
 end
 
+local function merged_options(context, key)
+    local result = {}
+    for option_key, value in pairs(main_options(context)) do
+        result[option_key] = value
+    end
+    for option_key, value in pairs(option(context, key)) do
+        result[option_key] = value
+    end
+    if context and context.result ~= nil then
+        result.result = context.result
+    end
+    return result
+end
+
 local function unwrap(ok, payload_or_err)
     if not ok then
         return nil, payload_or_err
@@ -126,22 +140,8 @@ local descriptors = {
         loss_profile = "mandatory",
         reads = {"calm", "field.potential", "constraints", "tension"},
         writes = {"boundary.choices", "field.potential.activation", "loss"},
-        readiness = function(instance)
-            local calm = instance and instance.calm or {}
-            local current = calm.current
-            local items = type(current) == "table" and type(current.field) == "table"
-                and current.field.items or calm.work_units or {}
-            local refs = {}
-            for index, item in ipairs(items or {}) do
-                refs[#refs + 1] = tostring(type(item) == "table" and (item.id or item.value) or index)
-            end
-            if #refs == 0 then
-                return witness("☳", false, "scope_empty", {})
-            end
-            return witness("☳", true, #refs == 1 and "confirmation_not_choice" or "ready", refs, {
-                alternative_count = #refs,
-                collapse_possible = #refs > 1,
-            })
+        readiness = function(instance, context)
+            return choose.readiness(instance, option(context, "choose"))
         end,
         run = function(instance, context)
             return unwrap(choose.run(instance, option(context, "choose")))
@@ -229,13 +229,13 @@ local descriptors = {
         module = runtime_organ,
         required_capabilities = {},
         loss_profile = "conditional",
-        reads = {"calm", "field.relations", "runtime.camera.frames", "budget", "loss", "history"},
-        writes = {"runtime.camera.reconciliations", "runtime.camera.watermark", "boundary.observations.lower", "tension", "field.relations.active", "field.momentum"},
-        readiness = function(instance)
-            return runtime_organ.readiness(instance)
+        reads = {"calm", "field.relations", "runtime.camera.frames", "budget", "loss", "history", "regime.work"},
+        writes = {"runtime.camera.reconciliations", "runtime.camera.watermark", "boundary.observations.lower", "tension", "field.relations.active", "field.momentum", "plan.completion_assessment"},
+        readiness = function(instance, context)
+            return runtime_organ.readiness(instance, option(context, "runtime"))
         end,
-        run = function(instance)
-            return unwrap(runtime_organ.run(instance))
+        run = function(instance, context)
+            return unwrap(runtime_organ.run(instance, option(context, "runtime")))
         end,
     },
     ["△"] = {
@@ -244,17 +244,13 @@ local descriptors = {
         module = manifest,
         required_capabilities = {},
         loss_profile = "terminal",
-        reads = {"calm", "boundary.validations", "runtime.camera.reconciliations", "runtime.evidence", "budget", "loss"},
+        reads = {"calm", "boundary.validations", "runtime.camera.reconciliations", "runtime.evidence", "budget", "loss", "regime.work", "plan.completion_assessment"},
         writes = {"manifest", "terminal", "residue"},
         readiness = function(instance, context)
-            local options = main_options(context)
-            options = setmetatable({result = context and context.result}, {__index = options})
-            return manifest.readiness(instance, options)
+            return manifest.readiness(instance, merged_options(context, "manifest"))
         end,
         run = function(instance, context)
-            local options = main_options(context)
-            options = setmetatable({result = context and context.result}, {__index = options})
-            return unwrap(manifest.run(instance, options))
+            return unwrap(manifest.run(instance, merged_options(context, "manifest")))
         end,
     },
 }
