@@ -3,6 +3,7 @@ local registry = require("runtime.operator_registry")
 local pressure = require("runtime.pressure")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
+local pressure_composition = require("runtime.pressure_composition")
 
 local tree_router = {
     policy = "pressure.binary.v0",
@@ -88,6 +89,9 @@ end
 function tree_router.candidates(instance, snapshot, context)
     if type(instance) ~= "table" then
         return nil, "packet instance required"
+    end
+    if type(snapshot) == "table" and snapshot.kind == "qualified_pressure_snapshot" then
+        return pressure_composition.candidates(instance, snapshot, context)
     end
     if type(snapshot) ~= "table" or snapshot.kind ~= "edge_pressure_snapshot" then
         return nil, "pressure snapshot required"
@@ -253,6 +257,14 @@ function tree_router.select(instance, candidates, options)
 end
 
 function tree_router.predict(instance, snapshot, context)
+    if type(snapshot) == "table" and snapshot.kind == "qualified_pressure_snapshot" then
+        local qualified_context = {}
+        for key, value in pairs(context or {}) do
+            qualified_context[key] = value
+        end
+        qualified_context.composition = context and context.tree or {}
+        return pressure_composition.predict(instance, snapshot, qualified_context)
+    end
     local candidates, candidate_err = tree_router.candidates(instance, snapshot, context)
     if not candidates then
         return nil, candidate_err

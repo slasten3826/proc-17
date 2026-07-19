@@ -1,8 +1,15 @@
 local cycle = require("logic.cycle")
 local packet_core = require("core.packet")
+local field = require("runtime.field")
 local object_coverage = require("runtime.object_coverage")
 
 local body = {}
+
+local upper_sensor_classes = {
+    semantic = {semantic = true, material = true},
+    field_native = {material = true},
+    relation_native = {relation = true, material = true},
+}
 
 local eye_specs = {
     upper = {
@@ -128,6 +135,53 @@ local function eye_spec(eye)
     return eye_specs[eye], eye
 end
 
+local function upper_observation_contract(input)
+    local payload = input.payload or {}
+    local sensor = input.sensor or payload.sensor
+    if sensor == nil then
+        if payload.kind == "field_native_observation" then
+            sensor = "field_native"
+        elseif payload.kind == "relation_native_observation" then
+            sensor = "relation_native"
+        else
+            sensor = "semantic"
+        end
+    end
+    if not upper_sensor_classes[sensor] then
+        return nil, "invalid upper observation sensor"
+    end
+    local classes = input.observation_classes
+    if classes == nil then
+        if sensor == "field_native" then
+            classes = {"material"}
+        elseif sensor == "relation_native" then
+            classes = {"relation"}
+        else
+            classes = {"semantic"}
+        end
+    end
+    if type(classes) ~= "table" or #classes == 0 then
+        return nil, "upper observation classes must be a non-empty table"
+    end
+    local normalized = {}
+    local seen = {}
+    for _, class in ipairs(classes) do
+        if type(class) ~= "string" or not upper_sensor_classes[sensor][class] then
+            return nil, "upper observation sensor/class mismatch"
+        end
+        if seen[class] then
+            return nil, "duplicate upper observation class"
+        end
+        seen[class] = true
+        normalized[#normalized + 1] = class
+    end
+    table.sort(normalized)
+    return {
+        sensor = sensor,
+        observation_classes = normalized,
+    }
+end
+
 function body.revision_snapshot(instance, eye, components)
     local spec, normalized_eye = eye_spec(eye)
     if not spec then
@@ -174,6 +228,14 @@ function body.record_observation(instance, eye, input)
         return nil, lease_err
     end
     input = input or {}
+    local upper_contract
+    if normalized_eye == "upper" then
+        local contract_err
+        upper_contract, contract_err = upper_observation_contract(input)
+        if not upper_contract then
+            return nil, contract_err
+        end
+    end
 
     for _, item in ipairs({
         {input.scope_refs, "observation scope_refs"},
@@ -248,6 +310,10 @@ function body.record_observation(instance, eye, input)
         fidelity = input.fidelity or "bounded",
         tick = instance.physis and instance.physis.clock and instance.physis.clock.ticks or 0,
     }
+    if upper_contract then
+        record.sensor = upper_contract.sensor
+        record.observation_classes = copy_array(upper_contract.observation_classes)
+    end
 
     local event, event_err = packet_core.append_event(instance, {
         type = "observation",
@@ -265,6 +331,106 @@ function body.record_observation(instance, eye, input)
     end
     records[#records + 1] = copy_value(record)
     return copy_value(record), event
+end
+
+function body.commit_upper_observation(instance, input)
+    input = input or {}
+    if input.sensor ~= "semantic" then
+        return nil, "upper observation commit v0 requires semantic sensor"
+    end
+    local contract, contract_err = upper_observation_contract(input)
+    if not contract then
+        return nil, contract_err
+    end
+    if type(input.planned_unit_id) ~= "string" or input.planned_unit_id == "" then
+        return nil, "upper observation planned_unit_id required"
+    end
+    if type(input.sensor_output) ~= "table" then
+        return nil, "upper observation sensor_output required"
+    end
+    local planned_ids, planned_err = field.plan_unit_ids(instance, 1)
+    if not planned_ids then
+        return nil, planned_err
+    end
+    if planned_ids[1] ~= input.planned_unit_id then
+        return nil, "upper observation planned unit is stale"
+    end
+
+    local unit_input = copy_value(input.sensor_output)
+    unit_input.id = input.planned_unit_id
+    unit_input.created_event_id = nil
+    local planned_unit, unit_plan_err = field.validate_unit_plan(
+        instance,
+        "☴",
+        unit_input,
+        {pending_created_event = true}
+    )
+    if not planned_unit then
+        return nil, unit_plan_err
+    end
+
+    local read_units_ok, read_units_err = object_coverage.validate(input.read_units)
+    if not read_units_ok or input.read_units.domain ~= "upper_observation" then
+        return nil, read_units_err or "semantic observation requires upper unit coverage"
+    end
+    local merged_entries = copy_value(input.read_units.entries)
+    for _, entry in ipairs(merged_entries) do
+        if entry.object_id == input.planned_unit_id then
+            return nil, "semantic observation output is already present in input coverage"
+        end
+    end
+    merged_entries[#merged_entries + 1] = {
+        object_kind = "field_unit",
+        object_id = planned_unit.id,
+        version = 1,
+        activation_at_coverage = planned_unit.activation,
+        source_ref = planned_unit.id,
+        content_truth_status = planned_unit.content_truth_status,
+    }
+    local committed_coverage, coverage_err = object_coverage.capture(merged_entries, {
+        domain = "upper_observation",
+        policy_id = input.read_units.policy_id,
+        total_count = input.read_units.total_count + 1,
+        global_revision = instance.revisions.potential + 1,
+    })
+    if not committed_coverage then
+        return nil, coverage_err
+    end
+
+    local observation_input = copy_value(input)
+    observation_input.sensor_output = nil
+    observation_input.planned_unit_id = nil
+    observation_input.read_units = committed_coverage
+    observation_input.sensor_output_refs = copy_array(input.sensor_output_refs or {})
+    local output_named = false
+    for _, ref in ipairs(observation_input.sensor_output_refs) do
+        if ref == planned_unit.id then
+            output_named = true
+        end
+    end
+    if not output_named then
+        observation_input.sensor_output_refs[#observation_input.sensor_output_refs + 1] = planned_unit.id
+    end
+
+    local observation, observation_event = body.record_observation(
+        instance,
+        "upper",
+        observation_input
+    )
+    if not observation then
+        return nil, observation_event
+    end
+
+    unit_input.created_event_id = observation.trace_event_id
+    local unit, unit_err = field.add_unit(instance, "☴", unit_input)
+    if not unit then
+        error("invariant_failure: semantic observation unit commit failed: "
+            .. tostring(unit_err))
+    end
+    if unit.id ~= planned_unit.id or unit.version ~= 1 then
+        error("invariant_failure: semantic observation unit commit diverged from plan")
+    end
+    return observation, unit
 end
 
 function body.latest_observation(instance, eye)

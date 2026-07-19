@@ -1,8 +1,25 @@
 local packet_core = require("core.packet")
 local field = require("runtime.field")
 local object_coverage = require("runtime.object_coverage")
+local relation_inspection = require("runtime.relation_inspection")
 
 local connect = {}
+
+local function exact_versions(instance, configured)
+    if configured == nil then
+        return true
+    end
+    if type(configured) ~= "table" then
+        return nil, "CONNECT unit_versions must be table"
+    end
+    for id, version in pairs(configured) do
+        local unit = field.get_unit(instance, id)
+        if not unit or unit.version ~= version then
+            return nil, "CONNECT qualified unit version is stale"
+        end
+    end
+    return true
+end
 
 local function bounds(options)
     local configured = options and options.bounds or {}
@@ -18,13 +35,6 @@ local function bounds(options)
         max_units = max_units,
         max_relations = max_relations,
     }
-end
-
-local function content_truth(left, right)
-    if left == right then
-        return left or "unknown"
-    end
-    return "mixed"
 end
 
 local function relations_truth(relations)
@@ -58,72 +68,6 @@ local function copy_candidate(candidate)
     }
 end
 
-local function projection_candidates(instance, units)
-    local by_key = {}
-    for _, unit in ipairs(units) do
-        local migration = unit.migration or {}
-        if migration.status == "vertical_fixture_only"
-            and type(migration.projection_key) == "string" then
-            by_key[migration.projection_key] = unit
-        end
-    end
-    local candidates = {}
-    local projection = instance.ingress and instance.ingress.l1_projection
-    for _, declared in ipairs(projection and projection.relation_candidates or {}) do
-        local from = by_key[declared.from_key]
-        local to = by_key[declared.to_key]
-        if from and to and from.id ~= to.id then
-            local domain_event_ref = from.source_refs and from.source_refs[1]
-                or to.source_refs and to.source_refs[1]
-            candidates[#candidates + 1] = {
-                from = from.id,
-                to = to.id,
-                kind = declared.kind,
-                confidence = 1.0,
-                source_refs = {from.id, to.id, domain_event_ref},
-                event_truth_status = "runtime_confirmed",
-                content_truth_status = "non_semantic_measurement",
-            }
-        end
-    end
-    return candidates
-end
-
-local function structural_candidates(instance, units)
-    local candidates = {}
-    local by_legacy_id = {}
-    for _, unit in ipairs(units) do
-        local migration = unit.migration or {}
-        if migration.legacy_id ~= nil then
-            by_legacy_id[tostring(migration.legacy_id)] = unit
-        end
-    end
-
-    for _, unit in ipairs(units) do
-        local carrier = unit.carrier
-        local parent_legacy_id = type(carrier) == "table" and carrier.parent_id or nil
-        local parent = parent_legacy_id and by_legacy_id[tostring(parent_legacy_id)] or nil
-        if parent and parent.id ~= unit.id then
-            candidates[#candidates + 1] = {
-                from = parent.id,
-                to = unit.id,
-                kind = "contains",
-                confidence = 1.0,
-                source_refs = {parent.id, unit.id, unit.created_event_id},
-                event_truth_status = "runtime_confirmed",
-                content_truth_status = content_truth(
-                    parent.content_truth_status,
-                    unit.content_truth_status
-                ),
-            }
-        end
-    end
-    for _, candidate in ipairs(projection_candidates(instance, units)) do
-        candidates[#candidates + 1] = candidate
-    end
-    return candidates
-end
-
 local function unit_view(instance, options, resolved_bounds)
     local kinds = options.kinds
     if kinds == nil and instance.ingress
@@ -147,6 +91,18 @@ end
 
 function connect.readiness(instance, options)
     options = options or {}
+    local versions_ok, versions_err = exact_versions(instance, options.unit_versions)
+    if not versions_ok then
+        return {
+            operator = "☰",
+            ready = false,
+            reason = versions_err,
+            source_refs = {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     local resolved_bounds, bounds_err = bounds(options)
     if not resolved_bounds then
         return nil, bounds_err
@@ -162,25 +118,18 @@ function connect.readiness(instance, options)
     local exact_probe = instance.ingress
         and instance.ingress.integration_protocol == "vertical_packet_life.v0"
     if exact_probe then
-        local policy_id = options.policy_id or "connect.structural.v1"
-        local entries, meta = field.coverage_domain(instance, "relation", {
-            limit = resolved_bounds.max_units,
-            unit_ids = source_refs,
+        local derived, derive_err = relation_inspection.derive(instance, {
+            policy_id = options.policy_id or "connect.structural.v1",
+            bounds = resolved_bounds,
+            unit_ids = options.unit_ids,
+            activation = options.activation,
+            kinds = options.kinds,
         })
-        if not entries then
-            return nil, meta
+        if not derived then
+            return nil, derive_err
         end
-        local raw = instance.field and instance.field.relations
-            and instance.field.relations.raw or {}
-        local delta, delta_err = object_coverage.diff(raw.object_coverage, entries, {
-            domain = "relation",
-            policy_id = policy_id,
-            current_omitted_count = meta.omitted_count,
-            departed_is_change = false,
-        })
-        if not delta then
-            return nil, delta_err
-        end
+        local meta = derived.coverage_meta
+        local delta = derived.coverage_delta
         local ready = meta.total_count > 0 and delta.changed_count > 0
         return {
             operator = "☰",
@@ -192,9 +141,13 @@ function connect.readiness(instance, options)
             missing_capabilities = {},
             field_revision = view.source_revision,
             coverage_delta = delta,
-            probe_policy_id = policy_id,
+            probe_policy_id = derived.policy_id,
+            inspection_id = derived.inspection_id,
+            candidate_count = #derived.candidates,
+            candidate_delta = derived.candidate_delta,
+            qualification_status = derived.qualification_status,
             event_truth_status = "runtime_confirmed",
-        }, view, resolved_bounds, entries, meta
+        }, derived, resolved_bounds
     end
     return {
         operator = "☰",
@@ -218,7 +171,7 @@ function connect.run(instance, options)
         and instance.ingress.integration_protocol == "vertical_packet_life.v0" then
         return nil, "vertical CONNECT rejects caller-injected relation candidates"
     end
-    local witness, view_or_err, resolved_bounds, coverage_entries, coverage_meta = connect.readiness(instance, options)
+    local witness, view_or_err, resolved_bounds = connect.readiness(instance, options)
     if not witness then
         return nil, view_or_err
     end
@@ -239,7 +192,45 @@ function connect.run(instance, options)
             detected[#detected + 1] = copy_candidate(candidate)
         end
     else
-        detected = structural_candidates(instance, view.units)
+        if witness.inspection_id then
+            local execution_inspection, inspection_err = relation_inspection.derive(instance, {
+                policy_id = witness.probe_policy_id,
+                bounds = resolved_bounds,
+                unit_ids = options.unit_ids,
+                activation = options.activation,
+                kinds = options.kinds,
+            })
+            if not execution_inspection then
+                return nil, inspection_err
+            end
+            if not relation_inspection.same(view, execution_inspection) then
+                return nil, "relation inspection changed before CONNECT execution"
+            end
+            view = execution_inspection
+            for _, candidate in ipairs(execution_inspection.candidates) do
+                detected[#detected + 1] = copy_candidate(candidate)
+                detected[#detected].predicate_id = candidate.predicate_id
+                detected[#detected].provenance_refs = candidate.provenance_refs
+                detected[#detected].promotion_source = candidate.promotion_source
+            end
+        else
+            local legacy_inspection, inspection_err = relation_inspection.derive(instance, {
+                policy_id = options.policy_id or "connect.structural.v1",
+                bounds = resolved_bounds,
+                unit_ids = options.unit_ids,
+                activation = options.activation,
+                kinds = options.kinds,
+            })
+            if not legacy_inspection then
+                return nil, inspection_err
+            end
+            for _, candidate in ipairs(legacy_inspection.candidates) do
+                detected[#detected + 1] = copy_candidate(candidate)
+                detected[#detected].predicate_id = candidate.predicate_id
+                detected[#detected].provenance_refs = candidate.provenance_refs
+                detected[#detected].promotion_source = candidate.promotion_source
+            end
+        end
     end
 
     local recorded = {}
@@ -250,12 +241,18 @@ function connect.run(instance, options)
         recorded[#recorded + 1] = candidate
     end
     local source_refs = {}
-    for _, unit in ipairs(view.units) do
-        source_refs[#source_refs + 1] = unit.id
+    if view.unit_ids then
+        for _, ref in ipairs(view.unit_ids) do
+            source_refs[#source_refs + 1] = ref
+        end
+    else
+        for _, unit in ipairs(view.units or {}) do
+            source_refs[#source_refs + 1] = unit.id
+        end
     end
     local probe_policy
     local captured_coverage
-    if coverage_entries then
+    if witness.inspection_id then
         probe_policy = {
             policy_id = witness.probe_policy_id,
             policy_version = 1,
@@ -265,11 +262,11 @@ function connect.run(instance, options)
             },
         }
         local capture_err
-        captured_coverage, capture_err = object_coverage.capture(coverage_entries, {
+        captured_coverage, capture_err = object_coverage.capture(view.coverage_entries, {
             domain = "relation",
             policy_id = probe_policy.policy_id,
-            total_count = coverage_meta.total_count,
-            global_revision = coverage_meta.global_revision,
+            total_count = view.coverage_meta.total_count,
+            global_revision = view.coverage_meta.global_revision,
         })
         if not captured_coverage then
             return nil, capture_err
@@ -277,15 +274,19 @@ function connect.run(instance, options)
     end
     local snapshot, snapshot_err = field.snapshot_raw_relations(instance, "☰", {
         items = recorded,
-        source_revision = view.source_revision,
+        source_revision = witness.inspection_id
+            and view.source_potential_revision or view.source_revision,
         source_refs = source_refs,
         coverage = {
-            units_available = view.total_count,
-            units_considered = #view.units,
+            units_available = witness.inspection_id
+                and view.coverage_meta.total_count or view.total_count,
+            units_considered = witness.inspection_id
+                and #view.coverage_entries or #view.units,
             candidates_detected = #detected,
             relations_recorded = #recorded,
             omitted_relations = math.max(0, #detected - #recorded),
-            truncated_units = view.truncated,
+            truncated_units = witness.inspection_id
+                and view.coverage_meta.truncated or view.truncated,
         },
         probe_policy = probe_policy,
         object_coverage = captured_coverage,
@@ -302,9 +303,11 @@ function connect.run(instance, options)
         reason = #recorded > 0 and "relations_recognized" or "no_relation_candidates",
         outcome = #recorded > 0 and "relations_recorded" or "empty_snapshot",
         readiness = witness,
+        inspection_id = witness.inspection_id,
         reads = {
             unit_ids = source_refs,
-            potential_revision = view.source_revision,
+            potential_revision = witness.inspection_id
+                and view.source_potential_revision or view.source_revision,
         },
         writes = {
             raw_epoch = snapshot.epoch,
@@ -327,6 +330,7 @@ function connect.run(instance, options)
             amount = 0,
         },
         trace_event_id = snapshot.trace_event_id,
+        effect_scope_refs = witness.source_refs,
         event_truth_status = "runtime_confirmed",
         content_truth_status = snapshot.content_truth_status,
     }

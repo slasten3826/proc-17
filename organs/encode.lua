@@ -22,6 +22,7 @@ local function relation_scope(instance, input)
     local endpoint_ids = {}
     local endpoint_seen = {}
     local source_refs = {}
+    local scope_refs = {}
     local content_status
     for _, relation_id in ipairs(input.relation_ids) do
         local relation, relation_err = field.raw_relation_exact(
@@ -46,11 +47,13 @@ local function relation_scope(instance, input)
         end
         relations[#relations + 1] = relation
         source_refs[#source_refs + 1] = relation.id
+        scope_refs[#scope_refs + 1] = relation.id
         if relation.origin_event_id then
             source_refs[#source_refs + 1] = relation.origin_event_id
         end
         for endpoint, version in pairs(relation.endpoint_versions or {}) do
             source_refs[#source_refs + 1] = exact_ref(endpoint, version)
+            scope_refs[#scope_refs + 1] = exact_ref(endpoint, version)
             if not endpoint_seen[endpoint] then
                 endpoint_seen[endpoint] = true
                 endpoint_ids[#endpoint_ids + 1] = endpoint
@@ -69,6 +72,7 @@ local function relation_scope(instance, input)
         relations = relations,
         endpoint_ids = endpoint_ids,
         source_refs = source_refs,
+        scope_refs = scope_refs,
         content_truth_status = content_status or "unknown",
     }
 end
@@ -81,7 +85,7 @@ function encode.readiness(instance, options)
             operator = "☵",
             ready = scope ~= nil,
             reason = scope and "relation_formation_ready" or scope_err,
-            source_refs = scope and scope.source_refs or {},
+            source_refs = scope and scope.scope_refs or {},
             required_capabilities = {},
             missing_capabilities = {},
             event_truth_status = "runtime_confirmed",
@@ -283,6 +287,7 @@ local function relation_guided_run(instance, options)
         relation_formation = formation,
         identity_map = identity_map,
         trace_event_id = crystallization_event.id,
+        effect_scope_refs = scope.scope_refs,
         formation_event_id = formation_event.id,
         field_shadow = {
             status = "formed",

@@ -149,6 +149,7 @@ local function new_observer(observer_id, observed_authority)
         divergence_count = 0,
         no_prediction_count = 0,
         unavailable_count = 0,
+        outcome_counts = {},
     }
 end
 
@@ -354,6 +355,7 @@ function edge_stats.new(labels)
         comparison_count = 0,
         tree_derivation_count = 0,
         tree_no_viable_count = 0,
+        tree_outcome_counts = {},
         observers = {
             tree = new_observer("tree", "legacy_control"),
             legacy = new_observer("legacy", "tree"),
@@ -419,6 +421,9 @@ function edge_stats.record(stats, shadow)
     if shadow.instrumentation_status == "unavailable" then
         observer.unavailable_count = observer.unavailable_count + 1
     end
+    local prediction_outcome = shadow.prediction_outcome
+        or (shadow.predicted_to ~= nil and "selected" or "no_prediction")
+    increment_reason(observer.outcome_counts, prediction_outcome)
 
     if observer_id == "tree" then
         local recorded, record_err = record_candidates(
@@ -458,6 +463,10 @@ function edge_stats.record_tree_derivation(stats, decision)
     if decision.kind == "no_viable_edge" then
         stats.tree_no_viable_count = stats.tree_no_viable_count + 1
     end
+    increment_reason(
+        stats.tree_outcome_counts,
+        decision.kind == "tree_route_decision" and "selected" or decision.kind
+    )
     local recorded, record_err = record_candidates(
         stats,
         decision.from,
@@ -574,6 +583,7 @@ function edge_stats.summary(stats)
         comparison_count = stats.comparison_count,
         tree_derivation_count = stats.tree_derivation_count,
         tree_no_viable_count = stats.tree_no_viable_count,
+        tree_outcome_counts = stats.tree_outcome_counts,
         observers = stats.observers,
         truth_status = "runtime_confirmed",
     }
@@ -698,7 +708,10 @@ function edge_stats.merge(target, source)
             target_observer[key] = (target_observer[key] or 0)
                 + (source_observer[key] or 0)
         end
+        merge_counts(target_observer.outcome_counts, source_observer.outcome_counts)
     end
+
+    merge_counts(target.tree_outcome_counts, source.tree_outcome_counts)
 
     for _, edge in ipairs(target.edge_order) do
         local into = target.edges[edge]

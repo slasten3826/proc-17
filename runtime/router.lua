@@ -280,14 +280,17 @@ local function selected_candidate(prediction)
 end
 
 local function record_derivation(instance, snapshot, prediction)
+    local selected = selected_candidate(prediction)
     local payload = {
         kind = "route_derivation",
         current_operator = snapshot.current_operator,
         pressure_snapshot_ref = snapshot.trace_event_id,
         candidates = prediction.candidates or {},
         outcome = prediction.kind == "tree_route_decision"
-            and "selected" or "no_viable_edge",
+            and "selected" or prediction.kind,
         selected_to = prediction.to,
+        selected_action_plan_id = selected and selected.action_plan
+            and selected.action_plan.plan_id or nil,
         no_viable_cause = prediction.kind == "no_viable_edge"
             and prediction.cause or nil,
         policy = prediction.policy,
@@ -336,7 +339,7 @@ local function derive_tree_authority(instance, tick, options)
         return nil, derivation_err
     end
 
-    if prediction.kind == "no_viable_edge" then
+    if prediction.kind ~= "tree_route_decision" then
         prediction.from = snapshot.current_operator
         prediction.authority = "tree"
         prediction.derivation_ref = derivation_event.id
@@ -358,6 +361,8 @@ local function derive_tree_authority(instance, tick, options)
         derivation_ref = derivation_event.id,
         pressure_snapshot_ref = snapshot.trace_event_id,
         selected_candidate = selected,
+        selected_action_plan_id = selected.action_plan
+            and selected.action_plan.plan_id or nil,
         candidates = prediction.candidates or {},
         policy = prediction.policy,
         policy_status = prediction.policy_status,
@@ -417,7 +422,7 @@ local function derive_shadow(instance, tick, live, options)
     local agreement = predicted_to ~= nil and predicted_to == live.to
     local divergence
     if predicted_to == nil then
-        divergence = "no_viable_edge:" .. tostring(prediction.cause)
+        divergence = tostring(prediction.kind) .. ":" .. tostring(prediction.cause)
     elseif not agreement then
         divergence = "live:" .. tostring(live.to) .. "/shadow:" .. tostring(predicted_to)
     end
@@ -429,14 +434,16 @@ local function derive_shadow(instance, tick, live, options)
         candidates = prediction.candidates or {},
         predicted_to = predicted_to,
         predicted_reason = prediction.reason or prediction.cause,
+        prediction_outcome = prediction.kind == "tree_route_decision"
+            and "selected" or prediction.kind,
         live_to = live.to,
         agreement = agreement,
         divergence = divergence,
         instrumentation_status = "observed",
-        no_viable_edge = prediction.kind == "no_viable_edge" and prediction or nil,
+        no_viable_edge = prediction.kind ~= "tree_route_decision" and prediction or nil,
         pressure_snapshot_ref = snapshot.trace_event_id,
-        policy = tree_router.policy,
-        policy_status = tree_router.policy_status,
+        policy = prediction.policy or tree_router.policy,
+        policy_status = prediction.policy_status or tree_router.policy_status,
         truth_status = "runtime_confirmed",
     }
 end

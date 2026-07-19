@@ -231,7 +231,8 @@ function field.plan_identity_map_id(instance)
     return "identity_map:" .. tostring(#root_value.identity_maps + 1)
 end
 
-function field.add_unit(instance, actor, input)
+function field.validate_unit_plan(instance, actor, input, options)
+    options = options or {}
     local mutable, mutable_err = packet_core.assert_mutable(instance, "add field unit")
     if not mutable then
         return nil, mutable_err
@@ -279,16 +280,22 @@ function field.add_unit(instance, actor, input)
     if not activations[activation] then
         return nil, "invalid field unit activation"
     end
-    if type(input.created_event_id) ~= "string" or input.created_event_id == "" then
-        return nil, "field unit created_event_id is required"
-    end
-    local creation_event, creation_err = packet_core.event_in_current_tick(
-        instance,
-        glyph,
-        input.created_event_id
-    )
-    if not creation_event then
-        return nil, creation_err
+    if options.pending_created_event == true then
+        if input.created_event_id ~= nil then
+            return nil, "pending field unit plan cannot claim created_event_id"
+        end
+    else
+        if type(input.created_event_id) ~= "string" or input.created_event_id == "" then
+            return nil, "field unit created_event_id is required"
+        end
+        local creation_event, creation_err = packet_core.event_in_current_tick(
+            instance,
+            glyph,
+            input.created_event_id
+        )
+        if not creation_event then
+            return nil, creation_err
+        end
     end
 
     local expected_id = next_unit_id(root_value)
@@ -296,7 +303,7 @@ function field.add_unit(instance, actor, input)
         return nil, "field unit id does not match next deterministic id"
     end
 
-    local unit = {
+    return {
         id = expected_id,
         kind = input.kind,
         carrier = copy_value(input.carrier),
@@ -310,6 +317,17 @@ function field.add_unit(instance, actor, input)
         generation = instance.generation,
         version = 1,
     }
+end
+
+function field.add_unit(instance, actor, input)
+    local unit, unit_err = field.validate_unit_plan(instance, actor, input)
+    if not unit then
+        return nil, unit_err
+    end
+    local root_value, root_err = root(instance)
+    if not root_value then
+        return nil, root_err
+    end
     if input.density ~= nil then
         unit.density = input.density
     end
@@ -428,6 +446,19 @@ local function validate_relation_candidate(root_value, candidate, planned_id)
     if candidate.event_truth_status ~= nil and candidate.event_truth_status ~= "runtime_confirmed" then
         return nil, "relation detection event must be runtime-confirmed"
     end
+    if candidate.predicate_id ~= nil
+        and (type(candidate.predicate_id) ~= "string" or candidate.predicate_id == "") then
+        return nil, "relation predicate_id must be non-empty string"
+    end
+    if candidate.provenance_refs ~= nil then
+        local provenance_ok, provenance_err = validate_source_refs(
+            candidate.provenance_refs,
+            true
+        )
+        if not provenance_ok then
+            return nil, provenance_err
+        end
+    end
     if not valid_content_status(candidate.content_truth_status or "unknown") then
         return nil, "invalid relation content truth status"
     end
@@ -441,6 +472,9 @@ local function validate_relation_candidate(root_value, candidate, planned_id)
         confidence = candidate.confidence,
         state = "raw",
         source_refs = copy_array(candidate.source_refs),
+        predicate_id = candidate.predicate_id,
+        provenance_refs = copy_array(candidate.provenance_refs),
+        promotion_source = candidate.promotion_source,
         event_truth_status = candidate.event_truth_status or "runtime_confirmed",
         content_truth_status = candidate.content_truth_status or "unknown",
         observed_tick = candidate.observed_tick,

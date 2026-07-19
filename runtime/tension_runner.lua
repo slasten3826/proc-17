@@ -9,6 +9,7 @@ local loss = require("runtime.loss")
 local grave = require("runtime.grave")
 local camera = require("runtime.camera")
 local freshness = require("runtime.freshness")
+local pressure_action = require("runtime.pressure_action")
 
 local tension_runner = {}
 
@@ -46,6 +47,27 @@ local function operator_context(substrate, options, result)
         options = options,
         result = result,
     }
+end
+
+local function arrival_context(instance, operator, pending_arrival, substrate, options, result)
+    local base = operator_context(substrate, options, result)
+    local selected = pending_arrival and pending_arrival.selected_candidate
+    local plan = selected and selected.action_plan
+    if plan == nil then
+        return base, nil
+    end
+    if pending_arrival.to ~= operator or plan.target_operator ~= operator then
+        return nil, "qualified action target does not match committed arrival"
+    end
+    if pending_arrival.selected_action_plan_id ~= plan.plan_id then
+        return nil, "qualified action plan id does not match committed arrival"
+    end
+    base.instance = instance
+    local context, context_err = pressure_action.registry_context(plan, base)
+    if not context then
+        return nil, context_err
+    end
+    return context, plan
 end
 
 local function charge_substrate_usage(instance, observe_payload)
@@ -229,7 +251,15 @@ local function commit_route(instance, result, route, include_in_routes)
     if not recorded then
         note_stats_error(result, stats_err)
     end
-    return route
+    local committed_arrival = route_event.payload
+    committed_arrival.trace_event_id = route_event.id
+    committed_arrival.truth_status = route_event.truth_status
+    return route, committed_arrival
+end
+
+local function is_committable_route(value)
+    return type(value) == "table"
+        and (value.kind == "route_decision" or value.kind == "tree_route_decision")
 end
 
 local function die_from_no_viable(instance, result, outcome)
@@ -375,7 +405,7 @@ function tension_runner.run(prompt, substrate, options)
         if not derived_entry then
             return nil, stage_error("entry", derived_err)
         end
-        if derived_entry.kind == "no_viable_edge" then
+        if not is_committable_route(derived_entry) then
             result.entry_derivation = derived_entry
             local dead, death_err = die_from_no_viable(instance, result, derived_entry)
             if not dead then
@@ -397,16 +427,21 @@ function tension_runner.run(prompt, substrate, options)
         }
     end
 
-    local committed_entry, entry_err = commit_route(instance, result, entry_decision, false)
+    local committed_entry, entry_arrival_or_err = commit_route(
+        instance,
+        result,
+        entry_decision,
+        false
+    )
     if not committed_entry then
-        return nil, stage_error("entry", entry_err)
+        return nil, stage_error("entry", entry_arrival_or_err)
     end
     result.entry_route = entry_decision
     result.final_status = instance.status
 
     local current = instance.operator
     local max_ticks = options.max_ticks or default_max_ticks(instance)
-    local pending_arrival = entry_decision
+    local pending_arrival = entry_arrival_or_err
 
     while #result.ticks < max_ticks do
         local revisions_before, revisions_err = camera.revision_snapshot(instance)
@@ -422,6 +457,18 @@ function tension_runner.run(prompt, substrate, options)
             and instance.runtime.budget.events or {}) + 1
         local loss_event_start = #(instance.tension and instance.tension.loss_events or {}) + 1
 
+        local execution_context, committed_plan_or_err = arrival_context(
+            instance,
+            current,
+            pending_arrival,
+            substrate,
+            options,
+            result
+        )
+        if not execution_context then
+            return nil, stage_error("qualified_action", committed_plan_or_err)
+        end
+        local committed_plan = committed_plan_or_err
         local tick_event, tick_err = packet_core.begin_tick(instance, current, {})
         if not tick_event then
             return nil, stage_error("tick", tick_err)
@@ -429,7 +476,7 @@ function tension_runner.run(prompt, substrate, options)
         local execution, err = operator_registry.execute(
             current,
             instance,
-            operator_context(substrate, options, result)
+            execution_context
         )
         if not execution then
             return nil, stage_error(current, err)
@@ -547,6 +594,22 @@ function tension_runner.run(prompt, substrate, options)
 
         local payload = execution.payload
         local readiness = execution.readiness
+        if committed_plan then
+            local readiness_ok, readiness_err = pressure_action.verify_readiness(
+                committed_plan,
+                readiness
+            )
+            if not readiness_ok then
+                return nil, stage_error("qualified_action", readiness_err)
+            end
+            local effect_ok, effect_err = pressure_action.verify_effect(
+                committed_plan,
+                payload
+            )
+            if not effect_ok then
+                return nil, stage_error("qualified_action", effect_err)
+            end
+        end
 
         local result_tick = append_tick(result, current, payload)
         result_tick.trace_event_id = tick_event.id
@@ -642,7 +705,7 @@ function tension_runner.run(prompt, substrate, options)
             return nil, stage_error("router", route_err)
         end
 
-        if route.kind == "no_viable_edge" then
+        if not is_committable_route(route) then
             local dead, death_err = die_from_no_viable(instance, result, route)
             if not dead then
                 return nil, stage_error("router", death_err)
@@ -650,11 +713,11 @@ function tension_runner.run(prompt, substrate, options)
             return instance, result
         end
 
-        local committed, commit_err = commit_route(instance, result, route)
+        local committed, committed_arrival_or_err = commit_route(instance, result, route)
         if not committed then
-            return nil, stage_error("route", commit_err)
+            return nil, stage_error("route", committed_arrival_or_err)
         end
-        pending_arrival = route
+        pending_arrival = committed_arrival_or_err
         current = instance.operator
     end
 

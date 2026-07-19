@@ -1,4 +1,5 @@
 local packet_core = require("core.packet")
+local json = require("core.json")
 local body = require("runtime.body")
 local field = require("runtime.field")
 local object_coverage = require("runtime.object_coverage")
@@ -7,6 +8,10 @@ local substrate_contract = require("substrates.contract")
 
 local observe = {}
 local ingress_refs
+
+local function exact_ref(id, version)
+    return table.concat({"coverage", "field_unit", id, tostring(version)}, ":")
+end
 
 local function relation_input(options)
     local input = options and options.relation_input
@@ -23,6 +28,7 @@ local function relation_native_scope(instance, input)
     local endpoint_ids = {}
     local endpoint_seen = {}
     local source_refs = {}
+    local scope_refs = {}
     for _, relation_id in ipairs(input.relation_ids) do
         local relation, relation_err = field.raw_relation_exact(
             instance,
@@ -46,6 +52,7 @@ local function relation_native_scope(instance, input)
             phase = phase,
         }
         source_refs[#source_refs + 1] = relation.id
+        scope_refs[#scope_refs + 1] = relation.id
         if relation.origin_event_id then
             source_refs[#source_refs + 1] = relation.origin_event_id
         end
@@ -54,12 +61,17 @@ local function relation_native_scope(instance, input)
                 endpoint_seen[endpoint] = true
                 endpoint_ids[#endpoint_ids + 1] = endpoint
             end
+            local version = relation.endpoint_versions and relation.endpoint_versions[endpoint]
+            if version then
+                scope_refs[#scope_refs + 1] = exact_ref(endpoint, version)
+            end
         end
     end
     return {
         relations = relations,
         endpoint_ids = endpoint_ids,
         source_refs = source_refs,
+        scope_refs = scope_refs,
     }
 end
 
@@ -92,6 +104,10 @@ local function field_native_scope(instance, options)
         if not unit then
             return nil, "field-native unit not found"
         end
+        if options.unit_versions ~= nil
+            and options.unit_versions[unit_id] ~= unit.version then
+            return nil, "field-native unit version is stale"
+        end
         entries[#entries + 1] = {
             object_kind = "field_unit",
             object_id = unit.id,
@@ -112,6 +128,47 @@ local function field_native_scope(instance, options)
         entries = entries,
         source_refs = refs,
         content_truth_status = content_status or "unknown",
+    }
+end
+
+local function qualified_semantic_scope(instance, options)
+    if type(options.qualified_action) ~= "table" then
+        return nil
+    end
+    if type(options.unit_ids) ~= "table" or #options.unit_ids == 0
+        or type(options.unit_versions) ~= "table" then
+        return nil, "qualified semantic OBSERVE requires exact unit scope"
+    end
+    local entries = {}
+    local refs = {}
+    local units = {}
+    local seen = {}
+    for _, id in ipairs(options.unit_ids) do
+        if type(id) ~= "string" or id == "" or seen[id] then
+            return nil, "qualified semantic OBSERVE requires unique unit ids"
+        end
+        seen[id] = true
+        local unit = field.get_unit(instance, id)
+        if not unit or unit.version ~= options.unit_versions[id] then
+            return nil, "qualified semantic unit version is stale"
+        end
+        entries[#entries + 1] = {
+            object_kind = "field_unit",
+            object_id = unit.id,
+            version = unit.version,
+            activation_at_coverage = unit.activation,
+            source_ref = unit.id,
+            content_truth_status = unit.content_truth_status,
+        }
+        refs[#refs + 1] = exact_ref(unit.id, unit.version)
+        units[#units + 1] = unit
+    end
+    table.sort(refs)
+    return {
+        entries = entries,
+        source_refs = refs,
+        unit_ids = options.unit_ids,
+        units = units,
     }
 end
 
@@ -166,6 +223,34 @@ function observe.readiness(instance, options)
         }, scope
     end
     if options.sensor ~= "relation_native" then
+        local qualified_scope, scope_err = qualified_semantic_scope(instance, options)
+        if scope_err then
+            return nil, scope_err
+        end
+        if qualified_scope then
+            local delta, delta_err = object_coverage.diff(
+                latest_unit_coverage(instance, "observe.semantic.v0"),
+                qualified_scope.entries,
+                {
+                    domain = "upper_observation",
+                    policy_id = "observe.semantic.v0",
+                }
+            )
+            if not delta then
+                return nil, delta_err
+            end
+            return {
+                operator = "☴",
+                ready = delta.changed_count > 0,
+                reason = delta.changed_count > 0
+                    and "semantic_version_delta" or "semantic_scope_current",
+                source_refs = object_coverage.source_refs(delta),
+                coverage_delta = delta,
+                required_capabilities = {"substrate.ask"},
+                missing_capabilities = {},
+                event_truth_status = "runtime_confirmed",
+            }, qualified_scope
+        end
         return {
             operator = "☴",
             ready = true,
@@ -247,7 +332,8 @@ function observe.readiness(instance, options)
         operator = "☴",
         ready = ready,
         reason = ready and "relation_native_unobserved" or "relation_native_current",
-        source_refs = object_coverage.source_refs(delta),
+        source_refs = options.qualified_action and scope.scope_refs
+            or object_coverage.source_refs(delta),
         required_capabilities = {},
         missing_capabilities = {},
         raw_epoch = input.raw_epoch,
@@ -326,6 +412,8 @@ function observe.run(instance, substrate, options)
             return nil, coverage_err
         end
         local observation, observation_err = body.record_observation(instance, "upper", {
+            sensor = "field_native",
+            observation_classes = {"material"},
             scope_refs = scope.source_refs,
             read_revisions = read_revisions,
             read_units = read_units,
@@ -356,6 +444,7 @@ function observe.run(instance, substrate, options)
             field_unit_id = nil,
             truth_status = "runtime_confirmed",
             content_truth_status = scope.content_truth_status,
+            effect_scope_refs = witness.source_refs,
         }
     end
     if options.sensor == "relation_native" then
@@ -405,6 +494,8 @@ function observe.run(instance, substrate, options)
             end
         end
         local observation, observation_err = body.record_observation(instance, "upper", {
+            sensor = "relation_native",
+            observation_classes = {"relation", "material"},
             scope_refs = witness.source_refs,
             read_revisions = read_revisions,
             read_units = read_units,
@@ -443,13 +534,24 @@ function observe.run(instance, substrate, options)
             field_unit_id = nil,
             truth_status = "runtime_confirmed",
             content_truth_status = content_status,
+            effect_scope_refs = witness.source_refs,
         }
     end
     if type(substrate) ~= "table" or type(substrate.ask) ~= "function" then
         return nil, "missing_substrate"
     end
 
-    local scope_refs = ingress_refs(instance)
+    local readiness, qualified_scope_or_err = observe.readiness(instance, options)
+    if not readiness then
+        return nil, qualified_scope_or_err
+    end
+    if not readiness.ready then
+        return nil, readiness.reason
+    end
+    local qualified_scope = type(options.qualified_action) == "table"
+        and qualified_scope_or_err or nil
+    local scope_refs = qualified_scope and readiness.source_refs or ingress_refs(instance)
+    local scope_unit_ids = qualified_scope and qualified_scope.unit_ids or scope_refs
     local read_revisions, revision_err = body.revision_snapshot(instance, "upper")
     if not read_revisions then
         return nil, revision_err
@@ -458,8 +560,59 @@ function observe.run(instance, substrate, options)
     if not planned_ids then
         return nil, planned_err
     end
+    local coverage_entries
+    local coverage_total
+    local coverage_revision
+    if qualified_scope then
+        coverage_entries = qualified_scope.entries
+        coverage_total = #coverage_entries
+        coverage_revision = instance.revisions.potential
+    else
+        local coverage_meta
+        coverage_entries, coverage_meta = field.coverage_domain(instance, "upper_observation", {
+            limit = 64,
+            unit_ids = scope_unit_ids,
+        })
+        if not coverage_entries then
+            return nil, coverage_meta
+        end
+        coverage_total = coverage_meta.total_count
+        coverage_revision = coverage_meta.global_revision
+    end
+    local input_coverage, coverage_err = object_coverage.capture(coverage_entries, {
+        domain = "upper_observation",
+        policy_id = "observe.semantic.v0",
+        total_count = coverage_total,
+        global_revision = coverage_revision,
+    })
+    if not input_coverage then
+        return nil, coverage_err
+    end
 
-    local call = build_call(instance, options)
+    local call_options = options
+    if qualified_scope and options.prompt_payload == nil then
+        local material = {}
+        for _, unit in ipairs(qualified_scope.units) do
+            if unit.kind ~= "user_prompt" and unit.kind ~= "network_carrier" then
+                material[#material + 1] = {
+                    id = unit.id,
+                    version = unit.version,
+                    kind = unit.kind,
+                    carrier = unit.carrier,
+                    content_truth_status = unit.content_truth_status,
+                }
+            end
+        end
+        if #material > 0 then
+            call_options = {}
+            for key, value in pairs(options) do
+                call_options[key] = value
+            end
+            call_options.prompt_payload = (instance.chaos and instance.chaos.raw_prompt or "")
+                .. "\n\n[qualified field scope]\n" .. json.encode(material)
+        end
+    end
+    local call = build_call(instance, call_options)
     local ok, err = substrate_contract.validate_call(call)
     if not ok then
         return nil, err
@@ -485,9 +638,12 @@ function observe.run(instance, substrate, options)
         truth_status = "semantic_proposal",
     })
 
-    local observation, observation_err = body.record_observation(instance, "upper", {
+    local observation, unit_or_err = body.commit_upper_observation(instance, {
+        sensor = "semantic",
+        observation_classes = {"semantic", "material"},
         scope_refs = scope_refs,
         read_revisions = read_revisions,
+        read_units = input_coverage,
         payload = {
             kind = "upper_eye_payload",
             call = call,
@@ -501,27 +657,23 @@ function observe.run(instance, substrate, options)
         sensor_output_refs = {planned_ids[1]},
         content_truth_status = "semantic_proposal",
         fidelity = "substrate_mediated",
-    })
-    if not observation then
-        return nil, observation_err
-    end
-
-    local unit, unit_err = field.add_unit(instance, "☴", {
-        id = planned_ids[1],
-        kind = "substrate_response",
-        carrier = normalized,
-        source_refs = scope_refs,
-        event_truth_status = "runtime_confirmed",
-        content_truth_status = "semantic_proposal",
-        created_event_id = observation.trace_event_id,
-        migration = {
-            status = "shadow_only",
-            legacy_ref = "chaos:fragment:" .. tostring(#instance.chaos.fragments),
+        planned_unit_id = planned_ids[1],
+        sensor_output = {
+            kind = "substrate_response",
+            carrier = normalized,
+            source_refs = scope_refs,
+            event_truth_status = "runtime_confirmed",
+            content_truth_status = "semantic_proposal",
+            migration = {
+                status = "shadow_only",
+                legacy_ref = "chaos:fragment:" .. tostring(#instance.chaos.fragments),
+            },
         },
     })
-    if not unit then
-        return nil, unit_err
+    if not observation then
+        return nil, unit_or_err
     end
+    local unit = unit_or_err
 
     return instance, {
         kind = "observe_organ_payload",
@@ -532,6 +684,7 @@ function observe.run(instance, substrate, options)
         observation_id = observation.id,
         field_unit_id = unit.id,
         field_shadow = true,
+        effect_scope_refs = scope_refs,
         sensor = "semantic",
         substrate_called = true,
         truth_status = "semantic_proposal",

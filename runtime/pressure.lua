@@ -5,6 +5,7 @@ local freshness = require("runtime.freshness")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
 local reconciliation = require("runtime.reconciliation")
+local qualified_pressure = require("runtime.qualified_pressure")
 
 local pressure = {
     derivation_version = "pressure.binary.v0",
@@ -632,6 +633,11 @@ function pressure.derive(instance, tick_result, options)
     end
 
     local policy = context.options.pressure_policy or "camera_reconciliation"
+    if policy == "qualified_need_v0" then
+        local qualified_options = copy_map(context.options)
+        qualified_options.current_operator = current
+        return qualified_pressure.derive(instance, tick_result, qualified_options)
+    end
     if policy ~= "camera_reconciliation" and policy ~= "sampled" then
         return nil, "invalid pressure policy"
     end

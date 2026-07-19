@@ -1,4 +1,4 @@
-# Current State - 2026-07-18
+# Current State - 2026-07-19
 
 Status: active packet-first body
 
@@ -6,14 +6,16 @@ Current transition:
 
 ```text
 integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
--> rebuilt witnesses -> measured tree promotion
+-> qualified relation/upper witnesses -> expand actions -> measured promotion
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
 terminal death, and inheritance. Body integrity is closed and one opt-in
 Vertical Packet Life now joins the selected L1/L2 contracts to the CALM-side
-body. The next implementation repairs the pressure witnesses over those grown
-facts. The closed repository work loop follows measured routing; hands must not
+body. The first qualified pressure treatment now joins exact relation and upper
+facts to bounded actions carried through route events. Remaining pressure
+families must receive the same treatment before full promotion measurement.
+The closed repository work loop follows measured routing; hands must not
 be used to hide an unmeasured body.
 
 ## Runtime Shape
@@ -137,6 +139,20 @@ capability, readiness, affordability, and positive-pressure filters. Excluded
 candidates remain visible, and failure produces typed `no_viable_edge` rather
 than a hidden fallback. Router movement remains separate from semantic ☳ and
 creates no CHOOSE loss.
+
+Alongside that historical control, `pressure_policy=qualified_need_v0` derives
+`pressure.witness.v1` records for relation recognition, relation formation and
+versioned upper sight. Every witness carries a validated
+`pressure.action_plan.v0`. `runtime/pressure_composition.lua` orders terminal,
+blocking and affordance classes without numeric weights, preserves typed
+ambiguity, and rejects unavailable actions before selection. The committed
+route event carries the chosen action into registry execution; witness, plan,
+readiness and effect scopes must match exactly.
+
+Qualified pressure remains an explicit treatment policy. In default shadow
+mode it has no physical mass; matched ablation leaves routes, budget, loss,
+substrate calls and revisions unchanged. Its complete record is
+[`pressure_need_and_action_composition_treatment.v0.md`](pressure_need_and_action_composition_treatment.v0.md).
 
 `runtime/router.lua` records pressure snapshots and immutable route derivations
 as append-only trace data. In the default shadow mode it also records the
@@ -279,7 +295,7 @@ mutation loop.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    56 suites passed
+lua tests/run.lua                    61 suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -381,10 +397,11 @@ the checks outside the body.
 2. **Canonical field migration is incomplete.** FLOW/OBSERVE/ENCODE/CHOOSE and
    explicit tree routing consume field records, but CALM and several organ
    inputs still retain compatibility projections.
-3. **Relation pressure is not rebuilt.** Exact probe, sight, release and
-   formation facts exist, but relation need and pressure composition do not yet
-   consume them. Fixture routes prove physics only. ☱ does not yet apply formed
-   relation momentum.
+3. **Qualified pressure is partial.** Relation recognition/formation and upper
+   sight now have exact witnesses and route-carried actions. Generic semantic
+   ENCODE, CHOOSE, DISSOLVE, the lower triangle and body-owned terminal action
+   still need equivalent producers. Fixture relation routes prove mechanics,
+   not production promotion. ☱ does not yet apply formed relation momentum.
 4. **Camera pressure is uncalibrated.** Reconciliation debt can govern explicit
    tree lives, but all coefficients remain one and the default mode still grants
    movement to legacy control.
@@ -416,7 +433,7 @@ The active roadmap is deliberately ordered so new power follows owned facts:
 2. Body Integrity Gate                                     complete
 3. crystallize the selected L1/L2 contracts                complete
 4. implement one opt-in Vertical Packet Life               complete
-5. rebuild pressure witnesses, then measure tree promotion next
+5. expand qualified pressure actions, then measure tree promotion next
 6. implement the outer lineage runner
 7. add capability-safe repository hands
 8. expose a machine CLI and then a Go TUI

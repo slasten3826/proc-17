@@ -697,7 +697,8 @@ function packet.commit_transition(instance, decision)
         if not pressure_event
             or pressure_event.type ~= "tension_measure"
             or pressure_event.operator ~= from
-            or (pressure_event.payload or {}).kind ~= "edge_pressure_snapshot" then
+            or ((pressure_event.payload or {}).kind ~= "edge_pressure_snapshot"
+                and (pressure_event.payload or {}).kind ~= "qualified_pressure_snapshot") then
             return nil, "tree route pressure ref must name matching edge pressure snapshot"
         end
 
@@ -731,6 +732,8 @@ function packet.commit_transition(instance, decision)
             derivation_ref = decision.derivation_ref,
             pressure_snapshot_ref = decision.pressure_snapshot_ref,
             selected_candidate = selected,
+            selected_action_plan_id = selected and selected.action_plan
+                and selected.action_plan.plan_id or nil,
             policy = decision.policy,
             policy_status = decision.policy_status,
             threshold = decision.threshold,
