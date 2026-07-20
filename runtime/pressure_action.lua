@@ -5,6 +5,7 @@ local choice_inspection = require("runtime.choice_inspection")
 local plan_completion = require("runtime.plan_completion")
 local structure_inspection = require("runtime.structure_inspection")
 local repository_action = require("runtime.repository_action")
+local repository_result = require("runtime.repository_result")
 
 local action = {
     protocol_version = "pressure.action_plan.v0",
@@ -23,6 +24,7 @@ local mode_targets = {
     repository_action_review = "☱",
     repository_effect = "☶",
     repository_reconcile = "☱",
+    repository_delivery = "△",
 }
 
 local mode_option_roots = {
@@ -38,6 +40,7 @@ local mode_option_roots = {
     repository_action_review = "runtime",
     repository_effect = "logic",
     repository_reconcile = "runtime",
+    repository_delivery = "manifest",
 }
 
 local mode_effect_types = {
@@ -53,12 +56,14 @@ local mode_effect_types = {
     repository_action_review = "runtime_eye_payload",
     repository_effect = "logic_validation_payload",
     repository_reconcile = "runtime_eye_payload",
+    repository_delivery = "manifest_payload",
 }
 
 local repository_option_keys = {
     repository_action_review = "repository_action_review",
     repository_effect = "repository_effect",
     repository_reconcile = "repository_reconcile",
+    repository_delivery = "repository_result",
 }
 
 local mergeable_modes = {
@@ -826,6 +831,11 @@ local function validate_mode_contract(mode, scope_refs, preconditions, options)
         local input = options[root][repository_key]
         local expected_refs = copy_value(input.action.scope_refs)
         expected_refs[#expected_refs + 1] = input.action_id
+        if mode == "repository_delivery" then
+            for _, ref in ipairs(input.evidence_refs) do
+                expected_refs[#expected_refs + 1] = ref
+            end
+        end
         table.sort(expected_refs)
         if not same_value(scope_refs, expected_refs) then
             return nil, mode .. " requires exact work/action scope"
@@ -1358,7 +1368,14 @@ function action.registry_context(plan, base_context)
             context[key] = value
         end
     end
-    local options = copy_value(base_context.options or {})
+    local options = {}
+    for key, value in pairs(base_context.options or {}) do
+        if key ~= "host_services" then
+            options[key] = copy_value(value)
+        end
+    end
+    context.host_services = base_context.host_services
+        or (base_context.options and base_context.options.host_services)
     local root = mode_option_roots[plan.mode]
     local repository_key = repository_option_keys[plan.mode]
     if repository_key then
@@ -1428,6 +1445,28 @@ function action.verify_effect(plan, payload, instance)
     end
     if not same_value(refs, plan.scope_refs) then
         return nil, "pressure action effect scope mismatch"
+    end
+    local repository_key = repository_option_keys[plan.mode]
+    if repository_key then
+        local root = mode_option_roots[plan.mode]
+        local input = plan.options[root][repository_key]
+        if payload.mode ~= plan.mode or payload.action_id ~= input.action_id then
+            return nil, "repository pressure action effect identity mismatch"
+        end
+        if plan.mode == "repository_action_review"
+            and (type(payload.review_event_id) ~= "string"
+                or type(payload.repository_action_review) ~= "table") then
+            return nil, "repository action review effect is missing"
+        end
+        if plan.mode == "repository_reconcile"
+            and (type(payload.completion_event_id) ~= "string"
+                or type(payload.work_completion) ~= "table") then
+            return nil, "repository reconciliation effect is missing"
+        end
+        if plan.mode == "repository_delivery" then
+            return repository_result.verify_delivery_effect(instance, plan, payload)
+        end
+        return true
     end
     if plan.mode == "structure_formation" then
         return structure_inspection.verify_effect(instance, plan, payload)

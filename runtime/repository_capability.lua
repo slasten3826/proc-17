@@ -5,11 +5,31 @@ local capability = {
 }
 
 local states = setmetatable({}, {__mode = "k"})
+local effect_leases = setmetatable({}, {__mode = "k"})
 
 local allowed_provider_id = "linux.openat2.renameat2.v0"
 local allowed_provider_contract = "repository.provider.create_readback.v0"
+local required_provider_limits = {
+    max_relative_path_bytes = 1024,
+    max_component_bytes = 255,
+    max_components = 64,
+    max_content_bytes = 1048576,
+    file_mode = 384,
+}
 local allowed_operations = {
     create_text_file = true,
+}
+local create_request_keys = {
+    protocol_version = true,
+    action_id = true,
+    grant_id = true,
+    grant_revision = true,
+    root_fingerprint = true,
+    relative_path = true,
+    content = true,
+    content_bytes = true,
+    content_sha256 = true,
+    precondition = true,
 }
 local allowed_policy = {
     file_mode = true,
@@ -56,6 +76,22 @@ local function validate_keys(value, allowed, name)
     for key in pairs(value) do
         if not allowed[key] then
             return nil, name .. " contains unknown key: " .. tostring(key)
+        end
+    end
+    return true
+end
+
+local function validate_plain_record(value, allowed, name)
+    if type(value) ~= "table" or getmetatable(value) ~= nil then
+        return nil, name .. " must be a plain table"
+    end
+    local ok, err = validate_keys(value, allowed, name)
+    if not ok then
+        return nil, err
+    end
+    for key in pairs(allowed) do
+        if value[key] == nil then
+            return nil, name .. " is missing key: " .. key
         end
     end
     return true
@@ -175,8 +211,8 @@ local function normalize_policy(value)
     if not mode then
         return nil, mode_err
     end
-    if mode > 511 then
-        return nil, "policy.file_mode exceeds permission bits"
+    if mode ~= required_provider_limits.file_mode then
+        return nil, "policy.file_mode must be exactly 0600"
     end
     return {file_mode = mode}
 end
@@ -198,7 +234,20 @@ local function validate_provider(provider, provider_id)
             return nil, "provider method missing: " .. method
         end
     end
-    return true
+    local limits_ok, limits_err = validate_keys(
+        provider.limits,
+        required_provider_limits,
+        "provider limits"
+    )
+    if not limits_ok then
+        return nil, limits_err
+    end
+    for name, expected in pairs(required_provider_limits) do
+        if provider.limits[name] ~= expected then
+            return nil, "provider limit mismatch: " .. name
+        end
+    end
+    return true, copy_value(provider.limits)
 end
 
 local function normalize_identity(value, input, provider_id)
@@ -313,20 +362,23 @@ function capability.new(options)
         return nil, "id_source must be function"
     end
     local providers = {}
+    local provider_limits = {}
     for provider_id, provider in pairs(options.providers) do
         if provider_id ~= allowed_provider_id then
             return nil, "unsupported repository provider: " .. tostring(provider_id)
         end
-        local provider_ok, provider_err = validate_provider(provider, provider_id)
+        local provider_ok, normalized_limits = validate_provider(provider, provider_id)
         if not provider_ok then
-            return nil, provider_err
+            return nil, normalized_limits
         end
         providers[provider_id] = provider
+        provider_limits[provider_id] = normalized_limits
     end
     local registry = {protocol_version = capability.protocol_version}
     states[registry] = {
         session_id = session_id,
         providers = providers,
+        provider_limits = provider_limits,
         grants = {},
         grant_order = {},
         next_serial = 1,
@@ -389,6 +441,13 @@ function capability.mint(registry, input)
     local provider = state.providers[input.provider_id]
     if not provider then
         return nil, "repository provider is not registered"
+    end
+    local ceilings = state.provider_limits[input.provider_id]
+    if bounds.max_relative_path_bytes > ceilings.max_relative_path_bytes then
+        return nil, "bounds.max_relative_path_bytes exceeds provider ceiling"
+    end
+    if bounds.max_content_bytes > ceilings.max_content_bytes then
+        return nil, "bounds.max_content_bytes exceeds provider ceiling"
     end
     local called, available, availability = pcall(provider.available)
     if not called then
@@ -478,6 +537,7 @@ function capability.mint(registry, input)
         policy = policy,
         policy_digest = policy_digest,
         effect_counts = {},
+        action_dispatches = {},
     }
     state.next_revision = state.next_revision + 1
     state.grants[grant_id] = grant
@@ -529,6 +589,7 @@ function capability.resolve(registry, context)
     end
     local matches = {}
     local revoked = false
+    local quarantined = false
     for _, grant_id in ipairs(state.grant_order) do
         local grant = state.grants[grant_id]
         local exact_scope = grant.session_id == context.session_id
@@ -540,6 +601,8 @@ function capability.resolve(registry, context)
                 matches[#matches + 1] = grant
             elseif grant.state == "revoked" then
                 revoked = true
+            elseif grant.state == "quarantined" then
+                quarantined = true
             end
         end
     end
@@ -551,6 +614,9 @@ function capability.resolve(registry, context)
     end
     if revoked then
         return nil, diagnostic("revoked_capability")
+    end
+    if quarantined then
+        return nil, diagnostic("quarantined_capability")
     end
     return nil, diagnostic("missing_capability")
 end
@@ -576,7 +642,7 @@ function capability.revoke(registry, grant_id)
     if not grant then
         return nil, diagnostic("missing_capability")
     end
-    if grant.state == "active" then
+    if grant.state == "active" or grant.state == "quarantined" then
         grant.state = "revoked"
         grant.revision = state.next_revision
         state.next_revision = state.next_revision + 1
@@ -588,18 +654,212 @@ function capability.revoke(registry, grant_id)
     return projection(grant)
 end
 
-function capability.begin_effect(registry, action)
+local function exact_action_grant(state, action)
+    if type(action) ~= "table" or type(action.capability) ~= "table"
+        or type(action.target) ~= "table" or type(action.content) ~= "table"
+        or type(action.action_id) ~= "string" or action.action_id == ""
+        or type(action.session_id) ~= "string" or action.session_id == ""
+        or type(action.lineage_id) ~= "string" or action.lineage_id == ""
+        or type(action.generation) ~= "number" or action.generation < 1
+        or action.generation ~= math.floor(action.generation)
+        or action.operation ~= "create_text_file"
+        or type(action.target.relative_path) ~= "string"
+        or type(action.content.bytes) ~= "number"
+        or type(action.content.sha256) ~= "string" then
+        return nil, "repository effect action envelope is invalid"
+    end
+
+    local grant = state.grants[action.capability.grant_id]
+    if not grant then
+        return nil, diagnostic("missing_capability")
+    end
+    if grant.state == "revoked" then
+        return nil, diagnostic("grant_revoked")
+    end
+    if grant.state == "quarantined" then
+        return nil, diagnostic("grant_quarantined")
+    end
+    if grant.state ~= "active" then
+        return nil, "repository grant has invalid private state"
+    end
+
+    if state.session_id ~= action.session_id
+        or grant.session_id ~= action.session_id
+        or grant.lineage_id ~= action.lineage_id
+        or grant.repository_id ~= action.capability.repository_id
+        or grant.provider_id ~= action.capability.provider_id
+        or grant.grant_id ~= action.capability.grant_id
+        or grant.revision ~= action.capability.revision
+        or grant.root_identity.fingerprint ~= action.capability.root_fingerprint
+        or grant.policy_digest ~= action.capability.policy_digest
+        or grant.operations[action.operation] ~= true then
+        return nil, "repository action contradicts private grant identity"
+    end
+    if #action.target.relative_path > grant.bounds.max_relative_path_bytes
+        or action.content.bytes > grant.bounds.max_content_bytes then
+        return nil, diagnostic("capability_bounds_exceeded")
+    end
+    return grant
+end
+
+function capability.begin_effect(registry, action, instance)
     local state, state_err = state_for(registry)
     if not state then
         return nil, state_err
     end
-    if type(action) ~= "table" then
-        return nil, "repository action is required"
+    local action_ok, action_err = require("runtime.repository_action").validate(
+        instance, action)
+    if not action_ok then
+        return nil, action_err
     end
-    return nil, diagnostic(
-        "repository_effect_unavailable",
-        "repository effect leases are introduced by roadmap step 7"
+    local grant, grant_err = exact_action_grant(state, action)
+    if not grant then
+        return nil, grant_err
+    end
+
+    if grant.action_dispatches[action.action_id] then
+        return nil, diagnostic("action_already_dispatched")
+    end
+    local generation_key = tostring(action.generation)
+    local used = grant.effect_counts[generation_key] or 0
+    if used >= grant.bounds.max_effects_per_generation then
+        return nil, diagnostic("effect_limit_exhausted")
+    end
+
+    -- Consumed authority is never refunded, even when the provider denies the call.
+    grant.effect_counts[generation_key] = used + 1
+    grant.action_dispatches[action.action_id] = true
+
+    local lease = setmetatable({}, {__metatable = "repository.effect_lease.v0"})
+    effect_leases[lease] = {
+        registry = registry,
+        grant = grant,
+        grant_revision = grant.revision,
+        action_id = action.action_id,
+        relative_path = action.target.relative_path,
+        content_bytes = action.content.bytes,
+        content_sha256 = action.content.sha256,
+        precondition = action.target.precondition,
+        create_called = false,
+        create_succeeded = false,
+        read_called = false,
+    }
+    return lease
+end
+
+local function lease_state(registry, lease)
+    local state = effect_leases[lease]
+    if not state or state.registry ~= registry then
+        return nil, "invalid repository effect lease"
+    end
+    if state.grant.state == "revoked" then
+        return nil, diagnostic("grant_revoked")
+    end
+    if state.grant.state == "quarantined" then
+        return nil, diagnostic("grant_quarantined")
+    end
+    if state.grant.state ~= "active"
+        or state.grant.revision ~= state.grant_revision
+        or state.grant.repository_handle == nil then
+        return nil, "repository effect lease grant state changed"
+    end
+    return state
+end
+
+function capability.effect_create(registry, lease, request)
+    local state, state_err = lease_state(registry, lease)
+    if not state then
+        return nil, state_err
+    end
+    if state.create_called then
+        return nil, "repository effect create lease already consumed"
+    end
+    local request_ok, request_err = validate_plain_record(
+        request, create_request_keys, "repository effect request")
+    if not request_ok then
+        return nil, request_err
+    end
+    if request.protocol_version ~= "repository.create_text_file.request.v0"
+        or request.action_id ~= state.action_id
+        or request.grant_id ~= state.grant.grant_id
+        or request.grant_revision ~= state.grant.revision
+        or request.root_fingerprint ~= state.grant.root_identity.fingerprint
+        or request.relative_path ~= state.relative_path
+        or request.content_bytes ~= state.content_bytes
+        or request.content_sha256 ~= state.content_sha256
+        or request.precondition ~= state.precondition
+        or type(request.content) ~= "string"
+        or #request.content ~= state.content_bytes
+        or digest.sha256(request.content) ~= state.content_sha256 then
+        return nil, "repository effect request contradicts lease"
+    end
+
+    state.create_called = true
+    local result, err = state.grant.provider.create_text_file(
+        state.grant.repository_handle,
+        {
+            protocol_version = "repository.create_text_file.request.v0",
+            relative_path = state.relative_path,
+            content = request.content,
+            content_bytes = state.content_bytes,
+            precondition = state.precondition,
+            file_mode = state.grant.policy.file_mode,
+        }
     )
+    if result ~= nil then
+        state.create_succeeded = true
+    end
+    return result, err
+end
+
+function capability.effect_read_back(registry, lease)
+    local state, state_err = lease_state(registry, lease)
+    if not state then
+        return nil, state_err
+    end
+    if not state.create_succeeded then
+        return nil, "repository effect read-back requires writer success"
+    end
+    if state.read_called then
+        return nil, "repository effect read-back lease already consumed"
+    end
+    state.read_called = true
+    return state.grant.provider.read_text_file(
+        state.grant.repository_handle,
+        {
+            relative_path = state.relative_path,
+            max_bytes = state.content_bytes + 1,
+        }
+    )
+end
+
+function capability.effect_root_matches(registry, lease, root)
+    local state, state_err = lease_state(registry, lease)
+    if not state then
+        return nil, state_err
+    end
+    return type(root) == "table"
+        and root.device == state.grant.root_identity.device
+        and root.inode == state.grant.root_identity.inode
+end
+
+function capability.quarantine_effect(registry, lease, reason)
+    local state, state_err = lease_state(registry, lease)
+    if not state then
+        return nil, state_err
+    end
+    local grant = state.grant
+    if grant.state == "active" then
+        grant.state = "quarantined"
+        grant.revision = states[registry].next_revision
+        states[registry].next_revision = states[registry].next_revision + 1
+        grant.quarantine_reason = copy_value(reason)
+        local closed, close_err = close_handle(grant)
+        if not closed then
+            return nil, close_err
+        end
+    end
+    return projection(grant)
 end
 
 return capability

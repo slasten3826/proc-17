@@ -43,7 +43,13 @@ local function option(context, key)
 end
 
 local function main_options(context)
-    return context and context.options or {}
+    local result = {}
+    for key, value in pairs(context and context.options or {}) do
+        if key ~= "host_services" then
+            result[key] = value
+        end
+    end
+    return result
 end
 
 local function merged_options(context, key)
@@ -216,11 +222,19 @@ local descriptors = {
         loss_profile = "conditional",
         reads = {"calm", "constraints", "runtime.evidence", "sandbox.capabilities"},
         writes = {"boundary.validations", "constraints", "runtime.evidence", "runtime.foundation"},
-        readiness = function(instance)
-            return logic.readiness(instance)
+        readiness = function(instance, context)
+            return logic.readiness(
+                instance,
+                merged_options(context, "logic"),
+                context and context.host_services
+            )
         end,
         run = function(instance, context)
-            return unwrap(logic.run(instance, main_options(context)))
+            return unwrap(logic.run(
+                instance,
+                merged_options(context, "logic"),
+                context and context.host_services
+            ))
         end,
     },
     ["☱"] = {
@@ -232,10 +246,20 @@ local descriptors = {
         reads = {"calm", "field.relations", "runtime.camera.frames", "budget", "loss", "history", "regime.work"},
         writes = {"runtime.camera.reconciliations", "runtime.camera.watermark", "boundary.observations.lower", "tension", "field.relations.active", "field.momentum", "plan.completion_assessment"},
         readiness = function(instance, context)
-            return runtime_organ.readiness(instance, option(context, "runtime"))
+            return runtime_organ.readiness(
+                instance,
+                option(context, "runtime"),
+                context and context.host_services,
+                main_options(context)
+            )
         end,
         run = function(instance, context)
-            return unwrap(runtime_organ.run(instance, option(context, "runtime")))
+            return unwrap(runtime_organ.run(
+                instance,
+                option(context, "runtime"),
+                context and context.host_services,
+                main_options(context)
+            ))
         end,
     },
     ["△"] = {

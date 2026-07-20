@@ -3,6 +3,7 @@ local body = require("runtime.body")
 local spells = require("logic.spells")
 local foundation = require("runtime.foundation")
 local freshness = require("runtime.freshness")
+local repository_inspection = require("runtime.repository_inspection")
 
 local logic_organ = {}
 
@@ -45,7 +46,28 @@ local function record(instance, payload)
     return instance, recorded
 end
 
-function logic_organ.readiness(instance)
+function logic_organ.readiness(instance, options, host_services)
+    options = options or {}
+    if options.repository_effect ~= nil and options.qualified_action ~= nil then
+        local current, current_err = repository_inspection.effect_candidate(
+            instance,
+            options.repository_effect,
+            {
+                work_mode = options.work_mode,
+                repository_hands = options.repository_hands,
+                host_services = host_services,
+            }
+        )
+        return {
+            operator = "☶",
+            ready = current ~= nil,
+            reason = current and "repository_effect_ready" or tostring(current_err),
+            source_refs = current and copy_value(current.route_scope_refs) or {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     local calm = instance and instance.calm or {}
     local source_refs = {}
     if calm.current ~= nil then
@@ -66,12 +88,64 @@ function logic_organ.readiness(instance)
     }
 end
 
-function logic_organ.run(instance, options)
+function logic_organ.run(instance, options, host_services)
     local mutable, mutable_err = packet_core.assert_mutable(instance, "run logic")
     if not mutable then
         return nil, mutable_err
     end
     options = options or {}
+
+    if options.repository_effect ~= nil then
+        if options.work_mode ~= "build" then
+            return nil, "repository effect requires build mode"
+        end
+        local repository_input = options.repository_effect
+        if type(repository_input) ~= "table" or type(repository_input.action) ~= "table" then
+            return nil, "repository effect input requires exact action"
+        end
+        local registry = host_services and host_services.repository_capabilities
+        if type(registry) ~= "table" then
+            return nil, "repository capability registry is required"
+        end
+        if options.qualified_action ~= nil then
+            local current, current_err = repository_inspection.effect_candidate(
+                instance,
+                repository_input,
+                {
+                    work_mode = options.work_mode,
+                    repository_hands = options.repository_hands,
+                    host_services = host_services,
+                }
+            )
+            if not current then
+                return nil, current_err
+            end
+        end
+        local repository_effect = require("runtime.repository_effect")
+        local outcome, effect_err = repository_effect.execute(
+            instance,
+            repository_input.action,
+            registry
+        )
+        if not outcome then
+            return nil, effect_err
+        end
+        return record(instance, {
+            kind = "logic_validation_payload",
+            mode = "repository_effect",
+            status = outcome.status,
+            reason = outcome.reason,
+            action_id = outcome.action_id,
+            attempt_ref = outcome.attempt_ref,
+            receipt_ref = outcome.receipt_ref,
+            verification_ref = outcome.verification_ref,
+            evidence_count = 1,
+            effect_cost = copy_value(outcome.cost),
+            effect_scope_refs = copy_value(outcome.effect_scope_refs),
+            truth_status = "runtime_confirmed",
+            content_truth_status = outcome.content_truth_status,
+        })
+    end
 
     if options.work_mode ~= "build" then
         return record(instance, {

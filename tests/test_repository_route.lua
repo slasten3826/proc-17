@@ -46,6 +46,7 @@ local function run_with_hand(options)
     }}, {
         shape = options.shape,
         max_ticks = options.max_ticks or 14,
+        packet_options = options.packet_options,
         runner_options = runner_options,
     })
     return instance, result, state
@@ -95,6 +96,19 @@ suite:check("R1 enabled hand without grant cannot call provider", function()
         "missing grant creates no attempt")
 end)
 
+suite:check("R1b unaffordable exact action is excluded before provider", function()
+    local instance, _, state = run_with_hand({
+        packet_options = {
+            budget = {steps = 64, tool_calls = 1, file_writes = 1},
+        },
+    })
+    H.assert_eq(state.calls.create, 0, "insufficient tool budget makes no write")
+    H.assert_eq(event_count(instance, "repository_action_review"), 0,
+        "unaffordable action is not reviewed as actionable")
+    H.assert_eq(event_count(instance, "repository_effect_attempt"), 0,
+        "unaffordable action creates no attempt")
+end)
+
 suite:check("R2 exact single action uses no fake CHOOSE", function()
     local instance, _, state = run_with_hand()
     local pairs = fixture.route_pairs(instance)
@@ -102,6 +116,8 @@ suite:check("R2 exact single action uses no fake CHOOSE", function()
         "☵->☱", "☱->☶", "☶->☱",
     }), "single action contains review/effect/reconcile subpath")
     H.assert_eq(#(instance.boundary.choices or {}), 0, "single action pays no choice")
+    H.assert_eq(event_count(instance, "repository_action_review"), 1,
+        "single action receives one real review")
     H.assert_eq(state.calls.create, 1, "one writer call")
     H.assert_eq(event_count(instance, "work_completion"), 1, "one completion")
 end)
@@ -116,8 +132,8 @@ suite:check("R3 real alternatives use exact CHOOSE before effect", function()
         max_ticks = 16,
     })
     H.assert_true(fixture.contains_subsequence(fixture.route_pairs(instance), {
-        "☵->☳", "☳->☶", "☶->☱",
-    }), "real choice reaches effect through CHOOSE")
+        "☵->☴", "☴->☳", "☳->☶", "☶->☱",
+    }), "observed real choice reaches effect through CHOOSE")
     H.assert_eq(#(instance.boundary.choices or {}), 1, "one real collapse")
 end)
 
@@ -181,6 +197,21 @@ suite:check("R8 exact accepted chain has one verified completion", function()
     H.assert_eq(event_count(instance, "repository_effect_receipt"), 1, "one receipt")
     H.assert_eq(event_count(instance, "repository_verification"), 1, "one verification")
     H.assert_eq(event_count(instance, "work_completion"), 1, "one completion")
+    H.assert_eq(instance.runtime.budget.spent.tool_calls, 2,
+        "runner charges writer and reader once")
+    H.assert_eq(instance.runtime.budget.spent.file_writes, 1,
+        "runner charges one mutation primitive")
+    local effect_charges = 0
+    for _, event in ipairs(instance.runtime.budget.events or {}) do
+        if event.source == "repository_effect" then
+            effect_charges = effect_charges + 1
+        end
+    end
+    H.assert_eq(effect_charges, 1, "repository effect has one central charge")
+    for _, event in ipairs(instance.tension.loss_events or {}) do
+        H.assert_false(event.operator == "☶" or event.operator == "☱",
+            "hand review/effect/reconcile creates no identity loss")
+    end
 end)
 
 suite:check("R10 hand opt-in does not change default router authority", function()

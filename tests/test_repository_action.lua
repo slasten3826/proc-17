@@ -282,14 +282,23 @@ suite:check("A13 repository pressure modes carry action without executing it", f
     H.assert_true(pressure_action.validate(effect), "effect schema validates")
     H.assert_true(pressure_action.validate(reconcile), "reconcile schema validates")
 
+    local host_services = {repository_capabilities = {opaque = true}}
     local context_value = assert(pressure_action.registry_context(effect, {
         instance = instance,
-        options = {logic = {spells = {{kind = "ignored_compatibility_spell"}}}},
+        host_services = host_services,
+        options = {
+            host_services = host_services,
+            logic = {spells = {{kind = "ignored_compatibility_spell"}}},
+        },
     }))
     H.assert_eq(context_value.options.logic.spells[1].kind,
         "ignored_compatibility_spell", "unrelated compatibility options survive")
     H.assert_eq(context_value.options.logic.repository_effect.action_id,
         action.action_id, "action-owned effect subtree installed")
+    H.assert_true(context_value.host_services == host_services,
+        "private host services preserve opaque identity")
+    H.assert_nil(context_value.options.host_services,
+        "private host services do not enter action-owned options")
 
     local forged = H.copy(action)
     forged.content.content = "raw route bytes are forbidden"

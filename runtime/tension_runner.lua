@@ -99,6 +99,7 @@ local function operator_context(substrate, options, result)
         substrate = substrate,
         options = options,
         result = result,
+        host_services = options and options.host_services,
     }
 end
 
@@ -210,6 +211,23 @@ local function apply_operator_physics(instance, operator, payload)
         })
         if not applied then
             return nil, apply_err
+        end
+    end
+
+    if operator == "☶" and payload.mode == "repository_effect" then
+        local effect_cost, cost_err = budget.validate_cost(payload.effect_cost)
+        if not effect_cost then
+            return nil, cost_err
+        end
+        local charged, charge_err = budget.charge(instance, {
+            operator = "☶",
+            event_id = payload.trace_event_id,
+            cost = effect_cost,
+            source = "repository_effect",
+            truth_status = "runtime_confirmed",
+        })
+        if not charged then
+            return nil, charge_err
         end
     end
     return true

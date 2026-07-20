@@ -7,6 +7,8 @@ local loss = require("runtime.loss")
 local camera = require("runtime.camera")
 local reconciliation = require("runtime.reconciliation")
 local plan_completion = require("runtime.plan_completion")
+local repository_inspection = require("runtime.repository_inspection")
+local work_completion = require("runtime.work_completion")
 
 local runtime_organ = {}
 
@@ -58,7 +60,16 @@ local function plan_review(instance, options)
     }
 end
 
-function runtime_organ.readiness(instance, options)
+local function repository_options(main_options, host_services)
+    main_options = main_options or {}
+    return {
+        work_mode = main_options.work_mode,
+        repository_hands = main_options.repository_hands,
+        host_services = host_services,
+    }
+end
+
+function runtime_organ.readiness(instance, options, host_services, main_options)
     if type(instance) ~= "table" then
         return {
             operator = "☱",
@@ -71,6 +82,45 @@ function runtime_organ.readiness(instance, options)
         }
     end
     options = options or {}
+    local repository_context = repository_options(main_options, host_services)
+    if options.repository_action_review ~= nil then
+        local current, current_err = repository_inspection.validate_action_input(
+            instance,
+            options.repository_action_review,
+            repository_context
+        )
+        local ready = current ~= nil and current.phase == "review_needed"
+            and #(options.repository_action_review.evidence_refs or {}) == 0
+        return {
+            operator = "☱",
+            ready = ready,
+            reason = ready and "repository_action_review_ready"
+                or tostring(current_err or "repository_action_not_reviewable"),
+            source_refs = ready and current.route_scope_refs or {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
+    if options.repository_reconcile ~= nil then
+        local completion_input, current_or_err =
+            repository_inspection.reconcile_candidate(
+                instance,
+                options.repository_reconcile,
+                repository_context
+            )
+        local current = completion_input and current_or_err or nil
+        return {
+            operator = "☱",
+            ready = completion_input ~= nil,
+            reason = completion_input and "repository_reconcile_ready"
+                or tostring(current_or_err),
+            source_refs = current and current.route_scope_refs or {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     if options.plan_completion_input ~= nil then
         local review, review_err = plan_review(instance, options)
         if not review then
@@ -114,13 +164,63 @@ function runtime_organ.readiness(instance, options)
     }
 end
 
-function runtime_organ.run(instance, options)
+function runtime_organ.run(instance, options, host_services, main_options)
     local mutable, mutable_err = packet_core.assert_mutable(instance, "run runtime eye")
     if not mutable then
         return nil, mutable_err
     end
 
     options = options or {}
+    local repository_context = repository_options(main_options, host_services)
+    local repository_mode
+    local repository_record
+    local repository_event
+    local repository_view
+    if options.repository_action_review ~= nil then
+        local review, current_or_err = repository_inspection.review_candidate(
+            instance,
+            options.repository_action_review,
+            repository_context
+        )
+        if not review then
+            return nil, current_or_err
+        end
+        repository_view = current_or_err
+        repository_record, repository_event = body.record_repository_action_review(
+            instance,
+            review
+        )
+        if not repository_record then
+            return nil, repository_event
+        end
+        repository_mode = "repository_action_review"
+    elseif options.repository_reconcile ~= nil then
+        local completion_input, current_or_err =
+            repository_inspection.reconcile_candidate(
+                instance,
+                options.repository_reconcile,
+                repository_context
+            )
+        if not completion_input then
+            return nil, current_or_err
+        end
+        repository_view = current_or_err
+        local candidate, candidate_err = work_completion.derive(
+            instance,
+            completion_input
+        )
+        if not candidate then
+            return nil, candidate_err
+        end
+        repository_record, repository_event = work_completion.record(
+            instance,
+            candidate
+        )
+        if not repository_record then
+            return nil, repository_event
+        end
+        repository_mode = "repository_reconcile"
+    end
     local review
     local inspection
     if options.plan_completion_input ~= nil then
@@ -209,6 +309,9 @@ function runtime_organ.run(instance, options)
     if assessment_event then
         source_refs[#source_refs + 1] = assessment_event.id
     end
+    if repository_event then
+        source_refs[#source_refs + 1] = repository_event.id
+    end
     local observation, observation_err = body.record_observation(instance, "lower", {
         scope_refs = scope_refs,
         read_revisions = read_revisions,
@@ -256,6 +359,18 @@ function runtime_organ.run(instance, options)
         payload.completion_assessment = completion_assessment
         payload.assessment_event_id = assessment_event.id
         payload.effect_scope_refs = review.scope.scope_refs
+    end
+    if repository_mode then
+        payload.mode = repository_mode
+        payload.action_id = repository_view.action.action_id
+        payload.effect_scope_refs = {table.unpack(repository_view.route_scope_refs)}
+        if repository_mode == "repository_action_review" then
+            payload.repository_action_review = repository_record
+            payload.review_event_id = repository_event.id
+        else
+            payload.work_completion = repository_record
+            payload.completion_event_id = repository_event.id
+        end
     end
     return instance, payload
 end

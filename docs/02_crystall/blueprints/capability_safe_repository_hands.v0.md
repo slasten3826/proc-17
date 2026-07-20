@@ -353,7 +353,28 @@ authority state; its named reader is the next `begin_effect` check.
 
 ## 6. Native Provider API
 
-`runtime/repository_provider.lua` loads the C module with an explicit search:
+### 6.0 Loader trust-root amendment (2026-07-19, roadmap 7.3)
+
+The exact loader trust root is the proc-17 distribution that already supplied
+`runtime/repository_provider.lua`. At module initialization the loader validates
+its own source suffix and derives exactly one sibling module path:
+
+```text
+<same-distribution-root>/native/proc17_repository_fs.so
+```
+
+It calls `package.loadlib` for that exact file and the exact symbol
+`luaopen_proc17_repository_fs`. It does not read `package.cpath`, search the
+current working directory, accept a caller path or consult environment, Packet,
+substrate or target-repository state. A missing exact file is typed unavailable;
+a present but malformed ABI is a loud harness failure. The complete treatment is
+recorded in:
+
+```text
+docs/00_chaos/first_repository_hand_loader_trust_root_2026-07-19.md
+```
+
+`runtime/repository_provider.lua` loads the C module from that one exact path:
 
 ```text
 module absent and hands disabled -> no effect
@@ -421,7 +442,7 @@ Native error result:
   stage = string,
   errno = integer | nil,
   mutation_primitive_entered = boolean,
-  published = false | true | "unknown",
+  published = false | true,
   cost = table,
 }
 ```
@@ -430,6 +451,12 @@ Unknown keys, impossible cost, impossible stage/outcome combinations and
 provider identity mismatch are trusted-contract failures and stay loud.
 
 ## 7. Root Identity And Revalidation
+
+Implementation amendment (2026-07-19, roadmap 7.4): this section is now
+implemented as a read-only native boundary and evidenced by
+`docs/00_chaos/first_repository_hand_root_identity_results_2026-07-19.md`.
+Private mount identity strengthens the device/inode comparison. No create or
+read-back authority was promoted with it.
 
 At grant mint, native code performs:
 
@@ -789,17 +816,20 @@ The exact algorithm is:
 1. re-open and compare project base and repository root identities
 2. open parent relative to fresh root fd using openat2:
    O_RDONLY|O_DIRECTORY|O_CLOEXEC and all four resolve restrictions
-3. generate 128 random bits once with getrandom
-4. form private sibling name `.proc17-tmp-<random-hex>`
-5. open temp with openat O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC
+3. fstat the parent; require effective-UID ownership and no group/other write
+4. generate 128 random bits once with getrandom
+5. form private sibling name `.proc17-tmp-<random-hex>`
+6. open temp with openat O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC
    and host-owned file_mode; a name collision returns typed
    `temp_name_collision` rather than introducing an unmeasured retry loop
-6. count file_writes=1 once the mutation primitive is entered
-7. write the complete Lua string with a short-write/EINTR loop
-8. fsync temp and close it successfully
-9. publish with renameat2(parent,tmp,parent,basename,RENAME_NOREPLACE)
-10. fsync parent directory
-11. close parent/root descriptors and return `created`
+7. count file_writes=1 once the mutation primitive is entered
+8. fchmod the opened object to exact mode 0600
+9. verify regular type, euid owner, one link, zero size and exact mode 0600
+10. write the complete Lua string with a short-write loop and at most 64 EINTRs
+11. fsync temp and close it successfully
+12. publish with renameat2(parent,tmp,parent,basename,RENAME_NOREPLACE)
+13. fsync parent directory
+14. close parent/root descriptors and return `created`
 ```
 
 The reserved temporary prefix cannot be requested by v0 path grammar. No final
@@ -827,6 +857,14 @@ separate test target with an internal syscall table to prove pre-publish cleanup
 no-replace and post-publish ambiguity. Test hooks are not exported by the Lua
 module.
 
+Implementation amendment (2026-07-19, roadmap 7.5): this transaction was
+implemented and evidenced by
+`docs/00_chaos/first_repository_hand_atomic_create_results_2026-07-19.md`.
+`make -C native test-create` was green while the combined create/read target
+and three real-provider read controls remained intentionally red. Roadmap 7.6
+subsequently closed only that read boundary. No effect lease, body dispatch or
+completion authority was promoted with create.
+
 ## 14. Independent Read-Back
 
 Native read-back:
@@ -839,6 +877,18 @@ Native read-back:
 5. for a regular file, read at most expected_bytes + 1
 6. return the bounded observation and measured cost
 ```
+
+Implementation amendment (2026-07-20, roadmap 7.6): the native read transaction
+and strict Lua adapter are implemented and evidenced by
+`docs/00_chaos/first_repository_hand_independent_read_results_2026-07-20.md`.
+The supplied `max_bytes` is the final hard provider bound, capped at
+`max_content_bytes + 1`; the future action-owned verifier supplies
+`expected_bytes + 1`. The native transaction uses final-component
+`O_PATH|O_NOFOLLOW` classification, never reads non-regular targets, compares
+regular-file identity and metadata before/after reading, and freshly reopens the
+named root and target before every successful target-kind return. The provider
+Linux corpus is 29 green / 0 red / 1 explicit bind-mount skip. Effect,
+verification trace and completion authority remain unimplemented.
 
 Lua computes SHA-256 using `core/digest.lua`. Verification is accepted only if:
 
@@ -1007,11 +1057,14 @@ Mapped through `substrates.contract.effect_failure`:
 
 ```text
 source=sandbox:
-  grant_revoked, root_changed, provider_unavailable, path_containment_denied
+  grant_revoked, root_changed, provider_unavailable, path_containment_denied,
+  path_symlink, parent_not_private
 
 source=tool:
   target_exists, parent_missing, parent_not_directory, permission_denied,
-  no_space, io_failure, ambiguous_effect, readback_unavailable
+  temp_name_collision, temp_identity_invalid, temp_cleanup_failed,
+  no_space, io_failure,
+  ambiguous_effect, readback_unavailable
 ```
 
 Actual provider costs are retained. The existing runner records
@@ -1194,3 +1247,346 @@ not hidden as an implementation detail
 No source implementation is authorized to widen this crystall. A required
 primitive that cannot be implemented or falsified returns the work to TABLE or
 CHAOS; it does not produce a weaker provider under the same protocol name.
+
+## 23. Roadmap 7.7 Implementation Amendment
+
+Date: 2026-07-20.
+
+The effect and progress portions of this crystall are implemented without route
+promotion. Concrete modules are:
+
+```text
+runtime/repository_capability.lua  private one-use dispatch lease/quarantine
+runtime/repository_effect.lua      attempt/create/receipt/read/verification
+runtime/work_completion.lua        exact trace-derived ☱ completion
+runtime/body.lua                   actor-guarded writers and derived progress
+organs/logic.lua                   explicit direct repository validation branch
+core/packet.lua                    event types and ☶/☱ actor rights
+```
+
+The lease itself exposes no provider, handle, root or path. Its trusted methods
+derive the native create envelope and exact read-back envelope from the action.
+Dispatch state is private, generation-scoped and consumed before provider entry.
+Ambiguous mutation state quarantines and closes the grant.
+
+Trace is the only effect/completion ledger. Verification increments evidence;
+completion increments history. Returned records are detached. Repository work
+ignores compatibility `calm.work_units[].status` and becomes done only through
+an exact current-version `runtime.work_completion.v0` event.
+
+Implementation evidence:
+
+```text
+fake-provider effect controls             14/14 green
+exact completion controls                  9/9 green
+production C-provider effect/completion    1/1 green
+ordinary body regression                  80/80 green
+staged hand boundary                       11 green / 1 route red
+```
+
+The following crystall sections remain contracts rather than implemented
+authority: RUNTIME action review, qualified repository pressure readers,
+operator-registry host-service propagation, automatic RUNTIME reconcile mode,
+centralized runner charging, lineage registry lifetime, and route/manifest
+integration. Their absence is deliberate until adversarial audit and promotion.
+
+## 24. Roadmap 7.8 Hostile Audit Amendment
+
+Date: 2026-07-20.
+
+The hostile audit changed no authority surface. It tightened five existing
+contracts:
+
+### 24.1 Lease issuance and lifetime
+
+`begin_effect` requires the current Packet instance and revalidates the complete
+canonical action before private grant lookup or dispatch consumption. The lease
+freezes the grant revision at issuance. Create, read-back and root comparison
+require the same active revision and a live private handle. Revoked or
+quarantined state invalidates every older lease even if a caller substitutes the
+new public revision into a request.
+
+### 24.2 Exact create envelope
+
+The create request is a complete plain record with exactly the materialized
+keys. Unknown keys, metatables, missing values or content/digest disagreement
+are invariant failures before the one-use create bit or provider call.
+
+### 24.3 Failure residue
+
+The only public provider residue admitted by v0 is the exact relative reserved
+temporary name record from cleanup ambiguity. It is copied, bounded and may not
+carry raw bytes, a host path, a handle or arbitrary nested values. Other
+provider error detail remains closed-schema and malformed trusted data stays
+loud.
+
+### 24.4 Repository body event ownership
+
+`repository_effect_attempt`, `repository_effect_receipt`,
+`repository_verification` and `work_completion` are dedicated event types. The
+generic Packet writer refuses them. `runtime.body` validates their closed
+schemas and invokes the named repository writer under existing actor rights.
+
+This is module-boundary integrity against accidental trusted-code bypass. It is
+not a claim against arbitrary hostile Lua code in the same process.
+
+### 24.5 Completion is a current derivation
+
+An immutable completion event remains historical evidence, but `done` is
+derived again whenever read. `is_complete` validates current work identity,
+formation, complete causal chain, event truth, grant/provider coherence,
+source-ref order, completion digest and later-conflict absence. A changed work
+version or later conflicting attempt makes the old event inert without mutating
+history.
+
+Implementation evidence:
+
+```text
+hostile controls                         16/16 green
+fake effect / exact progress             14/14 + 9/9 green
+real provider effect/resource              2/2 green
+native 128-life descriptor control        green
+full normal body                          80/80 green
+staged boundary                           12 green / 1 route red
+```
+
+The crystall still withholds qualified route authority, automatic review,
+effect dispatch, reconciliation, runner charging and manifest delivery. Those
+remain roadmap 7.9-7.10 work.
+
+## 25. Roadmap 7.9 Route Observation Amendment
+
+Date: 2026-07-20.
+
+The first grown alternative life corrected one over-strong route fixture. A
+fresh `alternative_set` formation changes the versions of its field objects.
+The existing CHOOSE contract requires exact field-native coverage of those
+versions before collapse. Therefore the physically valid route is:
+
+```text
+☵ -> ☴ -> ☳ -> ☶ -> ☱
+```
+
+and not the previously abbreviated `☵ -> ☳ -> ☶ -> ☱`. This is the lawful
+OBSERVE intervention already permitted by section 10; it is now explicit in
+R3. Removing the observation to preserve the abbreviated edge would weaken the
+existing choice witness and create a false green. The singular path remains
+`☵ -> ☱ -> ☶ -> ☱` because it performs no collapse and pays no choice loss.
+
+## 26. Roadmap 7.9 Implementation Evidence
+
+Date: 2026-07-20.
+
+The qualified route boundary is implemented for the exact v0 hand. A pure
+repository phase inspector derives one of review, effect, reconciliation or
+completed state from current field, capability and immutable trace facts. It
+does not mutate Packet state and it does not serialize the host registry.
+
+Three consumers are now crystallized in the live action path:
+
+```text
+runtime.repository_action_review.v0 -> ☱
+logic.repository_effect.v0          -> ☶
+runtime.repository_reconcile.v0     -> ☱
+```
+
+Their route-carried payloads bind the same canonical action id, work id/version,
+grant id/revision, route scope and exact evidence refs. ☱ owns both the initial
+singular-action review and the final completion record. ☶ revalidates the
+committed action immediately before crossing the provider boundary.
+
+Host services are passed by opaque reference in trusted registry context, not
+merged into caller-overridable action or organ options. The tension runner is
+the sole writer of actual effect economics after an applied ☶ tick. Typed
+external failure continues through the existing failure charge/death path;
+trusted invariant failure remains loud.
+
+The accepted singular and alternative lives are:
+
+```text
+▽ -> ☴ -> ☵ -> ☱ -> ☶ -> ☱
+▽ -> ☴ -> ☵ -> ☴ -> ☳ -> ☶ -> ☱
+```
+
+Review, effect and reconcile ablations prove the chain phase by phase. The
+accepted life has one attempt, receipt, verification and completion, one
+central effect charge, and no ☶/☱ identity loss. The registered corpus is 90
+suites green; the staged repository battery is 13/13 and mortality is 8/8.
+
+No repository manifest projection is implemented here. Completion truth exists
+inside the body; roadmap 7.10 must give △ an exact named reader and bounded
+external projection without widening the hand.
+
+## 27. Roadmap 7.10 Repository Delivery Crystall
+
+Date: 2026-07-20.
+
+### 27.1 Module Boundary
+
+`runtime/repository_result.lua` is the pure terminal reader. It receives only a
+Packet and an exact public repository action/completion input. It owns:
+
+```text
+resolve(instance, input)             exact current completion/evidence lookup
+project(instance, resolved)          bounded repository.result.v0
+delivery(instance, input, scope)     manifest payload material
+verify_delivery_effect(...)          independent qualified-effect check
+```
+
+It imports no provider or capability registry and performs no filesystem or
+substrate operation.
+
+### 27.2 Action Contract
+
+Add one qualified mode:
+
+```text
+mode                 repository_delivery
+target               △
+option root          manifest.repository_result
+expected effect      manifest_payload
+consumer             manifest.repository_result.v0
+causal class         terminal_boundary
+```
+
+The normalized input reuses the exact repository action identity envelope and
+requires exactly one evidence ref: the current `work_completion` trace event.
+Its action-plan scope is `repository_action.route_scope(action)` plus that event
+ref. Readiness and effect payload must return the same sorted scope.
+
+### 27.3 Structured Result Contract
+
+```text
+{
+  protocol_version = "repository.result.v0",
+  result_id = "repository-result:<sha256>",
+  packet_id = string,
+  lineage_id = string,
+  generation = integer,
+  status = "complete",
+  repository_id = string,
+  artifacts = {
+    {
+      work_unit_id = string,
+      work_unit_version = integer,
+      action_id = string,
+      operation = "create_text_file",
+      relative_path = string,
+      outcome = "created",
+      target_kind = "regular_file",
+      bytes = non-negative integer,
+      sha256 = 64 lowercase hex,
+      verification_ref = string,
+      completion_ref = string,
+    }
+  },
+  event_truth_status = "runtime_confirmed",
+  content_truth_status = string,
+}
+```
+
+`result_id` hashes the complete structure with `result_id` omitted. Exactly one
+artifact is permitted in v0. No optional authority-bearing fields are admitted.
+
+### 27.4 Manifest Payload Contract
+
+```text
+kind = "manifest_payload"
+mode = "repository_delivery"
+output = {
+  type = "repository",
+  status = "complete",
+  text = canonical JSON,
+  structured = repository.result.v0,
+  content_truth_status = inherited,
+}
+assembly = {
+  rule = "repository_delivery.v0",
+  work_mode = "build",
+  input_provenance = "packet_state",
+  outcome = "complete",
+  completion_ref = string,
+}
+summary = {
+  type = "repository",
+  status = "complete",
+  artifact_count = 1,
+  created_count = 1,
+  source_event = completion ref,
+}
+terminal_cause = "complete"
+truth_status = "runtime_confirmed"
+content_truth_status = inherited
+effect_scope_refs = exact committed scope
+```
+
+`sources` contains only exact event refs. `residue` contains `cause=complete`,
+`manifest_type=repository`, `completed_work_count=1` and
+`remaining_work_count=0`.
+
+### 27.5 Revalidation
+
+The resolver requires the exact current action, exact ☱ completion event,
+accepted independent verification, matching path/length/digest and zero current
+repository remainder. A later conflicting attempt or changed field version
+invalidates delivery through the existing completion validator.
+
+MANIFEST readiness resolves this contract. MANIFEST run resolves it again.
+`pressure_action.verify_effect` independently reconstructs the projection and
+compares structured output, text, sources, residue, scope and truth statuses.
+
+### 27.6 Explicit Non-Goals
+
+```text
+no provider/registry access from △
+no final filesystem read
+no raw artifact content in output
+no multi-file result
+no partial/rejected repository result protocol
+no operation widening
+no default Tree promotion
+no CLI/TUI rendering policy
+```
+
+Rejected work remains governed by existing honest blocked/death physics. This
+crystall defines only a complete verified repository result.
+
+## 28. Roadmap 7.10 Implementation Evidence
+
+Date: 2026-07-20.
+
+The contract in section 27 is implemented by:
+
+```text
+runtime/repository_result.lua       resolve/project/delivery/verify
+runtime/work_completion.lua         exact current completion event ref
+runtime/repository_inspection.lua   completed phase evidence
+runtime/qualified_pressure.lua      repository_delivery_need
+runtime/pressure_action.lua         repository_delivery action contract
+organs/manifest.lua                 Packet-local readiness and projection
+tests/test_repository_manifest.lua  M0-M10 permanent gate
+```
+
+The pressure plan scope is the canonical action route scope plus the exact
+completion event. The common repository scope guard was extended only for this
+mode and only by its closed evidence refs; review/effect/reconcile scopes remain
+unchanged.
+
+Runtime evidence:
+
+```text
+repository manifestation controls       11/11 green
+full repository hand battery             14/14 green
+full registered Lua corpus                91 suites green
+native production-provider route          green
+mortality                                 8/8 green
+GCC -fanalyzer + ASan/UBSan                green
+```
+
+The production route performs an atomic no-replace create, independent bounded
+read-back, LOGIC acceptance, ☱ completion and △ delivery before freezing a
+`dead/complete` Packet. It explicitly revokes its grant before test-root cleanup.
+
+No provider or host service is reachable from MANIFEST. No operation, default
+router authority or output width beyond one verified artifact changed. This
+closes roadmap 7.10 and the selected first-hand crystall.

@@ -381,6 +381,8 @@ open trusted root identity
 walk existing parents relative to directory handles with semantics equivalent
 to RESOLVE_BENEATH + RESOLVE_NO_SYMLINKS + RESOLVE_NO_MAGICLINKS
 reject mount/device escape with semantics equivalent to RESOLVE_NO_XDEV
+require the final parent to be owned by the process effective UID and deny
+group/other write permission
 create/write a private temporary sibling
 flush/close according to provider contract
 publish final name atomically with no-replace
@@ -391,6 +393,12 @@ return no success if final target pre-existed
 An implementation based on lexical check, `realpath` followed by raw `io.open`,
 or check-then-open does not satisfy this table. CRYSTALL must name a primitive
 that actually implements the semantics.
+
+Implementation observation (2026-07-19, step 7.5): the parent ownership/mode
+row is required by the named-temporary design. Random naming prevents advance
+guessing but does not stop a differently privileged writer that can alter the
+directory after the name appears. The remaining same-UID adversary is an
+explicit v0 trust-boundary exclusion, not an atomicity claim.
 
 ## 8. Authorized Action Envelope
 
@@ -701,6 +709,15 @@ loud. A well-formed external denial is a typed effect failure instead.
 The verifier is a separate read-only provider path. The write grant authorizes
 it to read only the exact target named by the same action.
 
+Implementation observation (2026-07-20, step 7.6): the lower provider primitive
+is now real and independently tested. It freshly revalidates the root,
+classifies the final object without following it, reads a regular file under a
+hard caller bound, checks pre/post metadata and reopens the named target before
+success. Missing and non-regular results contain no bytes. This observation
+does not satisfy the action-owned verifier described below: deriving the path
+and `expected_bytes + 1` bound from the same action, hashing ephemeral bytes
+and writing bounded evidence remain step 7.7.
+
 ```lua
 {
   protocol_version = "repository.verification.v0",
@@ -997,7 +1014,7 @@ Tests clean only identities they created.
 | R0 | one artifact, hand policy disabled | current legacy/shadow life unchanged |
 | R1 | one artifact, qualified hand enabled, no grant | typed capability exclusion/stall; no write |
 | R2 | one artifact, exact grant | eventual `☵ -> ☱ -> ☶ -> ☱` subpath; no ☳ |
-| R3 | real alternative set, exact grant | eventual `☵ -> ☳ -> ☶ -> ☱` subpath |
+| R3 | real alternative set, exact grant | eventual `☵ -> ☴ -> ☳ -> ☶ -> ☱` subpath; field-native coverage precedes real choice |
 | R4 | remove only action-review witness | single-action ☱ proposal disappears |
 | R4b | commit review edge but mismatch/remove review effect | repository-effect proposal disappears |
 | R5 | remove only repository-effect witness | ☶ proposal/effect disappears |
@@ -1102,3 +1119,208 @@ every new stored record has a named reader
 matched controls can falsify each claimed property
 legacy lives and router authority remain unchanged while the hand is opt-in
 ```
+
+## 31. Roadmap 7.7 Implementation Observation
+
+Status: runtime evidence recorded 2026-07-20 in
+`docs/00_chaos/first_repository_hand_effect_progress_results_2026-07-20.md`.
+
+The TABLE chain through effect and exact progress is now material:
+
+```text
+action -> attempt -> one-use lease -> create receipt -> independent read-back
+       -> verification -> LOGIC validation -> ☱ completion -> body.progress
+```
+
+Measured controls:
+
+```text
+repository-effect:       14/14 green
+repository-progress:      9/9 green
+real Linux effect chain:  1/1 green
+staged hand suites:       11 green / 1 red
+normal body suites:       80/80 green
+```
+
+The remaining red suite is route integration, which this implementation was
+required not to authorize. The direct LOGIC branch and ☱-owned completion
+mechanism exist; qualified pressure, operator-registry host-service propagation,
+automatic RUNTIME reconciliation and runner cost charging remain later work.
+
+One layering correction is now part of the table: the native provider owns the
+hard read/allocation bound, while LOGIC owns expected length/digest comparison
+and raw-byte non-disclosure. A well-formed mismatch is rejected evidence; an
+unknown or malformed provider record remains loud.
+
+## 32. Roadmap 7.8 Hostile Audit Observation
+
+Status: runtime evidence recorded 2026-07-20 in
+`docs/00_chaos/first_repository_hand_hostile_audit_results_2026-07-20.md`.
+
+The composition boundary now has the following additional guards:
+
+| Boundary | Hostile condition | Required guard |
+|---|---|---|
+| action -> lease | caller mutates action projection | revalidate against current Packet before spending dispatch |
+| lease -> request | caller adds or omits a field | exact plain request schema; no silent strip |
+| grant -> old lease | revoke/quarantine changes revision | issuance revision plus active-state check on every lease operation |
+| provider -> failure | cyclic/metatable/arbitrary residue | exact bounded relative-residue projection or loud failure |
+| body -> trace | generic writer names completion | repository body event requires dedicated writer |
+| trace -> progress | completion becomes stale/conflicted | reread and revalidate full chain on every `is_complete` |
+
+Measured controls:
+
+```text
+hostile Lua composition:       16/16 green
+repeated real Linux lives:      2/2 green
+staged hand suites:            12 green / 1 route red
+ordinary body suites:          80/80 green
+native repeated transactions: 128 with zero fd delta
+```
+
+One false-green rule is now explicit: a revoked-lease test must use the current
+revoked revision, otherwise it proves only stale-request rejection. State
+transition and revision mismatch are separate guards and require separate
+evidence.
+
+No pressure, router, operation or route claim changed in 7.8.
+
+## 33. Roadmap 7.9 Route Promotion Observation
+
+Status: runtime evidence recorded 2026-07-20 in
+`docs/00_chaos/first_repository_hand_route_promotion_results_2026-07-20.md`.
+
+The previously separate mechanics now form one opt-in Tree life:
+
+| Phase | Named reader | Target | Stored fact |
+|---|---|---|---|
+| exact singular action | repository phase inspector | ☱ | `repository_action_review` |
+| selected/reviewed affordable action | repository phase inspector | ☶ | attempt, receipt, verification, validation |
+| accepted current effect chain | repository phase inspector | ☱ | `work_completion` |
+| successful/rejected effect cost | tension runner | budget | one central `repository_effect` charge |
+
+Observed routes:
+
+```text
+one item:     ▽ -> ☴ -> ☵ -> ☱ -> ☶ -> ☱
+alternatives: ▽ -> ☴ -> ☵ -> ☴ -> ☳ -> ☶ -> ☱
+```
+
+The extra upper observation in the alternative route is evidence, not a rail:
+ENCODE changed field versions and CHOOSE required current versioned coverage.
+The singular action creates no fake choice and no choice loss.
+
+The private registry is transported separately from route-carried options.
+Review, effect and reconciliation share exact action/work/grant scope refs.
+Disabled, unauthorized and unaffordable hands create no provider call. Matched
+review/effect/reconcile ablations remove only their respective causal phase.
+
+Measured controls:
+
+```text
+repository route controls              11/11 green
+staged repository battery              13/13 green
+ordinary registered Lua corpus         90 suites green
+mortality                                8/8 green
+native hostile/analyzer/sanitizer       green
+```
+
+This table now authorizes only repository result manifestation in 7.10. It does
+not authorize a wider operation, a fixed route or default Tree promotion.
+
+## 34. Roadmap 7.10 Repository Result Projection Table
+
+Status: contract selected 2026-07-20 from
+`docs/00_chaos/first_repository_hand_manifest_plan_2026-07-20.md`.
+
+### 34.1 Terminal Reader Chain
+
+| Existing fact | Named reader | Derived fact | Consumer |
+|---|---|---|---|
+| current `runtime.work_completion.v0` | repository result resolver | exact completed artifact projection | △ readiness/run |
+| accepted verification event | repository result resolver | observed bytes/SHA-256/path | `repository.result.v0` |
+| action + completion event ref | qualified pressure | `repository_delivery_need` | Tree router |
+| committed repository delivery plan | MANIFEST | `manifest_payload` | Packet terminal/freeze |
+
+No new mutable completion ledger is introduced. The result is derived again
+from field and trace at readiness, execution and qualified-effect verification.
+
+### 34.2 Projection Matrix
+
+| Output field | Source | Truth |
+|---|---|---|
+| Packet/lineage/generation | Packet identity | runtime-confirmed |
+| repository id | public action projection | runtime-confirmed authorization fact |
+| relative path/operation | current exact action | runtime-confirmed action binding |
+| target kind/bytes/SHA-256 | accepted independent verification | runtime-confirmed observation |
+| action/work/completion refs | immutable trace/action chain | runtime-confirmed provenance |
+| content origin status | action | preserved, never promoted |
+| result id | deterministic digest of projection | runtime-confirmed assembly |
+
+The projection carries no raw bytes, absolute/root path, private grant object,
+provider object, handle, lease, command or shell field.
+
+### 34.3 Route And Failure Table
+
+| State at ☱ | Delivery pressure | Result |
+|---|---|---|
+| exact current completion, remaining=0 | qualified terminal witness to △ | one repository manifest |
+| completion absent | none | continue/stall/death by existing physics |
+| verification rejected | none | never complete repository output |
+| completion stale/conflicted | none | old completion is inert |
+| committed plan becomes malformed/stale | readiness/effect mismatch | loud harness failure |
+| delivery reader ablated | none | completion remains internal |
+
+### 34.4 Economics And Authority
+
+| Stage | Steps | Tool calls | File writes | Loss | Authority |
+|---|---:|---:|---:|---:|---|
+| prior ☶ effect | ordinary tick | actual 2 | actual 1 | 0 | one-use hand |
+| ☱ completion | ordinary tick | 0 | 0 | 0 | Packet trace only |
+| △ delivery | ordinary tick | 0 | 0 | 0 | Packet trace only |
+
+△ receives no host services. The default router remains shadow. The only live
+delivery route is opt-in Tree authority over the already demonstrated hand.
+
+### 34.5 Acceptance Controls
+
+M0-M10 from the CHAOS plan become a dedicated registered suite. Acceptance
+requires exact `☱ -> △`, deterministic output under runner-text substitution,
+delivery ablation, rejected/stale evidence denial, recursive non-disclosure and
+no second effect charge.
+
+## 35. Roadmap 7.10 Implementation Observation
+
+Status: runtime evidence recorded 2026-07-20 in
+`docs/00_chaos/first_repository_hand_manifest_results_2026-07-20.md`.
+
+The predicted terminal chain is material:
+
+```text
+single:       ▽ -> ☴ -> ☵ -> ☱ -> ☶ -> ☱ -> △ -> dead/complete
+alternatives: ▽ -> ☴ -> ☵ -> ☴ -> ☳ -> ☶ -> ☱ -> △ -> dead/complete
+```
+
+The terminal reader reconstructs completion at readiness, execution and effect
+verification. `repository.result.v0` is deterministic under changed runner
+text, detached from the runner payload and recursively free of raw content and
+host authority.
+
+Observed controls:
+
+```text
+M0-M10 repository manifestation       11/11 green
+repository hand battery               14/14 green
+registered corpus                     91 suites green
+production C-provider end-to-end       1/1 green
+mortality                               8/8 green
+native analyzer/sanitizer               green
+```
+
+Delivery ablation leaves exact completion internal. Rejected read-back and
+stale completion cannot become a complete repository result. △ adds one step,
+zero tools, zero writes and zero identity loss.
+
+The first repository-hand TABLE campaign is complete for its selected v0
+surface. Future operation widening requires a new table, not an amendment that
+silently changes `create_text_file`.

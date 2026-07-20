@@ -2,6 +2,7 @@ local cycle = require("logic.cycle")
 local packet_core = require("core.packet")
 local field = require("runtime.field")
 local object_coverage = require("runtime.object_coverage")
+local digest = require("core.digest")
 
 local body = {}
 
@@ -61,6 +62,288 @@ local function copy_value(value, seen)
         result[copy_value(key, seen)] = copy_value(child, seen)
     end
     return result
+end
+
+local function exact_keys(value, allowed, name)
+    if type(value) ~= "table" or getmetatable(value) ~= nil then
+        return nil, name .. " must be a plain table"
+    end
+    for key in pairs(value) do
+        if not allowed[key] then
+            return nil, name .. " contains unknown key: " .. tostring(key)
+        end
+    end
+    return true
+end
+
+local function non_empty_string(value)
+    return type(value) == "string" and value ~= ""
+end
+
+local function positive_integer(value)
+    return type(value) == "number" and value >= 1 and value == math.floor(value)
+end
+
+local function non_negative_integer(value)
+    return type(value) == "number" and value >= 0 and value == math.floor(value)
+end
+
+local function non_negative_number(value)
+    return type(value) == "number" and value >= 0
+        and value == value and value < math.huge
+end
+
+local function repository_refs(value)
+    if type(value) ~= "table" then
+        return false
+    end
+    local count = 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
+            return false
+        end
+        count = count + 1
+    end
+    if count ~= #value then
+        return false
+    end
+    for _, ref in ipairs(value) do
+        if not non_empty_string(ref) then
+            return false
+        end
+    end
+    return true
+end
+
+local repository_attempt_keys = {
+    protocol_version = true, attempt_id = true, action_id = true,
+    grant_id = true, grant_revision = true, operation = true,
+    target_ref = true, work_unit_id = true, work_unit_version = true,
+    source_refs = true, event_truth_status = true,
+}
+local repository_review_keys = {
+    protocol_version = true, review_id = true, action_id = true,
+    packet_id = true, lineage_id = true, generation = true,
+    work_unit_id = true, work_unit_version = true,
+    capability_grant_id = true, capability_revision = true,
+    verdict = true, reason = true, scope_refs = true, source_refs = true,
+    event_truth_status = true, content_truth_status = true,
+}
+local repository_receipt_keys = {
+    protocol_version = true, receipt_id = true, attempt_id = true,
+    action_id = true, grant_id = true, grant_revision = true,
+    provider_id = true, operation = true, outcome = true, target = true,
+    provider_observation = true, cost = true, source_refs = true,
+    event_truth_status = true, content_truth_status = true,
+}
+local repository_verification_keys = {
+    protocol_version = true, verification_id = true, action_id = true,
+    attempt_id = true, receipt_ref = true, grant_id = true,
+    grant_revision = true, provider_id = true, target = true,
+    observed = true, expected = true, verdict = true, reason = true,
+    cost = true, source_refs = true, event_truth_status = true,
+    content_truth_status = true,
+}
+local work_completion_keys = {
+    protocol_version = true, completion_id = true, work_unit_id = true,
+    work_unit_version = true, formation_event_ref = true, action_id = true,
+    attempt_ref = true, receipt_ref = true, verification_ref = true,
+    validation_ref = true, completed_status = true, completed_by = true,
+    source_refs = true, event_truth_status = true, content_truth_status = true,
+}
+local target_keys = {relative_path = true, kind = true}
+local observation_keys = {bytes = true, sha256 = true}
+local effect_cost_keys = {tool_calls = true, file_writes = true, time_ms = true}
+
+local function valid_effect_cost(value, tool_calls, file_writes)
+    local ok = exact_keys(value, effect_cost_keys, "repository effect cost")
+    return ok == true
+        and value.tool_calls == tool_calls
+        and value.file_writes == file_writes
+        and non_negative_number(value.time_ms)
+end
+
+local function validate_repository_attempt(value)
+    local ok, err = exact_keys(value, repository_attempt_keys,
+        "repository effect attempt")
+    if not ok then return nil, err end
+    if value.protocol_version ~= "repository.effect_attempt.v0"
+        or value.operation ~= "create_text_file"
+        or value.event_truth_status ~= "runtime_confirmed"
+        or not positive_integer(value.grant_revision)
+        or not positive_integer(value.work_unit_version)
+        or not repository_refs(value.source_refs) then
+        return nil, "invalid repository effect attempt"
+    end
+    for _, key in ipairs({"attempt_id", "action_id", "grant_id", "target_ref",
+        "work_unit_id"}) do
+        if not non_empty_string(value[key]) then
+            return nil, "invalid repository effect attempt " .. key
+        end
+    end
+    return true
+end
+
+local function validate_repository_review(value)
+    local ok, err = exact_keys(value, repository_review_keys,
+        "repository action review")
+    if not ok then return nil, err end
+    if value.protocol_version ~= "runtime.repository_action_review.v0"
+        or (value.verdict ~= "actionable" and value.verdict ~= "not_actionable")
+        or value.event_truth_status ~= "runtime_confirmed"
+        or not positive_integer(value.generation)
+        or not positive_integer(value.work_unit_version)
+        or not positive_integer(value.capability_revision)
+        or not repository_refs(value.scope_refs) or #value.scope_refs == 0
+        or not repository_refs(value.source_refs) or #value.source_refs == 0
+        or not non_empty_string(value.content_truth_status) then
+        return nil, "invalid repository action review"
+    end
+    for _, key in ipairs({"review_id", "action_id", "packet_id", "lineage_id",
+        "work_unit_id", "capability_grant_id", "reason"}) do
+        if not non_empty_string(value[key]) then
+            return nil, "invalid repository action review " .. key
+        end
+    end
+    local seed = copy_value(value)
+    seed.review_id = nil
+    local identity, identity_err = digest.record(seed)
+    if not identity then
+        return nil, identity_err
+    end
+    if value.review_id ~= "repository-action-review:" .. identity then
+        return nil, "repository action review identity mismatch"
+    end
+    return true
+end
+
+local function validate_repository_receipt(value)
+    local ok, err = exact_keys(value, repository_receipt_keys,
+        "repository effect receipt")
+    if not ok then return nil, err end
+    local target_ok, target_err = exact_keys(value.target, target_keys,
+        "repository receipt target")
+    if not target_ok then return nil, target_err end
+    local observed_ok, observed_err = exact_keys(value.provider_observation,
+        observation_keys, "repository receipt observation")
+    if not observed_ok then return nil, observed_err end
+    if value.protocol_version ~= "repository.effect_receipt.v0"
+        or value.operation ~= "create_text_file" or value.outcome ~= "created"
+        or value.target.kind ~= "regular_file"
+        or value.event_truth_status ~= "runtime_confirmed"
+        or not positive_integer(value.grant_revision)
+        or not non_negative_integer(value.provider_observation.bytes)
+        or type(value.provider_observation.sha256) ~= "string"
+        or #value.provider_observation.sha256 ~= 64
+        or not valid_effect_cost(value.cost, 1, 1)
+        or not repository_refs(value.source_refs)
+        or not non_empty_string(value.content_truth_status) then
+        return nil, "invalid repository effect receipt"
+    end
+    for _, key in ipairs({"receipt_id", "attempt_id", "action_id", "grant_id",
+        "provider_id"}) do
+        if not non_empty_string(value[key]) then
+            return nil, "invalid repository effect receipt " .. key
+        end
+    end
+    if not non_empty_string(value.target.relative_path) then
+        return nil, "invalid repository receipt target path"
+    end
+    return true
+end
+
+local function validate_repository_verification(value)
+    local ok, err = exact_keys(value, repository_verification_keys,
+        "repository verification")
+    if not ok then return nil, err end
+    local target_ok, target_err = exact_keys(value.target, target_keys,
+        "repository verification target")
+    if not target_ok then return nil, target_err end
+    local observed_ok, observed_err = exact_keys(value.observed, observation_keys,
+        "repository verification observed")
+    if not observed_ok then return nil, observed_err end
+    local expected_ok, expected_err = exact_keys(value.expected, observation_keys,
+        "repository verification expected")
+    if not expected_ok then return nil, expected_err end
+    local observed_shape = (value.observed.bytes == nil and value.observed.sha256 == nil)
+        or (non_negative_integer(value.observed.bytes)
+            and type(value.observed.sha256) == "string"
+            and #value.observed.sha256 == 64)
+    if value.protocol_version ~= "repository.verification.v0"
+        or (value.verdict ~= "accepted" and value.verdict ~= "rejected")
+        or (value.target.kind ~= "regular_file" and value.target.kind ~= "missing"
+            and value.target.kind ~= "other")
+        or value.event_truth_status ~= "runtime_confirmed"
+        or not positive_integer(value.grant_revision)
+        or not observed_shape
+        or not non_negative_integer(value.expected.bytes)
+        or type(value.expected.sha256) ~= "string" or #value.expected.sha256 ~= 64
+        or not valid_effect_cost(value.cost, 1, 0)
+        or not repository_refs(value.source_refs)
+        or not non_empty_string(value.reason)
+        or not non_empty_string(value.content_truth_status) then
+        return nil, "invalid repository verification"
+    end
+    for _, key in ipairs({"verification_id", "action_id", "attempt_id",
+        "receipt_ref", "grant_id", "provider_id"}) do
+        if not non_empty_string(value[key]) then
+            return nil, "invalid repository verification " .. key
+        end
+    end
+    return true
+end
+
+local function validate_work_completion(value)
+    local ok, err = exact_keys(value, work_completion_keys, "work completion")
+    if not ok then return nil, err end
+    if value.protocol_version ~= "runtime.work_completion.v0"
+        or value.completed_status ~= "done" or value.completed_by ~= "☱"
+        or value.event_truth_status ~= "runtime_confirmed"
+        or not positive_integer(value.work_unit_version)
+        or not repository_refs(value.source_refs)
+        or not non_empty_string(value.content_truth_status) then
+        return nil, "invalid work completion"
+    end
+    for _, key in ipairs({"completion_id", "work_unit_id", "formation_event_ref",
+        "action_id", "attempt_ref", "receipt_ref", "verification_ref",
+        "validation_ref"}) do
+        if not non_empty_string(value[key]) then
+            return nil, "invalid work completion " .. key
+        end
+    end
+    return true
+end
+
+local function record_repository_event(instance, actor, event_type, payload,
+    validator, revision_axis)
+    local lease, lease_err = packet_core.assert_actor_tick(instance, actor,
+        "record " .. event_type)
+    if not lease then
+        return nil, lease_err
+    end
+    local valid, valid_err = validator(payload or {})
+    if not valid then
+        return nil, valid_err
+    end
+    local stored = copy_value(payload or {})
+    valid, valid_err = validator(stored)
+    if not valid then
+        return nil, valid_err
+    end
+    local event, event_err = packet_core.append_repository_event(instance, {
+        type = event_type,
+        operator = actor,
+        truth_status = "runtime_confirmed",
+        payload = stored,
+        cost = stored.cost or {},
+    })
+    if not event then
+        return nil, event_err
+    end
+    if revision_axis and instance.revisions then
+        instance.revisions[revision_axis] = (instance.revisions[revision_axis] or 0) + 1
+    end
+    return copy_value(stored), event
 end
 
 local function equal_value(left, right, seen)
@@ -454,6 +737,16 @@ local function is_done(unit)
     return type(unit) == "table" and unit.status == "done"
 end
 
+local function repository_field_unit(instance, id)
+    local field_unit = instance and instance.field and instance.field.units
+        and instance.field.units[id]
+    if type(field_unit) == "table" and type(field_unit.carrier) == "table"
+        and field_unit.carrier.kind == "repository.create_text_file.v0" then
+        return field_unit
+    end
+    return nil
+end
+
 local function work_units(instance)
     if type(instance) ~= "table" or type(instance.calm) ~= "table" then
         return {}
@@ -484,7 +777,17 @@ function body.progress(instance, options)
 
     for index, unit in ipairs(units) do
         local id = unit_id(unit, index)
-        if is_done(unit) then
+        local repository_unit = repository_field_unit(instance, id)
+        local completed = is_done(unit)
+        if repository_unit then
+            local work_completion = require("runtime.work_completion")
+            completed = work_completion.is_complete(
+                instance,
+                repository_unit.id,
+                repository_unit.version
+            ) == true
+        end
+        if completed then
             done[#done + 1] = id
         else
             remaining[#remaining + 1] = id
@@ -505,6 +808,31 @@ function body.progress(instance, options)
         remaining = remaining,
         logic_status = logic_status,
     }
+end
+
+function body.record_repository_effect_attempt(instance, payload)
+    return record_repository_event(instance, "☶", "repository_effect_attempt",
+        payload, validate_repository_attempt)
+end
+
+function body.record_repository_action_review(instance, payload)
+    return record_repository_event(instance, "☱", "repository_action_review",
+        payload, validate_repository_review)
+end
+
+function body.record_repository_effect_receipt(instance, payload)
+    return record_repository_event(instance, "☶", "repository_effect_receipt",
+        payload, validate_repository_receipt)
+end
+
+function body.record_repository_verification(instance, payload)
+    return record_repository_event(instance, "☶", "repository_verification",
+        payload, validate_repository_verification, "evidence")
+end
+
+function body.record_work_completion(instance, payload)
+    return record_repository_event(instance, "☱", "work_completion",
+        payload, validate_work_completion, "history")
 end
 
 function body.record_choice(instance, choice_payload)

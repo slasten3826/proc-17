@@ -81,6 +81,23 @@ function budget.validate_cost(cost)
     return normalized
 end
 
+function budget.can_pay(instance, cost)
+    local required, required_err = budget.validate_cost(cost)
+    if not required then
+        return nil, required_err
+    end
+    local snapshot = budget.snapshot(instance)
+    local missing = {}
+    for axis, amount in pairs(required) do
+        local remaining = snapshot.remaining[axis]
+        if type(remaining) == "number" and remaining < amount then
+            missing[#missing + 1] = axis
+        end
+    end
+    table.sort(missing)
+    return #missing == 0, missing
+end
+
 local function copy_numeric_axes(source)
     local out = {}
     for _, axis in ipairs(AXES) do

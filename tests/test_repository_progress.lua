@@ -3,6 +3,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local H = require("tests.support.red_contract")
 local fixture = require("tests.support.repository_hands")
 local body = require("runtime.body")
+local logic = require("organs.logic")
 local capabilities, capabilities_err = H.optional_require("runtime.repository_capability")
 local intent_module, intent_err = H.optional_require("runtime.repository_intent")
 local action_module, action_err = H.optional_require("runtime.repository_action")
@@ -18,12 +19,16 @@ local function modules()
         suite:require_module(completion_module, completion_err, "runtime.work_completion")
 end
 
-local function grown_chain()
+local function grown_chain(options)
+    options = options or {}
     local cap, intents, actions, effects = modules()
-    local instance = fixture.packet({{
+    local instance = fixture.packet(options.items or {{
         path = "src/main.lua",
         content = "return 'complete'\n",
-    }})
+    }}, {
+        shape = options.shape,
+        max_ticks = options.max_ticks,
+    })
     local intent = assert(intents.derive(instance, {
         max_items = instance.regime.encoding.bounds.max_output_units,
     }))
@@ -36,21 +41,18 @@ local function grown_chain()
         work_mode = "build",
     }))
     fixture.move_to(instance, "☶")
-    local outcome = assert(effects.execute(instance, action, registry))
-    local validation, validation_event = assert(body.record_validation(instance, {
-        kind = "logic_validation_payload",
-        mode = "repository_effect",
-        status = outcome.status,
-        reason = outcome.reason,
-        action_id = action.action_id,
-        attempt_ref = outcome.attempt_ref,
-        receipt_ref = outcome.receipt_ref,
-        verification_ref = outcome.verification_ref,
-        evidence_count = 1,
-        effect_scope_refs = H.copy(action.scope_refs),
-        truth_status = "runtime_confirmed",
-        content_truth_status = action.content_truth_status,
-    }))
+    local _, validation = assert(logic.run(instance, {
+        work_mode = "build",
+        repository_effect = {action = action},
+    }, {repository_capabilities = registry}))
+    local outcome = {
+        status = validation.status,
+        reason = validation.reason,
+        attempt_ref = validation.attempt_ref,
+        receipt_ref = validation.receipt_ref,
+        verification_ref = validation.verification_ref,
+    }
+    local validation_event = {id = validation.trace_event_id}
     return instance, action, registry, outcome, validation, validation_event
 end
 
@@ -96,6 +98,26 @@ suite:check("E8 repeated reconciliation cannot duplicate completion", function()
     local second, err = completions.derive(instance, input)
     H.assert_nil(second, "completed state has no new candidate")
     H.assert_contains(err, "already", "duplicate exclusion is explicit")
+end)
+
+suite:check("E8b completion candidate is invalidated by a later effect attempt", function()
+    local _, _, _, effects, completions = modules()
+    local instance, action, registry, outcome, _, validation_event = grown_chain()
+    fixture.move_to(instance, "☱")
+    local candidate = assert(completions.derive(instance, {
+        action = action,
+        attempt_ref = outcome.attempt_ref,
+        receipt_ref = outcome.receipt_ref,
+        verification_ref = outcome.verification_ref,
+        validation_ref = validation_event.id,
+    }))
+    fixture.move_to(instance, "☶")
+    local repeated = effects.execute(instance, action, registry)
+    H.assert_nil(repeated, "one-use action creates no second effect")
+    fixture.move_to(instance, "☱")
+    local record, err = completions.record(instance, candidate)
+    H.assert_nil(record, "stale completion candidate cannot cross a later attempt")
+    H.assert_contains(err, "conflicting", "TOCTOU denial names the conflict")
 end)
 
 suite:check("E9 evidence for work A cannot complete work B", function()
@@ -167,6 +189,30 @@ suite:check("E15 exact completion drives body.progress", function()
     H.assert_eq(progress.needed_count, 1, "one exact work predicate")
     H.assert_eq(progress.done_count, 1, "completion ledger drives done")
     H.assert_eq(progress.remaining_count, 0, "no repository work remains")
+end)
+
+suite:check("E16 selected alternative keeps its earlier formation witness", function()
+    local _, _, _, _, completions = modules()
+    local instance, action, _, outcome, _, validation_event = grown_chain({
+        shape = "alternative_set",
+        max_ticks = 4,
+        items = {
+            {path = "src/a.lua", content = "return 'a'\n"},
+            {path = "src/b.lua", content = "return 'b'\n"},
+        },
+    })
+    H.assert_eq(action.work_unit.version, 2,
+        "CHOOSE restamped the selected unit after formation")
+    fixture.move_to(instance, "☱")
+    local record = assert(completions.record(instance, assert(completions.derive(instance, {
+        action = action,
+        attempt_ref = outcome.attempt_ref,
+        receipt_ref = outcome.receipt_ref,
+        verification_ref = outcome.verification_ref,
+        validation_ref = validation_event.id,
+    }))))
+    H.assert_eq(record.completed_status, "done",
+        "formation version at or below selected version remains exact history")
 end)
 
 suite:finish()

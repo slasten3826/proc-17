@@ -141,6 +141,13 @@ function fixture.fake_provider(options)
     local provider = {
         provider_id = "linux.openat2.renameat2.v0",
         contract_id = "repository.provider.create_readback.v0",
+        limits = {
+            max_relative_path_bytes = 1024,
+            max_component_bytes = 255,
+            max_components = 64,
+            max_content_bytes = 1048576,
+            file_mode = 384,
+        },
     }
 
     function provider.available()

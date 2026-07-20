@@ -6,6 +6,7 @@ local plan_completion = require("runtime.plan_completion")
 local pressure_action = require("runtime.pressure_action")
 local reconciliation = require("runtime.reconciliation")
 local relation_inspection = require("runtime.relation_inspection")
+local repository_inspection = require("runtime.repository_inspection")
 local structure_inspection = require("runtime.structure_inspection")
 local upper_coverage = require("runtime.upper_coverage")
 
@@ -45,6 +46,26 @@ local plan_review_consumer = {
 
 local plan_delivery_consumer = {
     id = plan_completion.delivery_consumer_id,
+    causal_class = "terminal_boundary",
+}
+
+local repository_review_consumer = {
+    id = "runtime.repository_action_review.v0",
+    causal_class = "terminal_boundary",
+}
+
+local repository_effect_consumer = {
+    id = "logic.repository_effect.v0",
+    causal_class = "terminal_boundary",
+}
+
+local repository_reconcile_consumer = {
+    id = "runtime.repository_reconcile.v0",
+    causal_class = "terminal_boundary",
+}
+
+local repository_delivery_consumer = {
+    id = "manifest.repository_result.v0",
     causal_class = "terminal_boundary",
 }
 
@@ -765,6 +786,145 @@ function qualified.plan_witnesses(instance, context, options)
     return {}, diagnostics
 end
 
+local function repository_witness(instance, current, view, mode, consumer)
+    local targets = {
+        repository_action_review = "☱",
+        repository_effect = "☶",
+        repository_reconcile = "☱",
+        repository_delivery = "△",
+    }
+    local kinds = {
+        repository_action_review = "repository_review_need",
+        repository_effect = "repository_effect_need",
+        repository_reconcile = "repository_reconcile_need",
+        repository_delivery = "repository_delivery_need",
+    }
+    local sources = {
+        repository_action_review = "repository_authorized_action",
+        repository_effect = "repository_action_evidence",
+        repository_reconcile = "repository_effect_evidence",
+        repository_delivery = "repository_work_completion",
+    }
+    local discharge = {
+        repository_action_review = "repository_effect_need",
+        repository_effect = "repository_reconcile_need",
+        repository_reconcile = "repository_work_completion",
+        repository_delivery = "repository_result_manifest",
+    }
+    local roots = {
+        repository_action_review = {runtime = {
+            repository_action_review = view.action_input,
+        }},
+        repository_effect = {logic = {
+            repository_effect = view.action_input,
+        }},
+        repository_reconcile = {runtime = {
+            repository_reconcile = view.action_input,
+        }},
+        repository_delivery = {manifest = {
+            repository_result = view.action_input,
+        }},
+    }
+    local scope_refs = view.route_scope_refs
+    if mode == "repository_delivery" then
+        scope_refs = merge_refs(scope_refs, view.action_input.evidence_refs)
+    end
+    return build_witness(instance, current, {
+        kind = kinds[mode],
+        target_operator = targets[mode],
+        causal_class = consumer.causal_class,
+        source_domain = sources[mode],
+        scope_refs = scope_refs,
+        provenance_refs = merge_refs(
+            view.provenance_refs,
+            view.action_input.evidence_refs,
+            {"consumer:" .. consumer.id}
+        ),
+        source_truth_status = view.action.content_truth_status,
+        action_mode = mode,
+        action_input = {
+            preconditions = {
+                packet_id = instance.id,
+                generation = instance.generation,
+                object_versions = {
+                    [view.action.work_unit.id] = view.action.work_unit.version,
+                },
+                relevant_revisions = {},
+            },
+            options = roots[mode],
+            expected_effect = {
+                discharge_reader = discharge[mode],
+            },
+            content_truth_status = view.action.content_truth_status,
+        },
+        metadata = {
+            consumer_contract = consumer.id,
+            repository_phase = view.phase,
+            action_id = view.action.action_id,
+            promotion_source = "body",
+        },
+    })
+end
+
+function qualified.repository_witnesses(instance, context, options)
+    options = options or {}
+    local current = current_operator(instance, context)
+    if not current then
+        return nil, "invalid current operator"
+    end
+    local view, view_err = repository_inspection.derive(instance, options)
+    if not view then
+        return nil, view_err
+    end
+    local diagnostics = copy_value(view.diagnostics or {})
+    if view.enabled ~= true or type(view.action) ~= "table" then
+        return {}, diagnostics
+    end
+
+    local mode
+    local consumer
+    local ablated
+    if view.phase == "review_needed" and topology.is_adjacent(current, "☱") then
+        mode = "repository_action_review"
+        consumer = repository_review_consumer
+        ablated = options.ablate_repository_review == true
+    elseif view.phase == "effect_needed" and topology.is_adjacent(current, "☶") then
+        mode = "repository_effect"
+        consumer = repository_effect_consumer
+        ablated = options.ablate_repository_effect == true
+    elseif view.phase == "reconcile_needed" and topology.is_adjacent(current, "☱") then
+        mode = "repository_reconcile"
+        consumer = repository_reconcile_consumer
+        ablated = options.ablate_repository_reconcile == true
+    elseif view.phase == "completed" and topology.is_adjacent(current, "△") then
+        mode = "repository_delivery"
+        consumer = repository_delivery_consumer
+        ablated = options.ablate_repository_delivery == true
+    end
+    if not mode then
+        return {}, diagnostics
+    end
+    if ablated then
+        diagnostics[#diagnostics + 1] = {
+            kind = "qualified_consumer_ablation",
+            consumer_contract = consumer.id,
+            event_truth_status = "runtime_confirmed",
+        }
+        return {}, diagnostics
+    end
+    local witness, witness_err = repository_witness(
+        instance,
+        current,
+        view,
+        mode,
+        consumer
+    )
+    if not witness then
+        return nil, witness_err
+    end
+    return {witness}, diagnostics
+end
+
 local function upper_sensor(instance, need)
     if need.sensor ~= "field_native" then
         return need.sensor
@@ -933,6 +1093,14 @@ function qualified.derive(instance, tick_result, options)
     if not plan then
         return nil, plan_diagnostics
     end
+    local repository, repository_diagnostics = qualified.repository_witnesses(
+        instance,
+        context,
+        options
+    )
+    if not repository then
+        return nil, repository_diagnostics
+    end
     local witnesses = {}
     for _, witness in ipairs(relation) do
         witnesses[#witnesses + 1] = witness
@@ -947,6 +1115,9 @@ function qualified.derive(instance, tick_result, options)
         witnesses[#witnesses + 1] = witness
     end
     for _, witness in ipairs(plan) do
+        witnesses[#witnesses + 1] = witness
+    end
+    for _, witness in ipairs(repository) do
         witnesses[#witnesses + 1] = witness
     end
     table.sort(witnesses, function(left, right)
@@ -966,6 +1137,9 @@ function qualified.derive(instance, tick_result, options)
         unqualified[#unqualified + 1] = diagnostic
     end
     for _, diagnostic in ipairs(plan_diagnostics or {}) do
+        unqualified[#unqualified + 1] = diagnostic
+    end
+    for _, diagnostic in ipairs(repository_diagnostics or {}) do
         unqualified[#unqualified + 1] = diagnostic
     end
     local clock = instance.physis and instance.physis.clock or {}
@@ -990,5 +1164,9 @@ qualified.structure_consumer = copy_value(structure_consumer)
 qualified.choice_consumer = copy_value(choice_consumer)
 qualified.plan_review_consumer = copy_value(plan_review_consumer)
 qualified.plan_delivery_consumer = copy_value(plan_delivery_consumer)
+qualified.repository_review_consumer = copy_value(repository_review_consumer)
+qualified.repository_effect_consumer = copy_value(repository_effect_consumer)
+qualified.repository_reconcile_consumer = copy_value(repository_reconcile_consumer)
+qualified.repository_delivery_consumer = copy_value(repository_delivery_consumer)
 
 return qualified

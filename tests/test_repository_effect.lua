@@ -49,6 +49,43 @@ local function events(instance, event_type)
     return result
 end
 
+local function contains_key(value, target, seen)
+    if type(value) ~= "table" then
+        return false
+    end
+    seen = seen or {}
+    if seen[value] then
+        return false
+    end
+    seen[value] = true
+    for key, child in pairs(value) do
+        if key == target or contains_key(child, target, seen) then
+            return true
+        end
+    end
+    return false
+end
+
+local function contains_scalar(value, target, seen)
+    if value == target then
+        return true
+    end
+    if type(value) ~= "table" then
+        return false
+    end
+    seen = seen or {}
+    if seen[value] then
+        return false
+    end
+    seen[value] = true
+    for key, child in pairs(value) do
+        if contains_scalar(key, target, seen) or contains_scalar(child, target, seen) then
+            return true
+        end
+    end
+    return false
+end
+
 suite:check("E0 exact effect grows attempt receipt and accepted verification", function()
     local _, _, _, effects = modules()
     local instance, action, registry, _, _, state = setup()
@@ -225,6 +262,101 @@ suite:check("P17 provider request cannot express command or root", function()
         end,
     })
     assert(effects.execute(instance, action, registry))
+end)
+
+suite:check("TH-A10 one exact action cannot acquire a second effect lease", function()
+    local _, _, _, effects = modules()
+    local instance, action, registry, _, _, state = setup()
+    assert(effects.execute(instance, action, registry))
+    local second, err = effects.execute(instance, action, registry)
+    H.assert_nil(second, "replayed action has no second effect")
+    H.assert_true(contract.is_effect_failure(err), "replay denial is typed")
+    H.assert_eq(state.calls.create, 1, "writer called exactly once")
+    H.assert_eq(state.calls.read, 1, "read-back called exactly once")
+end)
+
+suite:check("TH-E02/E03 read-back is exact, bounded and action-owned", function()
+    local _, _, _, effects = modules()
+    local instance, action, registry = setup({
+        read_override = function(_, request, state)
+            H.assert_eq(request.relative_path, "src/main.lua", "same exact target")
+            H.assert_eq(request.max_bytes, #state.files[request.relative_path] + 1,
+                "read-back uses expected+1 bound")
+            H.assert_nil(request.content, "read request carries no writer bytes")
+            return {
+                protocol_version = "repository.provider_result.v0",
+                operation = "read_text_file",
+                outcome = "observed",
+                target_kind = "regular_file",
+                bytes = #state.files[request.relative_path],
+                content = state.files[request.relative_path],
+                root = H.copy(state.root_identity),
+                mutation_primitive_entered = false,
+                published = false,
+                cost = {tool_calls = 1, file_writes = 0, time_ms = 0},
+            }
+        end,
+    })
+    assert(effects.execute(instance, action, registry))
+end)
+
+suite:check("B5/TH-M07 ambiguous temp residue quarantines the grant", function()
+    local _, _, _, effects = modules()
+    local instance, action, registry, _, _, state = setup({
+        create_override = function()
+            local err = fixture.provider_error("temp_cleanup_failed", "cleanup_unlink", {
+                tool_calls = 1,
+                file_writes = 1,
+                time_ms = 1,
+            }, "ambiguous")
+            err.published = "unknown"
+            return nil, err
+        end,
+    })
+    local outcome, err = effects.execute(instance, action, registry)
+    H.assert_nil(outcome, "ambiguous cleanup has no result")
+    H.assert_true(contract.is_effect_failure(err), "ambiguity is typed")
+    H.assert_eq(state.calls.create, 1, "one mutation attempt")
+    local retried = effects.execute(instance, action, registry)
+    H.assert_nil(retried, "quarantined grant cannot retry")
+    H.assert_eq(state.calls.create, 1, "quarantine prevents second writer call")
+end)
+
+suite:check("B6/TH-E07-E08 public repository events leak no raw observation", function()
+    local _, _, _, effects = modules()
+    local instance, action, registry = setup({
+        read_override = function(_, request, state)
+            local secret = "readback-only-secret-bytes"
+            return {
+                protocol_version = "repository.provider_result.v0",
+                operation = "read_text_file",
+                outcome = "observed",
+                target_kind = "regular_file",
+                bytes = #secret,
+                content = secret,
+                root = H.copy(state.root_identity),
+                mutation_primitive_entered = false,
+                published = false,
+                cost = {tool_calls = 1, file_writes = 0, time_ms = 0},
+            }
+        end,
+    })
+    local outcome = assert(effects.execute(instance, action, registry))
+    H.assert_eq(outcome.status, "rejected", "mismatched read-back is rejected")
+    for _, event_type in ipairs({
+        "repository_effect_attempt",
+        "repository_effect_receipt",
+        "repository_verification",
+    }) do
+        for _, event in ipairs(events(instance, event_type)) do
+            H.assert_false(contains_key(event.payload, "host_path"),
+                "absolute host path absent")
+            H.assert_false(contains_key(event.payload, "content"),
+                "raw content field absent")
+            H.assert_false(contains_scalar(event.payload, "readback-only-secret-bytes"),
+                "raw observed bytes absent")
+        end
+    end
 end)
 
 suite:finish()

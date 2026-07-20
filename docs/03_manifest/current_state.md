@@ -1,4 +1,4 @@
-# Current State - 2026-07-19
+# Current State - 2026-07-20
 
 Status: active packet-first body
 
@@ -8,7 +8,7 @@ Current transition:
 integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> qualified relation/upper witnesses -> exact structure/choice actions
 -> exact plan assessment/delivery -> in-memory lineage -> build hands
--> measured promotion
+-> first complete capability-safe repository life
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -24,8 +24,10 @@ policy; default authority and full-tree promotion remain blocked. Remaining
 pressure families must receive the same treatment before full promotion
 measurement. The first outer lineage now owns a linear task across terminal
 Packet generations in memory: one real local death can produce one bounded
-carrier and one clean descendant. The closed repository work loop follows this
-owned ancestry; hands must not be used to hide an unmeasured body.
+carrier and one clean descendant. One opt-in Tree life now routes the first
+capability-safe repository hand through exact review, effect evidence and
+body-owned completion, then projects one bounded `repository.result.v0` through
+△ and freezes a `dead/complete` Packet.
 
 ## Runtime Shape
 
@@ -348,15 +350,16 @@ DeepSeek. The substrate contributes semantic current but does not own runtime
 truth or routing.
 
 Tool contracts, fake tools, filesystem helpers, sandbox policy, and spell
-execution exist. They are not yet assembled into a body-owned repository
-mutation loop.
+execution exist. One exact create-no-replace hand is assembled into an opt-in
+body-owned repository mutation loop. Broader file operations, commands and
+multi-file work remain absent; exact one-artifact manifest delivery is present.
 
 ## Measured Evidence
 
 Current local audit results:
 
 ```text
-lua tests/run.lua                    77 suites passed
+lua tests/run.lua                    91 suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -376,12 +379,22 @@ tests/test_lineage_completion_separation.lua passed matched corpse/policy/econom
 tests/test_carrier.lua               passed
 tests/test_network_ingress.lua       passed
 tests/test_lineage_runner.lua        passed one- and two-generation lives
+tests/test_repository_route.lua      11/11 route controls passed
+tests/test_repository_manifest.lua   11/11 terminal controls passed
+lua tests/red_repository_hands.lua   14/14 staged controls passed
+tests/test_repository_hostile_audit.lua 16/16 passed
+tests/test_repository_effect.lua     14/14 passed
+tests/test_repository_progress.lua    9/9 passed
+tests/test_repository_effect_linux.lua 3/3 real-provider lives passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
 lua tests/smoke_runtime_camera_treatment.lua passed
 lua tests/smoke_pressure_ablation.lua passed
 lua tests/smoke_deepseek_qualified_encode_choose.lua 2/2 strict forms passed
 lua tests/smoke_deepseek_tension_runner.lua passed through ☱ twice
 luac -p over all Lua sources         passed
+native full fault test               passed
+GCC -fanalyzer production + test     passed
+ASan + UBSan                         passed (LeakSan not claimed)
 git diff --check                     passed
 ```
 
@@ -443,6 +456,23 @@ pre-execution choices remain equal. A committed edge to ☳ creates no choice or
 loss by itself. Review and delivery have separate matched ablations: removing
 either producer removes only its exact prediction/effect, while route commitment
 alone creates neither an assessment nor a terminal Packet.
+
+The first capability-safe repository route now grows two complete lives:
+
+```text
+single work:  ▽ -> ☴ -> ☵ -> ☱ -> ☶ -> ☱ -> △ -> dead/complete
+alternatives: ▽ -> ☴ -> ☵ -> ☴ -> ☳ -> ☶ -> ☱ -> △ -> dead/complete
+```
+
+The singular life records one actionable review and no fake choice. The
+alternative life observes current field versions before real collapse. The
+accepted chain contains one attempt, receipt, verification, accepted validation
+and work completion; the runner charges its actual effect economics once and
+the hand spends no identity loss. Independent review/effect/reconcile ablations
+break exactly their downstream phase. A terminal reader then reconstructs the
+current completion and projects relative path, bytes, SHA-256 and provenance as
+`repository.result.v0`. Delivery ablation leaves completion internal. The final
+treatment record is [`repository_delivery.v0.md`](repository_delivery.v0.md).
 
 Before the terminal treatment, one live `deepseek-chat` smoke crossed the strict
 formation boundary twice:
@@ -508,31 +538,38 @@ orphans:    each generation repeats the 14-tick budget death
 ```
 
 The live coding battery produced five manifested code artifacts that passed
-external validation after the LOGIC-stamp change. This proves that the body can
-deliver useful code through the substrate. It does not yet prove autonomous
-repository work: the battery harness extracts the artifact, writes it, and runs
-the checks outside the body.
+external validation after the LOGIC-stamp change. By itself that historical
+battery did not prove autonomous repository work because its harness extracted
+and wrote the artifact. The current first-hand corpus closes that narrower gap:
+one production-provider Tree life now performs the write, independent read-back,
+completion and repository manifestation inside the body.
 
 ## Known Defects And Open Boundaries
 
-1. **No hands.** Selected work units are recorded but not executed by the body;
-   their status does not progress to `done` through real repository mutation.
+1. **Repository work width is one artifact and one operation.** The complete
+   life can create one previously absent UTF-8 text file. It cannot patch,
+   overwrite, delete, rename, mkdir, search/read arbitrary files, run tests or
+   git, or coordinate a multi-file transaction.
 2. **Canonical field migration is incomplete.** FLOW/OBSERVE/ENCODE/CHOOSE and
    explicit tree routing consume field records, but CALM and several organ
    inputs still retain compatibility projections.
 3. **Qualified pressure is partial.** Relation recognition/formation, upper
    sight, strict structure formation, exact alternative collapse and complete
    plan delivery now have route-carried witnesses and actions. Generic semantic
-   ENCODE, DISSOLVE, build execution and most of the lower triangle still need
-   equivalent producers. Exact choice loss is a provisional count proxy, not
-   calibrated potential mass. Bounded chains prove mechanics, not production
-   promotion. ☱ does not yet apply formed relation momentum.
+   ENCODE, DISSOLVE, broader build execution and most of the lower triangle
+   still need equivalent producers. Exact choice loss is a provisional count
+   proxy, not calibrated potential mass. Bounded chains prove mechanics, not
+   production promotion. ☱ does not yet apply formed relation momentum.
 4. **Camera pressure is uncalibrated.** Reconciliation debt can govern explicit
    tree lives, but all coefficients remain one and the default mode still grants
    movement to legacy control.
-5. **The sandbox is not ready for hands.** Shell execution exists in spells,
-   while the public sandbox command policy denies all commands. Filesystem path
-   checks are lexical and need protection against symlink escape.
+5. **The first repository hand is narrow and opt-in.** The
+   private capability, exact native loader, root identity/revalidation, atomic
+   create-no-replace, bounded read-back, one-use lease, effect trace, LOGIC
+   validation, qualified route dispatch, central effect charging and exact ☱
+   completion plus exact △ delivery are implemented. Fake and production
+   provider chains are green; raw bytes and host authority stay out of trace,
+   manifest and corpse. Legacy shell/spell paths grant none of this power.
 6. **Memory has writers without readers.** Bequests enter unresolved pressure,
    but ENCODE does not consume it. Compost patterns are stored but do not yet
    affect router or foundation.
@@ -562,11 +599,16 @@ The active roadmap is deliberately ordered so new power follows owned facts:
 5. expand qualified pressure actions                         in progress
    - exact ☵/☳ formation and collapse                        complete
    - complete plan assessment and delivery                    complete
-   - build execution / evidence                               next
+   - bounded repository execution / evidence                  complete, routed v0
    - full promotion measurement                              blocked by coverage
 6. implement the outer lineage runner                         complete (in-memory v0)
-7. add capability-safe repository hands                       next
-8. expose a machine CLI and then a Go TUI
+7. add capability-safe repository hands                       complete (7.1-7.10)
+   - threat model through independent native read-back         complete
+   - one-use effect, LOGIC evidence and exact progress         complete
+   - adversarial/fault audit                                   complete
+   - qualified suite/route promotion                           complete
+   - first exact repository manifest                           complete
+8. expose a machine CLI and then a Go TUI                       next
 ```
 
 Step 4 implemented those contracts in ten bounded substeps and proved grown
@@ -576,14 +618,22 @@ explicitly off/on and fixture-selected routes remain separate from promotion
 evidence.
 
 The next bounded step is not a smarter natural-language ENCODE, another
-completion classifier, or persistent lineage storage. The complete-plan and
-first in-memory ancestry branches are closed. The next product-bearing branch
-is unrealized build work: a selected exact work unit must acquire one
-capability-safe repository action, fresh LOGIC evidence and a body-owned
-progress transition. Qualified DISSOLVE remains a separate repair treatment.
+completion classifier, persistent lineage storage or wider operation
+promotion. Roadmap 7.7 bound the native primitives to one canonical action,
+one-use authority, immutable attempt/receipt/verification, LOGIC validation and
+exact ☱ completion. The production-provider integration reaches
+`done=1, remaining=0` without granting router authority. Roadmap 7.8 then
+attacked lease replay, grant transitions, provider faults, trace leakage,
+evidence ordering and resource cleanup. Its 16 hostile controls, repeated real
+provider lives and native analyzer/sanitizer corpus are green. The audit closed
+action-to-lease validation, exact request shape, stale grant leases, bounded
+provider residue, dedicated repository event writing and reread completion
+truth. Roadmap 7.9 promoted only this demonstrated surface and connected
+qualified review, effect and reconciliation dispatch. Qualified DISSOLVE
+remains a separate repair treatment. Roadmap 7.10 added the named terminal
+reader and exact one-artifact projection without giving △ host authority.
 
-Only after those body facts and the resulting pressure corpus are measured does
-the first real repository work loop become lawful:
+The first real repository work loop is now lawful inside the body:
 
 ```text
 ☵ forms executable work
@@ -595,6 +645,11 @@ the work unit becomes done
 ☲ continues or stops
 △ assembles the verified result
 ```
+
+Every line in this selected v0 loop is now runtime-confirmed, including one
+production C-provider life. The first hand chapter is complete. The next
+ordered product boundary is a machine CLI over this exact capability, followed
+by the Go TUI; operation widening remains a separate capability-first campaign.
 
 The detailed audit and authorship reconstruction are preserved in
 [`../00_chaos/full_project_audit_2026-07-15_notes.md`](../00_chaos/full_project_audit_2026-07-15_notes.md).

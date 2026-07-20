@@ -253,6 +253,17 @@ function repository_action.validate_projection(action)
     return true
 end
 
+function repository_action.route_scope(action)
+    local valid, valid_err = repository_action.validate_projection(action)
+    if not valid then
+        return nil, valid_err
+    end
+    local result = copy_value(action.scope_refs)
+    result[#result + 1] = action.action_id
+    table.sort(result)
+    return result
+end
+
 local function actual_work_mode(instance)
     return instance and instance.regime and instance.regime.work
         and instance.regime.work.mode

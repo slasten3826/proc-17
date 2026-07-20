@@ -9,6 +9,12 @@ tmp/
 *.jsonl
 *.tmp
 
+native/*.so
+native/tests/test_proc17_repository_fs
+native/tests/test_proc17_repository_fs_create
+native/tests/proc17_fixture_guard
+native/tests/proc17_repository_fs_wrong_abi.so
+
 __pycache__/
 *.pyc
 

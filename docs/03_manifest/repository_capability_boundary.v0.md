@@ -1,5 +1,10 @@
 # Repository Capability Boundary Manifest v0
 
+Historical scope note: this file manifests roadmap step 6 before an effect
+lease existed. The later effect/progress boundary is manifested separately in
+`repository_effect_progress.v0.md`; statements below about absent effect
+authority describe this historical checkpoint rather than current code.
+
 Status:
 
 ```text

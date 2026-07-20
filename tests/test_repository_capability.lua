@@ -177,6 +177,43 @@ suite:check("grant bounds and policy are strict", function()
         policy = {file_mode = 384, shell = true},
     }))
     H.assert_nil(unknown, "unknown host policy rejected")
+
+    local wide_path = cap.mint(registry, fixture.grant_input({
+        bounds = {
+            max_relative_path_bytes = 1025,
+            max_content_bytes = 64,
+            max_effects_per_generation = 1,
+        },
+    }))
+    H.assert_nil(wide_path, "grant cannot exceed native path ceiling")
+
+    local wide_content = cap.mint(registry, fixture.grant_input({
+        bounds = {
+            max_relative_path_bytes = 64,
+            max_content_bytes = 1048577,
+            max_effects_per_generation = 1,
+        },
+    }))
+    H.assert_nil(wide_content, "grant cannot exceed native content ceiling")
+end)
+
+suite:check("registered provider ceilings survive public alias mutation", function()
+    local cap = require_capabilities()
+    local provider = fixture.fake_provider()
+    local registry = assert(cap.new({
+        session_id = "session-repository-hands",
+        providers = {[provider.provider_id] = provider},
+    }))
+    provider.limits.max_relative_path_bytes = 1048576
+    provider.limits.max_content_bytes = 10485760
+    local projection = cap.mint(registry, fixture.grant_input({
+        bounds = {
+            max_relative_path_bytes = 1025,
+            max_content_bytes = 1048577,
+            max_effects_per_generation = 1,
+        },
+    }))
+    H.assert_nil(projection, "registered ceilings are private snapshots")
 end)
 
 suite:finish()

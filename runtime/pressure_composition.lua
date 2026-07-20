@@ -84,7 +84,11 @@ local function provenance_resolves(instance, ref)
         or ref == "consumer:calm.work_structure.v0"
         or ref == "consumer:calm.singular_focus.v0"
         or ref == "consumer:runtime.plan_completion.v0"
-        or ref == "consumer:manifest.plan_delivery.v0" then
+        or ref == "consumer:manifest.plan_delivery.v0"
+        or ref == "consumer:runtime.repository_action_review.v0"
+        or ref == "consumer:logic.repository_effect.v0"
+        or ref == "consumer:runtime.repository_reconcile.v0"
+        or ref == "consumer:manifest.repository_result.v0" then
         return true
     end
     for _, event in ipairs(instance.trace or {}) do
@@ -94,6 +98,15 @@ local function provenance_resolves(instance, ref)
     end
     if field.get_unit(instance, ref) ~= nil then
         return true
+    end
+    local covered_id, covered_version = ref:match(
+        "^coverage:field_unit:(.+):(%d+)$"
+    )
+    if covered_id then
+        local unit = field.get_unit(instance, covered_id)
+        if unit and unit.version == tonumber(covered_version) then
+            return true
+        end
     end
     local relations = instance.field and instance.field.relations or {}
     for _, scope in ipairs({relations.raw, relations.active}) do
@@ -220,6 +233,8 @@ local function registry_base_context(instance, context)
         capabilities = context.capabilities,
         options = context.options or {},
         result = context.result,
+        host_services = context.host_services
+            or (context.options and context.options.host_services),
     }
 end
 

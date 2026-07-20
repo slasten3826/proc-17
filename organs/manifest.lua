@@ -2,6 +2,7 @@ local packet_core = require("core.packet")
 local json = require("core.json")
 local manifest_logic = require("logic.manifest")
 local plan_completion = require("runtime.plan_completion")
+local repository_result = require("runtime.repository_result")
 
 local manifest_organ = {}
 
@@ -74,6 +75,16 @@ local function plan_delivery(instance, options)
         sources = sources,
         scope_refs = scope_refs,
     }
+end
+
+local function repository_delivery(instance, options)
+    local input = options and options.repository_result
+    if type(input) ~= "table" then
+        return nil, "repository result input required"
+    end
+    local action_scope = options.qualified_action
+        and options.qualified_action.scope_refs or nil
+    return repository_result.delivery(instance, input, action_scope)
 end
 
 local function last_trace_event(instance, event_type, operator)
@@ -175,6 +186,29 @@ end
 
 function manifest_organ.readiness(instance, options)
     options = options or {}
+    if options.repository_result ~= nil then
+        local delivery, delivery_err = repository_delivery(instance, options)
+        if not delivery then
+            return {
+                operator = "△",
+                ready = false,
+                reason = delivery_err,
+                source_refs = {},
+                required_capabilities = {},
+                missing_capabilities = {},
+                event_truth_status = "runtime_confirmed",
+            }
+        end
+        return {
+            operator = "△",
+            ready = true,
+            reason = "repository_delivery_ready",
+            source_refs = copy_value(delivery.effect_scope_refs),
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     if options.plan_input ~= nil then
         local delivery, delivery_err = plan_delivery(instance, options)
         if not delivery then
@@ -224,6 +258,13 @@ function manifest_organ.run(instance, options)
         return nil, mutable_err
     end
     options = options or {}
+    if options.repository_result ~= nil then
+        local delivery, delivery_err = repository_delivery(instance, options)
+        if not delivery then
+            return nil, delivery_err
+        end
+        return instance, delivery
+    end
     if options.plan_input ~= nil then
         local delivery, delivery_err = plan_delivery(instance, options)
         if not delivery then

@@ -42,6 +42,11 @@ packet.event_types = {
     observation = true,
     choice = true,
     validation = true,
+    repository_action_review = true,
+    repository_effect_attempt = true,
+    repository_effect_receipt = true,
+    repository_verification = true,
+    work_completion = true,
     cycle = true,
     runtime_frame = true,
     runtime_reconciliation = true,
@@ -73,6 +78,19 @@ local dedicated_event_types = {
     manifest = true,
     death = true,
     terminal = true,
+    repository_action_review = true,
+    repository_effect_attempt = true,
+    repository_effect_receipt = true,
+    repository_verification = true,
+    work_completion = true,
+}
+
+local repository_body_event_types = {
+    repository_action_review = true,
+    repository_effect_attempt = true,
+    repository_effect_receipt = true,
+    repository_verification = true,
+    work_completion = true,
 }
 
 local event_actor_rights = {
@@ -84,6 +102,11 @@ local event_actor_rights = {
     observation = {['☴'] = true, ['☱'] = true},
     choice = {['☳'] = true},
     validation = {['☶'] = true},
+    repository_action_review = {['☱'] = true},
+    repository_effect_attempt = {['☶'] = true},
+    repository_effect_receipt = {['☶'] = true},
+    repository_verification = {['☶'] = true},
+    work_completion = {['☱'] = true},
     cycle = {['☲'] = true},
     runtime_reconciliation = {['☱'] = true},
     plan_completion_assessment = {['☱'] = true},
@@ -1101,12 +1124,9 @@ function packet.die(instance, cause, residue)
     return instance, event, terminal_event
 end
 
-function packet.append_trace(instance, event)
+local function append_actor_event(instance, event)
     if type(event) ~= "table" or not packet.event_types[event.type] then
         return nil, "valid event required"
-    end
-    if dedicated_event_types[event.type] then
-        return nil, "event type requires dedicated writer"
     end
     local actor = topology.resolve(event.operator)
     local rights = event_actor_rights[event.type]
@@ -1122,6 +1142,23 @@ function packet.append_trace(instance, event)
         return nil, lease_err
     end
     return append_trace(instance, event)
+end
+
+function packet.append_trace(instance, event)
+    if type(event) ~= "table" or not packet.event_types[event.type] then
+        return nil, "valid event required"
+    end
+    if dedicated_event_types[event.type] then
+        return nil, "event type requires dedicated writer"
+    end
+    return append_actor_event(instance, event)
+end
+
+function packet.append_repository_event(instance, event)
+    if type(event) ~= "table" or not repository_body_event_types[event.type] then
+        return nil, "repository body event required"
+    end
+    return append_actor_event(instance, event)
 end
 
 packet.append_event = packet.append_trace
