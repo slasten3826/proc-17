@@ -8,6 +8,7 @@ architecture pressure after live plan-to-build experiment
 discussion document
 no code authority
 no router change
+amended after the greenfield-generation boundary correction
 ```
 
 Date:
@@ -15,6 +16,65 @@ Date:
 ```text
 2026-07-20
 ```
+
+## 0. Frame Correction: Generation, Not In-Place Repair
+
+The first version of this note accidentally imported the conventional coding
+agent model:
+
+```text
+generate -> test -> patch the same repository -> test again
+```
+
+That is not the primary proc-17 product contract.
+
+proc-17 first creates new software. A materialized build candidate is a whole
+form, not a mutable patient. Once the candidate is sealed for QA, rejection
+does not authorize a patch, overwrite or repair inside that repository.
+
+The corrected process is:
+
+```text
+create generation N in a fresh repository
+  -> seal candidate N
+  -> run bounded QA against candidate N
+  -> accepted: manifest the root result
+  -> rejected: crystallize the failure, kill candidate N
+               build a typed recovery carrier
+               birth generation N+1 in another fresh repository
+               create the whole candidate again under inherited constraints
+```
+
+Canonical candidate law proposed by this amendment:
+
+```text
+A build candidate is immutable after materialization.
+Rejected form is never repaired in place.
+Repair changes the conditions of the next birth.
+Every new build generation materializes under a fresh repository identity.
+```
+
+During materialization, the body may create each declared absent path once.
+After the candidate is sealed, its source tree is read-only evidence. This
+makes the existing create-no-replace hand a candidate canonical boundary, not
+merely an incomplete precursor to an overwrite hand.
+
+For legacy work, the same law produces reconstruction rather than mutation:
+
+```text
+legacy repository: read-only source of observed behavior and constraints
+fresh repository: generation-scoped output authority
+result: a new implementation, compared against the observed contract
+```
+
+The claim is deliberately narrower than "no technical debt can exist".
+Regeneration prevents patch-history debt from accumulating inside a candidate;
+plan quality, architecture, QA coverage and inherited constraints still decide
+whether the newly created form is good.
+
+All earlier wording in this document about exact replace, exact patch or
+same-candidate repair is superseded by this section. The corrected sections
+below retain the original question but no longer grant mutation authority.
 
 Primary sources:
 
@@ -75,8 +135,8 @@ repository artifact complete != software task complete
 ```
 
 The body currently knows `plan` and `build`, but it does not know whether a
-build artifact is waiting for QA, waiting for repair, or ready for root-task
-manifestation.
+build candidate is still forming, waiting for QA, rejected and waiting for
+failure crystallization, or accepted for root-task manifestation.
 
 ## 2. The Missing Coordinate
 
@@ -161,7 +221,7 @@ Candidate projection:
   mode = "plan" | "build",
   context = "software_task",
   glyph = "⋯" | "⊞" | "◈" | "▲",
-  state = "forming" | "checking" | "repairing" | "boundary",
+  state = "forming" | "checking" | "crystallizing_failure" | "boundary",
   reason = "artifact_verified_qa_missing",
   source_refs = {...},
   relevant_revisions = {...},
@@ -260,26 +320,33 @@ Possible interpretation:
 
 | Layer | Packet evidence | Missing requirement | Likely pressure |
 |---|---|---|---|
-| `build ⋯` | requested artifact absent or selected action unapplied | bounded artifact effect | encode/choose/effect need |
-| `build ⊞` | artifact effect independently verified | accepted QA evidence | QA execution/validation need |
-| `build ◈` | QA rejected with concrete failure refs | bounded repair effect | repair formation/selection/effect need |
-| `build ▲` | required QA accepted or life cannot lawfully continue | root manifest or paid continuation | manifest/cycle/death need |
+| `build ⋯` | fresh generation exists; declared candidate form is absent or incomplete | bounded create-only materialization | encode/choose/effect need |
+| `build ⊞` | whole candidate is sealed and independently readable | accepted QA evidence | QA execution/validation need |
+| `build ◈` | QA rejected with concrete failure refs | typed failure crystal and terminal residue | encode/crystallize/death need |
+| `build ▲` | required QA accepted, or rejected generation has produced a lawful recovery boundary | final manifest or paid rebirth | manifest/death/lineage need |
 
-Unlike a monotonic maturity enum, build work may recur:
+Unlike a mutable repair loop, recurrence crosses a death and birth boundary:
 
 ```text
-build ⋯ -> build ⊞ -> build ◈ -> build ⊞ -> ... -> build ▲
+generation N
+  build ⋯ -> build ⊞
+    accepted -> build ▲ -> final manifest
+    rejected -> build ◈ -> △ -> corpse -> recovery carrier
+
+generation N+1, fresh Packet and fresh repository identity
+  NETWORK@▽ -> build ⋯ -> build ⊞ -> ...
 ```
 
 Therefore the glyph is better understood as the current process gesture or
-derived form, not as an integer level that only increments.
+derived form, not as an integer level and not as permission to mutate an older
+form.
 
 The old meaning of `build ▲` was "bounded repeat until manifest or death".
 That remains compatible:
 
 ```text
 accepted QA     -> manifest boundary
-repair possible -> paid continuation
+rejected QA     -> failure crystal, death and possibly paid rebirth
 budget/loss end -> death with residue
 ```
 
@@ -347,8 +414,8 @@ Examples:
 
 ```text
 plan.result.v0 is ready for transport
-one build artifact is ready for QA
-a repair attempt has produced new evidence
+one whole build candidate is sealed for QA
+a rejected candidate has produced a typed failure crystal
 ```
 
 Stage completion may legally terminate one Packet without completing the root
@@ -361,7 +428,7 @@ For the current software-task experiment:
 ```text
 required artifact evidence accepted
 required QA evidence accepted
-no required repair remains
+no rejected generation remains active
 root completion contract satisfied
 ```
 
@@ -417,7 +484,9 @@ Candidate concepts:
 ```text
 lineage.root_task
 lineage.current_stage
+lineage.current_generation
 lineage.stage_ledger
+lineage.generation_ledger
 lineage.process_contract_id
 ```
 
@@ -444,6 +513,20 @@ transition_carrier_built
 ```
 
 The lineage must not silently mutate `work_mode`.
+
+It must also distinguish the identity of every materialized generation:
+
+```text
+generation id
+Packet id
+fresh repository identity/root
+candidate digest or sealed artifact set
+QA verdict and evidence refs
+terminal corpse and recovery carrier, if rejected
+```
+
+Lineage economics remain cumulative. Rebirth must not reset the price already
+paid by rejected ancestors.
 
 ## 12. Transition Carrier
 
@@ -493,6 +576,22 @@ The target path remains canonical:
 △ -> corpse -> carrier -> NETWORK@▽ -> fresh Packet
 ```
 
+The current recovery carrier is the correct causal family for a rejected build
+generation, because that generation did not finish the root task. It may need a
+typed build-generation recovery contract, but it must not be confused with the
+successful plan-to-build stage-transition carrier.
+
+No carrier may transport a writable repository identity, provider handle or
+live candidate tree. A descendant receives:
+
+```text
+original root-task contract
+accepted plan carrier, when present
+bounded failure crystal and concrete QA refs
+cumulative lineage economics
+fresh destination repository identity and fresh capabilities
+```
+
 ## 13. Truth Status Across The Boundary
 
 The plan carrier contains several different truths:
@@ -533,19 +632,21 @@ declared QA requirement
   -> accepted or rejected QA state
 ```
 
-The substrate may propose tests or interpret a failure for repair. It may not:
+The substrate may propose tests or interpret a failure into constraints for a
+later generation. It may not:
 
 ```text
 mint execution authority
 declare its own code tested
 promote prose confidence to QA evidence
 hide a non-zero exit behind a summary
+mutate the sealed candidate under test
 ```
 
 The first QA hand requires its own threat model. It must not be smuggled in as
 an arbitrary shell command merely to complete this layer quickly.
 
-## 15. Repair Is Build `◈`
+## 15. Failure Crystallization Is Build `◈`
 
 Rejected QA must produce concrete failure refs:
 
@@ -557,22 +658,45 @@ artifact/version under test
 runtime cost
 ```
 
-Repair pressure may then expose those refs to the substrate through a bounded
-semantic observation. The resulting proposal must still pass normal ENCODE,
-CHOOSE, capability and effect boundaries.
+Failure-crystallization pressure may expose those refs to the substrate through
+a bounded semantic observation. The resulting crystal describes what the next
+generation must account for; it does not describe an edit to the rejected
+repository.
 
-Current create-no-replace authority cannot repair an existing file.
+Candidate rejection must therefore execute this boundary:
 
-Therefore `build ◈` also requires a separately designed safe mutation:
+```text
+freeze candidate source tree
+record exact QA evidence and candidate digest
+crystallize concrete failure constraints
+manifest terminal residue/corpse
+optionally build a paid recovery carrier
+birth a fresh Packet with a fresh empty destination repository
+materialize the whole candidate again
+```
+
+The following earlier proposal is explicitly rejected for the primary proc-17
+product path:
 
 ```text
 exact replace
 or exact patch
-with expected old digest
-with independent post-write read-back
+inside the failed candidate repository
 ```
 
-This is another capability campaign, not a relaxation of the first hand.
+No overwrite or patch capability is required for this loop. The future
+capability campaign is instead:
+
+```text
+multi-file create-once materialization in a fresh generation root
+candidate sealing and read-only QA
+generation-scoped repository grants
+fresh-root allocation and eventual cleanup/compost
+```
+
+Cleanup is lineage/session lifecycle authority, not a coding hand. Failed
+generation repositories may remain temporarily as auditable corpses, but they
+must not become active mutable ancestors.
 
 ## 16. Shadow-First Migration
 
@@ -623,9 +747,11 @@ shadow observations
 
 ```text
 artifact_complete
+candidate_sealed
 stage_complete
 root_task_complete
 manifest permissions
+candidate immutability
 false-green and false-red cases
 ```
 
@@ -633,15 +759,19 @@ false-green and false-red cases
 
 ```text
 stage ledger
+generation ledger
 plan-to-build transition
 transition carrier
+rejected-generation recovery
+fresh repository identity
 NETWORK ingress
 truth statuses
 cumulative economics
 ```
 
-QA and repair hands should remain later, separate capability tables after the
-process physics is stable.
+QA and generation-lifecycle capabilities should remain later, separate tables
+after the process physics is stable. There is no planned in-place repair hand
+on the primary path.
 
 ## 18. Candidate Red Tests
 
@@ -663,7 +793,9 @@ shadow layer observer disabled -> current physics identical
 verified artifact without QA -> artifact complete, root incomplete
 accepted QA for wrong artifact version -> root incomplete
 accepted QA for current artifact -> root completion candidate
-rejected QA -> repair pressure, no final manifest
+rejected QA -> failure-crystallization pressure, no final manifest
+rejected QA -> sealed candidate bytes remain unchanged
+attempted overwrite after sealing -> denied without touching the candidate
 budget death while QA missing -> residue names missing QA
 ```
 
@@ -677,6 +809,10 @@ repository authority inserted into carrier -> reject
 transition unpaid by lineage -> no birth
 build child receives fresh Packet identity and build mode
 parent plan state does not cross the boundary
+rejected build corpse -> typed recovery carrier
+next build child receives a fresh repository identity
+rejected candidate files do not cross into the new destination root
+lineage budget does cross and remains cumulative
 ```
 
 ## 19. Open Questions
@@ -700,18 +836,22 @@ Some tasks need only a plan. Some need direct build. Some need both.
 The transition must follow an explicit root-task contract, not a universal
 assumption that every plan must produce code.
 
-### Q3. Does QA happen in the same build Packet?
+### Q3. Does QA happen in the materializing Packet or a QA child?
 
 Possibilities:
 
 ```text
-same Packet continues from artifact effect into QA
-artifact stage manifests and a fresh build/QA Packet is born
-same Packet when budget permits, new generation after death
+same Packet seals its candidate and continues into read-only QA
+artifact stage manifests and a fresh QA Packet observes the sealed candidate
 ```
 
-Current packet physics permits cycles inside one life and lineage continuation
-after death. The correct boundary needs evidence, not aesthetic preference.
+This boundary still needs evidence, but both forms obey the same stronger law:
+
+```text
+QA receives no candidate mutation authority
+rejection cannot route back into the sealed repository
+any new materialization requires death/recovery and a fresh generation root
+```
 
 ### Q4. Is `▲` a state, gesture or boundary?
 
@@ -778,6 +918,7 @@ current lineage terminal behavior
 current capability provider
 ```
 
+Also do not widen the current create-no-replace hand into overwrite or patch.
 The first code, after tables and crystall, should be observation-only.
 
 ## 21. Proposed Order
@@ -790,9 +931,9 @@ The first code, after tables and crystall, should be observation-only.
 5. grow a completion-scope corpus
 6. crystallize stage transition and carrier
 7. implement automatic plan-to-build under explicit opt-in contract
-8. design QA capability separately
+8. design read-only QA capability separately
 9. gate root completion on accepted QA
-10. add repair capability and bounded recurrence
+10. add rejected-generation crystallization, fresh-root recovery and bounded recurrence
 ```
 
 This order deliberately separates:
@@ -800,7 +941,8 @@ This order deliberately separates:
 ```text
 seeing the missing layer
 transporting a completed stage
-touching the world through QA and repair
+testing an immutable candidate
+replacing rejected form through paid rebirth
 ```
 
 ## 22. Current Thesis
@@ -819,6 +961,18 @@ completion scope says how much is actually finished
 
 The live plan-to-build experiment is the first evidence strong enough to make
 this projection necessary.
+
+The product boundary is equally important:
+
+```text
+proc-17 does not improve a candidate by accumulating edits
+proc-17 improves a lineage by generating successive whole candidates
+```
+
+For greenfield work, every candidate begins empty. For legacy work, the old
+repository is observed read-only and a replacement is born elsewhere. The
+evolutionary unit is the complete generated form; QA selects forms, and
+failure changes the inherited conditions of the next birth.
 
 The immediate task is not to implement all four glyphs. It is to prove that the
 body can derive the correct glyph and completion scope without being told the
