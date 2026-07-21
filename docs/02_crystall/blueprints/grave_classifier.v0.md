@@ -6,6 +6,8 @@ Status:
 crystall
 from docs/01_table/yellowprints/grave_classifier_yellowprint.v0.md
 implementation target
+amended 2026-07-21: QA rejection remains lineage generation evidence, not grave authority;
+  F4 uses the lineage rejected-generation terminal projection and no separate failure crystal
 ```
 
 ## Scope
@@ -67,6 +69,15 @@ complete -> neutral
 cancelled + do_not_repeat -> warning
 cancelled otherwise -> neutral
 missing death -> nil, "grave classification requires death"
+```
+
+QA rejection law:
+
+```text
+qa_rejected is generation evidence owned by lineage
+grave.classify does not read QA verdicts to choose warning/bequest/neutral
+complete rejected-generation terminal candidate remains neutral unless independent residue/death rules apply
+grave output cannot authorize or block recovery
 ```
 
 Progress evidence:
@@ -139,6 +150,7 @@ budget_exhausted with do_not_repeat and no progress becomes warning
 budget_exhausted with done_count > 0 becomes bequest
 budget_exhausted with progress.done_count > 0 becomes bequest
 complete becomes neutral
+same complete death with/without qa_rejected metadata remains neutral
 cancelled without do_not_repeat becomes neutral
 cancelled with do_not_repeat becomes warning
 inherited_packet_residue input normalizes

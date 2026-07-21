@@ -6,6 +6,7 @@ Status:
 table
 from Mythos/Fable Entry 003
 step 1 only
+amended 2026-07-21: QA rejection remains lineage generation evidence, not grave authority
 ```
 
 ## Goal
@@ -75,6 +76,24 @@ Cancelled/host guard:
 ```text
 cancelled -> neutral unless explicit do_not_repeat exists
 ```
+
+## QA Rejection Boundary
+
+`qa_rejected` is not a death cause and does not select a grave kind. It is an
+exact generation fact consumed by the lineage recovery path. Grave
+classification continues to read only death, progress and residue evidence.
+
+Therefore:
+
+```text
+complete Packet carrying a rejected-generation terminal candidate -> neutral grave
+independent identity_loss or budget death -> normal warning/bequest rules
+QA metadata alone -> zero grave-kind delta
+grave record -> no authority to approve or deny generation recovery
+```
+
+This prevents grave/karma memory from duplicating or overriding the exact
+lineage rejected-generation terminal projection and recovery contracts.
 
 ## Progress Evidence
 
@@ -160,6 +179,7 @@ identity_loss -> warning
 budget_exhausted with do_not_repeat and no progress -> warning
 budget_exhausted with progress done_count > 0 -> bequest
 complete -> neutral
+same complete death with/without qa_rejected metadata -> same neutral grave
 cancelled without do_not_repeat -> neutral
 classification preserves runtime death truth and grave pressure applicability
 ```
