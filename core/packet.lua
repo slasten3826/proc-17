@@ -195,10 +195,10 @@ local function init_identity(packet_id, options)
     }
 end
 
-local process_contract_modes = {
-    ["plan.only.v0"] = {plan = true},
-    ["build.only.v0"] = {build = true},
-    ["software.create.v0"] = {plan = true, build = true},
+local process_contract_stage_ordinals = {
+    ["plan.only.v0"] = {plan = 1},
+    ["build.only.v0"] = {build = 1},
+    ["software.create.v0"] = {plan = 1, build = 2},
 }
 
 local function declared_coordinate(options, metadata, key)
@@ -216,8 +216,9 @@ local function init_work_contract(identity, work_mode, options, metadata)
         metadata,
         "process_contract_id"
     ) or (work_mode == "plan" and "plan.only.v0" or "build.only.v0")
-    local admitted_modes = process_contract_modes[process_contract_id]
-    if not admitted_modes or not admitted_modes[work_mode] then
+    local stage_ordinals = process_contract_stage_ordinals[process_contract_id]
+    local stage_ordinal = stage_ordinals and stage_ordinals[work_mode]
+    if not stage_ordinal then
         error("packet process_contract_id is incompatible with work_mode")
     end
 
@@ -231,7 +232,7 @@ local function init_work_contract(identity, work_mode, options, metadata)
         or table.concat({
             "stage",
             tostring(identity.lineage_id),
-            tostring(identity.generation),
+            tostring(stage_ordinal),
             work_mode,
         }, ":")
     if type(stage_id) ~= "string" or stage_id == "" then

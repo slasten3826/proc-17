@@ -78,6 +78,8 @@ local child = packet.new("continue from carrier", {
 assert_eq(child.session_id, "session-test", "child host session")
 assert_eq(child.lineage_id, "lineage-test", "child lineage")
 assert_eq(child.generation, 2, "child generation")
+assert_eq(child.stage_id, "stage:lineage-test:1:build",
+    "recovery generation keeps compatibility-stage identity")
 assert_eq(child.parent_id, "packet-parent", "child parent packet")
 assert_eq(child.parent_corpse_id, "corpse-parent", "child parent corpse")
 assert_eq(child.birth_kind, "network_reentry", "child birth kind")
@@ -86,6 +88,15 @@ assert_eq(child.substrate_session_id, "substrate-session-test", "child substrate
 assert_eq(child.trace[1].payload.parent_corpse_id, "corpse-parent", "birth traces parent corpse")
 assert_eq(child.trace[1].payload.carrier_id, "carrier-parent", "birth traces carrier")
 assert_eq(child.trace[1].payload.session_id, "session-test", "birth traces host session")
+
+local staged_build = packet.new("build the declared software stage", {
+    id = "packet-software-build",
+    lineage_id = "lineage-software",
+    work_mode = "build",
+    process_contract_id = "software.create.v0",
+})
+assert_eq(staged_build.stage_id, "stage:lineage-software:2:build",
+    "software.create build defaults to its declared stage ordinal")
 
 assert_error("generation must be integer >= 1", function()
     packet.new("invalid generation", {generation = 0})

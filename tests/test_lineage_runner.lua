@@ -83,6 +83,7 @@ local function observing_runner(prompt, model, options)
             session_id = instance.session_id,
             lineage_id = instance.lineage_id,
             generation = instance.generation,
+            stage_id = instance.stage_id,
             parent_id = instance.parent_id,
             parent_corpse_id = instance.parent_corpse_id,
             carrier_id = instance.carrier_id,
@@ -146,6 +147,10 @@ assert(two_report.carriers[1].target_generation == 2)
 
 assert(#born == 2)
 assert(born[1].generation == 1 and born[2].generation == 2)
+assert(born[1].stage_id == born[2].stage_id,
+    "recovery generations must retain one stage identity")
+assert(two_report.corpses[1].stage_id == two_report.corpses[2].stage_id,
+    "immutable recovery corpses must retain one stage identity")
 assert(born[1].session_id == "lineage-runner-two-session")
 assert(born[2].session_id == born[1].session_id)
 assert(born[1].id ~= born[2].id)
