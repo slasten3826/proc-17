@@ -195,6 +195,67 @@ local function init_identity(packet_id, options)
     }
 end
 
+local process_contract_modes = {
+    ["plan.only.v0"] = {plan = true},
+    ["build.only.v0"] = {build = true},
+    ["software.create.v0"] = {plan = true, build = true},
+}
+
+local function declared_coordinate(options, metadata, key)
+    local direct = options[key]
+    local mirrored = metadata[key]
+    if direct ~= nil and mirrored ~= nil and direct ~= mirrored then
+        error("packet " .. key .. " conflicts with metadata mirror")
+    end
+    return direct or mirrored
+end
+
+local function init_work_contract(identity, work_mode, options, metadata)
+    local process_contract_id = declared_coordinate(
+        options,
+        metadata,
+        "process_contract_id"
+    ) or (work_mode == "plan" and "plan.only.v0" or "build.only.v0")
+    local admitted_modes = process_contract_modes[process_contract_id]
+    if not admitted_modes or not admitted_modes[work_mode] then
+        error("packet process_contract_id is incompatible with work_mode")
+    end
+
+    local context = declared_coordinate(options, metadata, "context")
+        or "software_task.v0"
+    if context ~= "software_task.v0" then
+        error("packet context is unsupported")
+    end
+
+    local stage_id = declared_coordinate(options, metadata, "stage_id")
+        or table.concat({
+            "stage",
+            tostring(identity.lineage_id),
+            tostring(identity.generation),
+            work_mode,
+        }, ":")
+    if type(stage_id) ~= "string" or stage_id == "" then
+        error("packet stage_id must be a non-empty string")
+    end
+
+    local repository_id = declared_coordinate(options, metadata, "repository_id")
+    if repository_id ~= nil
+        and (type(repository_id) ~= "string" or repository_id == "") then
+        error("packet repository_id must be a non-empty string when present")
+    end
+
+    metadata.process_contract_id = process_contract_id
+    metadata.context = context
+    metadata.stage_id = stage_id
+    metadata.repository_id = repository_id
+    return {
+        process_contract_id = process_contract_id,
+        context = context,
+        stage_id = stage_id,
+        repository_id = repository_id,
+    }
+end
+
 local function init_revisions()
     return {
         potential = 0,
@@ -546,6 +607,7 @@ function packet.new(prompt, options)
 
     local packet_id = options.id or next_id("packet")
     local identity = init_identity(packet_id, options)
+    local work_contract = init_work_contract(identity, work_mode, options, metadata)
     local areas = init_areas(prompt, options)
     local ingress = init_ingress(options)
     local instance = {
@@ -570,6 +632,10 @@ function packet.new(prompt, options)
         boundary = areas.boundary,
         calm = areas.calm,
         regime = init_regime(work_mode),
+        process_contract_id = work_contract.process_contract_id,
+        work_context = work_contract.context,
+        stage_id = work_contract.stage_id,
+        repository_id = work_contract.repository_id,
         tension = areas.tension,
         runtime = areas.runtime,
         trace = {},
@@ -598,6 +664,10 @@ function packet.new(prompt, options)
             substrate_session_id = instance.substrate_session_id,
             inherited_residue_count = #(instance.runtime.memory.inherited_residue or {}),
             work_mode = work_mode,
+            process_contract_id = instance.process_contract_id,
+            context = instance.work_context,
+            stage_id = instance.stage_id,
+            repository_id = instance.repository_id,
             ingress_protocol = instance.ingress.protocol_version,
             integration_protocol = instance.ingress.integration_protocol,
             flow_mark = instance.ingress.flow_mark,

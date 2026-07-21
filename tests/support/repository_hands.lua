@@ -74,6 +74,7 @@ function fixture.packet(items, options)
     packet_options.session_id = options.session_id or "session-repository-hands"
     packet_options.lineage_id = options.lineage_id or "lineage-repository-hands"
     packet_options.work_mode = options.work_mode or "build"
+    packet_options.repository_id = options.repository_id or "repo-a"
     local run_options = {
         router_mode = "tree",
         pressure_policy = "qualified_need_v0",

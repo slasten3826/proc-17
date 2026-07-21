@@ -10,6 +10,7 @@ local grave = require("runtime.grave")
 local camera = require("runtime.camera")
 local freshness = require("runtime.freshness")
 local pressure_action = require("runtime.pressure_action")
+local work_layer = require("runtime.work_layer")
 local digest = require("core.digest")
 
 local tension_runner = {}
@@ -55,6 +56,20 @@ local function prepare_options(options)
             return nil, "work_mode declarations disagree"
         end
     end
+    local hands = prepared.repository_hands
+    if type(hands) == "table" and hands.enabled == true
+        and type(hands.repository_id) == "string" and hands.repository_id ~= "" then
+        if packet_options.repository_id ~= nil
+            and packet_options.repository_id ~= hands.repository_id then
+            return nil, "repository_hands repository_id conflicts with Packet birth"
+        end
+        if metadata.repository_id ~= nil
+            and metadata.repository_id ~= hands.repository_id then
+            return nil, "repository_hands repository_id conflicts with metadata mirror"
+        end
+        packet_options.repository_id = hands.repository_id
+        metadata.repository_id = hands.repository_id
+    end
     metadata.work_mode = work_mode
     packet_options.metadata = metadata
     packet_options.work_mode = work_mode
@@ -62,6 +77,15 @@ local function prepare_options(options)
     prepared.packet_options = packet_options
     if prepared.on_packet_birth ~= nil and type(prepared.on_packet_birth) ~= "function" then
         return nil, "on_packet_birth must be function"
+    end
+    prepared.work_layer_observer = prepared.work_layer_observer or "off"
+    if prepared.work_layer_observer ~= "off"
+        and prepared.work_layer_observer ~= "shadow_v0" then
+        return nil, "work_layer_observer must be off or shadow_v0"
+    end
+    if prepared.work_layer_contract ~= nil
+        and type(prepared.work_layer_contract) ~= "table" then
+        return nil, "work_layer_contract must be table"
     end
     return prepared
 end
@@ -92,6 +116,40 @@ local function finish_measurements(result)
     else
         note_stats_error(result, err)
     end
+end
+
+local function observe_work_layer(instance, result, options, phase)
+    if options.work_layer_observer ~= "shadow_v0" then
+        return true
+    end
+    local called, projection, inspect_err = pcall(
+        work_layer.inspect_packet,
+        instance,
+        options.work_layer_contract
+    )
+    if not called or not projection then
+        result.work_layer_observer_errors = result.work_layer_observer_errors or {}
+        result.work_layer_observer_errors[#result.work_layer_observer_errors + 1] = {
+            kind = "work_layer_instrumentation_error",
+            tick_index = #result.ticks,
+            operator = instance.operator,
+            phase = phase,
+            reason = tostring(called and inspect_err or projection),
+            event_truth_status = "runtime_confirmed",
+        }
+        return false
+    end
+    result.work_layer_observations[#result.work_layer_observations + 1] = {
+        kind = "work_layer_shadow_observation",
+        observer = "work_layer.shadow_v0",
+        authority = "instrumentation_only",
+        tick_index = #result.ticks,
+        operator = instance.operator,
+        phase = phase,
+        projection = copy_value(projection),
+        event_truth_status = "runtime_confirmed",
+    }
+    return true
 end
 
 local function operator_context(substrate, options, result)
@@ -458,6 +516,8 @@ function tension_runner.run(prompt, substrate, options)
         router_mode = options.router_mode or "shadow",
         legacy_shadow = (options.router_mode or "shadow") == "tree"
             and options.legacy_shadow ~= false or false,
+        work_layer_observer = options.work_layer_observer,
+        work_layer_observations = {},
         stop_reason = nil,
         final_status = instance.status,
         birth = birth_receipt,
@@ -691,6 +751,7 @@ function tension_runner.run(prompt, substrate, options)
             result.stop_reason = "effect_failure"
             result.final_status = instance.status
             result.effect_failure = failure
+            observe_work_layer(instance, result, options, "post_effect_failure")
             finish_measurements(result)
             return instance, result
         end
@@ -783,14 +844,18 @@ function tension_runner.run(prompt, substrate, options)
             end
             result.stop_reason = "manifested"
             result.final_status = instance.status
+            observe_work_layer(instance, result, options, "post_terminal_tick")
             finish_measurements(result)
             return instance, result
         end
 
         if die_from_mortality(instance, result, current) then
+            observe_work_layer(instance, result, options, "post_mortality_tick")
             finish_measurements(result)
             return instance, result
         end
+
+        observe_work_layer(instance, result, options, "post_body_tick")
 
         local route, route_err = router.after_tick(instance, {
             operator = current,

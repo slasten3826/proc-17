@@ -89,6 +89,12 @@ function corpse.capture(instance, options)
         lineage_id = instance.lineage_id,
         packet_id = instance.id,
         generation = instance.generation,
+        work_mode = instance.regime and instance.regime.work
+            and instance.regime.work.mode or nil,
+        process_contract_id = instance.process_contract_id,
+        context = instance.work_context,
+        stage_id = instance.stage_id,
+        repository_id = instance.repository_id,
         parent_packet_id = instance.parent_id,
         parent_corpse_id = instance.parent_corpse_id,
         ingress_carrier_id = instance.carrier_id,
@@ -122,6 +128,13 @@ function corpse.verify(record)
         or type(record.lineage_id) ~= "string" or record.lineage_id == ""
         or type(record.generation) ~= "number" or record.generation < 1
         or record.generation ~= math.floor(record.generation)
+        or (record.work_mode ~= nil and record.work_mode ~= "plan"
+            and record.work_mode ~= "build")
+        or (record.process_contract_id ~= nil
+            and type(record.process_contract_id) ~= "string")
+        or (record.context ~= nil and type(record.context) ~= "string")
+        or (record.stage_id ~= nil and type(record.stage_id) ~= "string")
+        or (record.repository_id ~= nil and type(record.repository_id) ~= "string")
         or (record.terminal_kind ~= "manifest" and record.terminal_kind ~= "internal_death")
         or type(record.death_cause) ~= "string"
         or type(record.trace_tail) ~= "table"
