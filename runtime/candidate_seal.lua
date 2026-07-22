@@ -30,6 +30,7 @@ local candidate_seal = {
     request_protocol = "repository.candidate_seal_request.v0",
     inventory_protocol = "repository.seal_inventory.v0",
     seal_protocol = "repository.candidate_seal.v0",
+    alignment_protocol = "repository.candidate_seal_alignment.v0",
     result_protocol = "repository.candidate_seal_result.v0",
     -- Public projection only; callers cannot mutate the body's trusted defaults.
     default_inventory_bounds = {
@@ -1064,7 +1065,7 @@ local function normalize_seal(value, require_identity)
     return normalized
 end
 
-function candidate_seal.validate_seal(instance, value)
+local function validate_record_value(instance, value)
     local normalized, normalized_err = normalize_seal(value, true)
     if not normalized then
         return nil, normalized_err
@@ -1079,11 +1080,10 @@ function candidate_seal.validate_seal(instance, value)
         or normalized.repository_id ~= instance.repository_id then
         return nil, "candidate seal is foreign to Packet"
     end
-    local evidence, evidence_err = derive_body_evidence(
-        instance, validation_inventory_ceiling)
-    if not evidence then
-        return nil, evidence_err
-    end
+    return normalized
+end
+
+local function artifacts_from_evidence(evidence)
     local expected = {}
     for index, file in ipairs(evidence.expected_files) do
         expected[index] = {
@@ -1096,19 +1096,123 @@ function candidate_seal.validate_seal(instance, value)
             verification_ref = file.verification_ref,
         }
     end
-    local expected_source_refs = sorted_unique({
-        normalized.request_id,
-        normalized.artifact_set_id,
+    return expected
+end
+
+local function evidence_source_refs(seal, evidence)
+    return sorted_unique({
+        seal.request_id,
+        seal.artifact_set_id,
         evidence.inspection.inspection_id,
-        normalized.inventory_id,
-        normalized.authority_closure_ref,
+        seal.inventory_id,
+        seal.authority_closure_ref,
     })
+end
+
+function candidate_seal.validate_record(instance, value)
+    local normalized, normalized_err = validate_record_value(instance, value)
+    if not normalized then
+        return nil, normalized_err
+    end
+    return true
+end
+
+function candidate_seal.validate_seal(instance, value)
+    local normalized, normalized_err = validate_record_value(instance, value)
+    if not normalized then
+        return nil, normalized_err
+    end
+    local evidence, evidence_err = derive_body_evidence(
+        instance, validation_inventory_ceiling)
+    if not evidence then
+        return nil, evidence_err
+    end
+    local expected = artifacts_from_evidence(evidence)
+    local expected_source_refs = evidence_source_refs(normalized, evidence)
     if normalized.artifact_set_id ~= evidence.declaration.artifact_set_id
         or not same(normalized.artifacts, expected)
         or not same(normalized.source_refs, expected_source_refs) then
         return nil, "candidate seal no longer matches body evidence"
     end
     return true
+end
+
+function candidate_seal.inspect_alignment(instance, value)
+    local normalized, normalized_err = validate_record_value(instance, value)
+    if not normalized then
+        return nil, normalized_err
+    end
+
+    local evidence, evidence_err = derive_body_evidence(
+        instance, validation_inventory_ceiling)
+    local state = "aligned"
+    local reason = "exact_current_artifact_evidence"
+    local current_artifact_set_id
+    local source_refs = copy_value(normalized.source_refs)
+    source_refs[#source_refs + 1] = normalized.candidate_seal_id
+    local conflicting_refs = {}
+
+    if not evidence then
+        if type(evidence_err) ~= "table"
+            or type(evidence_err.code) ~= "string"
+            or evidence_err.event_truth_status ~= "runtime_confirmed"
+            or type(evidence_err.source_refs) ~= "table" then
+            return nil, evidence_err
+        end
+        state = "diverged"
+        reason = "current_artifact_set_unavailable"
+        for _, ref in ipairs(evidence_err.source_refs) do
+            source_refs[#source_refs + 1] = ref
+            conflicting_refs[#conflicting_refs + 1] = ref
+        end
+        conflicting_refs[#conflicting_refs + 1] = normalized.candidate_seal_id
+        conflicting_refs[#conflicting_refs + 1] = normalized.artifact_set_id
+    else
+        current_artifact_set_id = evidence.declaration.artifact_set_id
+        source_refs[#source_refs + 1] = evidence.declaration.artifact_set_id
+        source_refs[#source_refs + 1] = evidence.inspection.inspection_id
+        for _, ref in ipairs(evidence.inspection.source_refs or {}) do
+            source_refs[#source_refs + 1] = ref
+        end
+        local current_artifacts = artifacts_from_evidence(evidence)
+        local current_source_refs = evidence_source_refs(normalized, evidence)
+        if normalized.artifact_set_id ~= current_artifact_set_id then
+            state = "diverged"
+            reason = "current_artifact_set_changed"
+        elseif not same(normalized.artifacts, current_artifacts)
+            or not same(normalized.source_refs, current_source_refs) then
+            state = "diverged"
+            reason = "current_artifact_evidence_changed"
+        end
+        if state == "diverged" then
+            conflicting_refs[#conflicting_refs + 1] = normalized.candidate_seal_id
+            conflicting_refs[#conflicting_refs + 1] = normalized.artifact_set_id
+            conflicting_refs[#conflicting_refs + 1] = current_artifact_set_id
+            conflicting_refs[#conflicting_refs + 1] = evidence.inspection.inspection_id
+        end
+    end
+
+    local alignment = {
+        protocol_version = candidate_seal.alignment_protocol,
+        alignment_id = nil,
+        packet_id = normalized.packet_id,
+        lineage_id = normalized.lineage_id,
+        generation = normalized.generation,
+        candidate_seal_id = normalized.candidate_seal_id,
+        sealed_artifact_set_id = normalized.artifact_set_id,
+        current_artifact_set_id = current_artifact_set_id,
+        state = state,
+        reason = reason,
+        source_refs = sorted_unique(source_refs),
+        conflicting_refs = sorted_unique(conflicting_refs),
+        event_truth_status = "runtime_confirmed",
+    }
+    local alignment_digest, alignment_err = digest.record(alignment)
+    if not alignment_digest then
+        return nil, alignment_err
+    end
+    alignment.alignment_id = "candidate-seal-alignment:" .. alignment_digest
+    return copy_value(alignment)
 end
 
 function candidate_seal.find(instance, candidate_seal_id)
@@ -1120,14 +1224,14 @@ function candidate_seal.find(instance, candidate_seal_id)
         local payload = event and event.payload or nil
         if event.type == "candidate_seal" and type(payload) == "table"
             and payload.candidate_seal_id == candidate_seal_id then
-            local valid, valid_err = candidate_seal.validate_seal(instance, payload)
-            if not valid then
+            local normalized, valid_err = validate_record_value(instance, payload)
+            if not normalized then
                 return nil, nil, valid_err
             end
             if found then
                 return nil, nil, "candidate_seal_ambiguous"
             end
-            found, found_event = copy_value(payload), copy_value(event)
+            found, found_event = copy_value(normalized), copy_value(event)
         end
     end
     if not found then
@@ -1140,14 +1244,14 @@ function candidate_seal.current(instance)
     local found, found_event
     for _, event in ipairs(instance and instance.trace or {}) do
         if event.type == "candidate_seal" then
-            local valid, valid_err = candidate_seal.validate_seal(instance, event.payload)
-            if not valid then
+            local normalized, valid_err = validate_record_value(instance, event.payload)
+            if not normalized then
                 return nil, nil, valid_err
             end
-            if found and found.candidate_seal_id ~= event.payload.candidate_seal_id then
+            if found and found.candidate_seal_id ~= normalized.candidate_seal_id then
                 return nil, nil, "candidate_seal_contradiction"
             end
-            found, found_event = copy_value(event.payload), copy_value(event)
+            found, found_event = copy_value(normalized), copy_value(event)
         end
     end
     if not found then

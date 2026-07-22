@@ -180,6 +180,8 @@ local function empty_components()
             state = "unsupported",
             candidate_seal_id = nil,
             candidate_seal_event_ref = nil,
+            artifact_alignment = "not_applicable",
+            alignment_ref = nil,
             qa_verdict_ref = nil,
         },
         generation_state = {
@@ -307,13 +309,47 @@ local function inspect_build_packet(instance, view, result)
         end
     end
 
+    local seal, seal_event, seal_err = candidate_seal.current(instance)
+    if seal then
+        local alignment, alignment_err = candidate_seal.inspect_alignment(
+            instance, seal)
+        if not alignment then
+            return nil, alignment_err
+        end
+        result.candidate.state = "sealed"
+        result.candidate.candidate_seal_id = seal.candidate_seal_id
+        result.candidate.candidate_seal_event_ref = seal_event.id
+        result.candidate.artifact_alignment = alignment.state
+        result.candidate.alignment_ref = alignment.alignment_id
+        result.highest_scope = "candidate_sealed"
+        result.source_refs[#result.source_refs + 1] = seal_event.id
+        result.source_refs[#result.source_refs + 1] = seal.candidate_seal_id
+        result.source_refs[#result.source_refs + 1] = alignment.alignment_id
+        append_all(result.source_refs, seal.source_refs)
+        append_all(result.source_refs, alignment.source_refs)
+        append_all(result.conflicting_refs, alignment.conflicting_refs)
+        result.content_truth_status = seal.content_truth_status
+        if alignment.state == "diverged" then
+            result.missing_requirements[#result.missing_requirements + 1] =
+                "post_seal_body_conflict_disposition"
+        end
+    elseif seal_err ~= "candidate_seal_absent" then
+        return nil, seal_err
+    end
+
     local derived_set, derived_err = artifact_set.derive(instance)
     if not derived_set then
         if type(derived_err) ~= "table" then
             return nil, derived_err
         end
-        result.missing_requirements[#result.missing_requirements + 1] =
-            "artifact_set_contract"
+        append_all(result.source_refs, derived_err.source_refs)
+        if seal then
+            result.artifact_set.state = "incomplete"
+            append_all(result.conflicting_refs, derived_err.source_refs)
+        else
+            result.missing_requirements[#result.missing_requirements + 1] =
+                "artifact_set_contract"
+        end
         return true
     end
     if view.artifact_set ~= nil then
@@ -336,27 +372,14 @@ local function inspect_build_packet(instance, view, result)
     append_all(result.conflicting_refs, set_view.conflicting_refs)
     if set_view.state == "complete" and set_view.inventory_compatible then
         result.artifact_set.state = "complete"
-        result.highest_scope = "artifact_set"
-
-        local seal, seal_event, seal_err = candidate_seal.current(instance)
-        if seal then
-            result.candidate.state = "sealed"
-            result.candidate.candidate_seal_id = seal.candidate_seal_id
-            result.candidate.candidate_seal_event_ref = seal_event.id
-            result.highest_scope = "candidate_sealed"
-            result.source_refs[#result.source_refs + 1] = seal_event.id
-            result.source_refs[#result.source_refs + 1] = seal.candidate_seal_id
-            append_all(result.source_refs, seal.source_refs)
-            result.content_truth_status = seal.content_truth_status
-        elseif seal_err == "candidate_seal_absent" then
+        if not seal then
+            result.highest_scope = "artifact_set"
             result.missing_requirements[#result.missing_requirements + 1] =
                 "candidate_seal"
-        else
-            return nil, seal_err
         end
     else
         result.artifact_set.state = "incomplete"
-        if not set_view.inventory_compatible then
+        if not set_view.inventory_compatible and not seal then
             result.missing_requirements[#result.missing_requirements + 1] =
                 "artifact_set_inventory_compatible"
         end

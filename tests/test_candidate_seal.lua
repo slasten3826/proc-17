@@ -2,6 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local H = require("tests.support.red_contract")
 local json = require("core.json")
+local packet_core = require("core.packet")
 local completion_scope = require("runtime.completion_scope")
 local fixture = require("tests.support.repository_hands")
 local logic = require("organs.logic")
@@ -146,6 +147,101 @@ suite:check("ST24 exact repeat performs no provider work", function()
         "idempotence performs no second inventory")
     H.assert_eq(#events(grown.instance, "candidate_seal"), 1,
         "idempotence appends no second event")
+end)
+
+suite:check("SF06/SF08 unrelated body motion preserves detached alignment", function()
+    local grown = grown_candidate("candidate-seal-unrelated-motion")
+    local request = assert(candidate_seal.prepare(grown.instance, grown.services))
+    fixture.move_to(grown.instance, "☶")
+    local result = assert(candidate_seal.execute(
+        grown.instance, request, grown.services))
+
+    local before = assert(candidate_seal.inspect_alignment(
+        grown.instance, result.seal))
+    H.assert_eq(before.state, "aligned", "freshly sealed body is aligned")
+
+    assert(packet_core.append_trace(grown.instance, {
+        type = "validation",
+        operator = "☶",
+        payload = {kind = "unrelated_post_seal_observation"},
+        truth_status = "runtime_confirmed",
+        cost = {},
+    }))
+    local after = assert(candidate_seal.inspect_alignment(
+        grown.instance, result.seal))
+    H.assert_eq(after.state, "aligned",
+        "out-of-scope trace motion does not invalidate artifact evidence")
+    H.assert_eq(after.alignment_id, before.alignment_id,
+        "pure alignment identity ignores unrelated trace motion")
+
+    after.source_refs[1] = "caller-forged"
+    local detached = assert(candidate_seal.inspect_alignment(
+        grown.instance, result.seal))
+    H.assert_true(detached.source_refs[1] ~= "caller-forged",
+        "alignment projection is detached")
+end)
+
+suite:check("SF01-SF05 post-seal drift preserves finality and blocks reuse", function()
+    local grown = grown_candidate("candidate-seal-post-seal-drift")
+    local request = assert(candidate_seal.prepare(grown.instance, grown.services))
+    fixture.move_to(grown.instance, "☶")
+    local result = assert(candidate_seal.execute(
+        grown.instance, request, grown.services))
+
+    local malformed = H.copy(result.seal)
+    malformed.candidate_seal_id = "candidate-seal:" .. string.rep("0", 64)
+    local valid, malformed_err = candidate_seal.validate_record(
+        grown.instance, malformed)
+    H.assert_nil(valid, "malformed historical seal remains loud")
+    H.assert_contains(malformed_err, "identity mismatch",
+        "historical verifier names the corruption")
+
+    local unit = assert(grown.instance.field.units[grown.action.work_unit.id])
+    unit.version = unit.version + 1
+
+    local stored = assert(candidate_seal.current(grown.instance))
+    H.assert_eq(stored.candidate_seal_id, result.seal.candidate_seal_id,
+        "relevant body drift cannot erase historical seal")
+    local alignment = assert(candidate_seal.inspect_alignment(
+        grown.instance, stored))
+    H.assert_eq(alignment.state, "diverged",
+        "current disagreement is a separate typed projection")
+
+    local scope = assert(completion_scope.inspect_packet(grown.instance))
+    H.assert_eq(scope.highest_scope, "candidate_sealed",
+        "scope never falls below the committed seal")
+    H.assert_eq(scope.candidate.state, "sealed",
+        "candidate remains physically sealed")
+    H.assert_eq(scope.candidate.artifact_alignment, "diverged",
+        "scope exposes current disagreement")
+    H.assert_contains(table.concat(scope.missing_requirements, "\n"),
+        "post_seal_body_conflict_disposition",
+        "scope asks for conflict disposition, not materialization")
+
+    local layer = assert(work_layer.inspect_packet(grown.instance))
+    H.assert_eq(layer.glyph, "⊞", "conflict returns to explicit checking")
+    H.assert_eq(layer.completion_scope, "candidate_sealed",
+        "layer preserves terminal candidate scope")
+    H.assert_eq(layer.candidate_alignment, "diverged",
+        "layer exposes alignment state")
+    H.assert_eq(layer.reason, "candidate_sealed_body_conflict",
+        "layer names the post-seal conflict")
+    H.assert_false(table.concat(layer.missing_requirements, "\n"):find(
+        "materialization", 1, true) ~= nil,
+        "sealed root is never sent back to materialization")
+
+    local inventory_calls = grown.state.calls.inventory
+    local replay = assert(candidate_seal.execute(
+        grown.instance, request, grown.services))
+    H.assert_true(replay.idempotent,
+        "repeat seal path reads history instead of reopening work")
+    H.assert_eq(grown.state.calls.inventory, inventory_calls,
+        "post-seal conflict performs no second inventory")
+
+    local root = assert(capabilities.root_authority(grown.registry, {
+        root_authority_id = request.root_authority_id,
+    }))
+    H.assert_eq(root.state, "sealed", "post-seal drift cannot reopen root")
 end)
 
 suite:check("REG detached defaults cannot rewrite sealed evidence", function()

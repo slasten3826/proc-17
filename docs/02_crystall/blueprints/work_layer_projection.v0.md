@@ -21,6 +21,8 @@ F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026
 2026-07-21 cross-table documentary gate: satisfied
 amended 2026-07-22: artifact-set and candidate-seal reasons consume the new
   derived set and dedicated immutable seal event; they remain pure projections
+amended 2026-07-22: post-seal body alignment is explicit; divergence preserves
+  candidate scope and blocks both materialization and QA advancement
 ```
 
 ## 0. Crystallized Claim
@@ -123,6 +125,8 @@ caller cannot inject a preselected glyph or a forged scope inspection.
 
   completion_scope = "none" | "work_item" | "artifact_set"
     | "candidate_sealed",
+  candidate_alignment = "not_applicable" | "aligned" | "diverged"
+    | "unsupported",
   boundary_candidate = "none" | "plan_stage_ready"
     | "software_acceptance_ready"
     | "rejected_generation_recovery_ready",
@@ -154,6 +158,7 @@ an immutable copy.
 | plan completion | plan completion module | plan assessment/result refs |
 | repository progress | work completion/result modules | current artifact evidence |
 | completion scope | completion scope module | local scope and boundary candidate |
+| current seal alignment | candidate-seal/completion-scope reader | typed current-body agreement or conflict |
 | Packet/corpse finality | Packet/corpse verifier | terminalized boundary |
 
 Unavailable named readers produce `unsupported` or an exact missing requirement.
@@ -165,11 +170,13 @@ Substrate prose contributes no glyph authority.
 1. validate Packet/corpse identity and lifecycle
 2. derive mode from immutable birth/stage contract
 3. select one known work-context derivation table
-4. obtain a fresh completion-scope inspection
+4. obtain a fresh completion-scope inspection, including historical seal and
+   current alignment as distinct facts
 5. collect exact current-generation source refs and object versions
 6. reject stale, conflicting and cross-generation evidence
-7. apply mode-specific precedence from strongest boundary downward
-8. emit one projection or typed unsupported
+7. handle a sealed-but-diverged candidate before QA or materialization cases
+8. apply mode-specific precedence from strongest boundary downward
+9. emit one projection or typed unsupported
 ```
 
 Unknown is not `⋯`. `⋯` is positive evidence of formation/materialization work;
@@ -191,6 +198,7 @@ Packet boundary candidate until lineage writes stage completion.
 
 | Priority | Evidence | Glyph | State | Scope | Candidate | Reason | Missing |
 |---:|---|---|---|---|---|---|---|
+| B0 | exact historical seal + diverged current artifact evidence | `⊞` | checking | candidate_sealed | none | `candidate_sealed_body_conflict` | `fresh_generation_plan_for:<candidate_seal_id>` |
 | B1 | exact seal + accepted required QA | `▲` | boundary | candidate_sealed | software_acceptance_ready | `software_acceptance_candidate_ready` | △/corpse, then lineage assessment and required docs |
 | B2 | final rejected QA verdict bound to exact seal/contract/rejected checks | `▲` | boundary | candidate_sealed | rejected_generation_recovery_ready | `rejected_generation_recovery_ready` | △ rejected-generation projection/corpse, then lineage recovery decision |
 | B3 | exact rejected required check evidence, final verdict absent | `◈` | crystallizing_verdict | candidate_sealed | none | `qa_rejection_verdict_pending` | one final immutable rejected QA verdict |
@@ -212,6 +220,10 @@ exact final rejected verdict -> ▲ enter rejected terminal boundary
 fresh generation -> ⋯ rebuild in a fresh repository
 ```
 
+B0 has precedence over all QA states. It is a pure diagnosis: it grants no
+repository write authority, does not reopen the terminal root and does not
+itself create or route the successor generation.
+
 ## 8. Freshness
 
 Projection freshness uses exact object/version coverage:
@@ -230,7 +242,8 @@ not sufficient proof of staleness.
 | unrelated object changes | projection remains valid when out of scope |
 | QA for another seal arrives | no advancement |
 | old generation evidence appears | historical only |
-| current sealed candidate identity changes | invariant failure |
+| historical sealed-candidate record changes | invariant failure |
+| current artifact evidence diverges after seal | typed B0 conflict; seal remains historical authority |
 
 The inspector stores no mutable coverage ledger.
 
@@ -241,6 +254,7 @@ invalid mode/birth identity             loud invariant error
 unknown context                         unsupported
 completion reader unavailable           unsupported
 accepted and rejected current verdicts  loud body inconsistency
+sealed candidate with divergent body     B0 conflict, never materialization
 foreign seal/generation                 unsupported with conflict refs
 causal ref ordering impossible          loud invariant error
 stale-only evidence                      lower layer or unsupported
@@ -330,6 +344,9 @@ WL18 unknown context is unsupported, not ⋯
 WL19 conflicting trusted verdicts fail loudly
 WL20 documentation off/structured/full leaves projection identical
 WL21 same semantic context under different process contracts retains distinct projection identity
+WL22 relevant post-seal body drift preserves candidate_sealed and yields B0
+WL23 B0 cannot fall through to candidate materialization or QA acceptance
+WL24 unrelated body motion preserves aligned candidate projection
 ```
 
 Terminal and generation controls use grown lives, not hand-written corpse
@@ -345,6 +362,7 @@ stale and truncated plan candidate
 one-file legacy current build result
 multi-file partial/complete artifact set
 sealed candidate without QA
+sealed candidate with relevant and unrelated post-seal body motion
 accepted QA before and after corpse
 rejected required check before final verdict, final verdict before △, and after corpse
 budget death before seal and during future QA

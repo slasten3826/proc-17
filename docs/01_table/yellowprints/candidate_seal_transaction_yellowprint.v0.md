@@ -15,11 +15,17 @@ gate record:
   docs/00_chaos/candidate_seal_table_cross_audit_2026-07-22.md
 crystallized as:
   docs/02_crystall/blueprints/candidate_seal_transaction.v0.md
+amended 2026-07-22: historical seal finality is separated from current
+  repository-artifact alignment
 ```
 
 Primary chaos source:
 
 [`../../00_chaos/candidate_seal_runtime_boundary_notes_2026-07-21.md`](../../00_chaos/candidate_seal_runtime_boundary_notes_2026-07-21.md)
+
+Finality amendment:
+
+[`../../00_chaos/candidate_seal_finality_and_post_seal_alignment_notes_2026-07-22.md`](../../00_chaos/candidate_seal_finality_and_post_seal_alignment_notes_2026-07-22.md)
 
 Companion TABLE contracts:
 
@@ -542,6 +548,7 @@ a read or write capability.
 | normalized inventory | strict Lua adapter | seal comparator and registry commit |
 | closure receipt | private registry | candidate-seal body verifier |
 | candidate seal | dedicated ☶ body writer | completion scope, future QA, corpse/corpus |
+| current seal alignment | pure body reader over immutable seal + current artifact evidence | completion scope, work layer, future QA readiness |
 | stable mismatch diagnostic | seal comparator/operator outcome | ☱/higher body policy |
 | quarantine effect failure | registry/provider boundary | operator failure/mortality path |
 | build ⊞ projection | pure work-layer inspector | instrumentation, future QA pressure |
@@ -610,11 +617,44 @@ No record is written without a named reader.
 | ST33 | seal observer enabled/disabled | same route/loss before promotion |
 | ST34 | documentation profile changes | same seal identity |
 
+### Finality/alignment controls
+
+| ID | Control | Expected result |
+|---|---|---|
+| SF01 | relevant work-unit version changes after exact seal | historical seal remains readable |
+| SF02 | same post-seal drift | pure alignment is `diverged` with exact refs |
+| SF03 | completion reader consumes diverged seal | scope remains `candidate_sealed`; never `unsealed` |
+| SF04 | work-layer reader consumes diverged seal | `candidate_sealed_body_conflict`; no materialization need |
+| SF05 | write/mint/resolve attempted after drift | terminal root denial remains unchanged |
+| SF06 | unrelated trace/body evidence changes | alignment remains `aligned` |
+| SF07 | malformed or contradictory seal history | loud invariant, not divergence |
+| SF08 | returned alignment projection is mutated | zero body/private delta; next read unchanged |
+
 Native hostile fixtures must exercise real directory descriptors and races.
 Body fixtures must grow formation, effects and completion through the real
 organs; synthetic seal/closure tables cannot satisfy promotion evidence.
 
-## 14. CRYSTALL Consequences
+## 14. Historical Finality And Current Alignment
+
+Seal existence and current applicability are separate derivations:
+
+```text
+candidate_seal.current
+  verifies immutable event schema, identity and Packet subject binding
+  never reopens current artifact-set readiness
+
+candidate_seal alignment reader
+  compares the immutable seal with current body-derived artifact evidence
+  emits aligned or diverged without writing state
+```
+
+A valid historical seal cannot become absent because a mutable field object
+changes later. Divergence cannot restore write authority, lower completion
+below `candidate_sealed` or satisfy future QA. It produces a typed need for a
+fresh-generation plan. Automatic terminalization, root allocation and rebirth
+remain outside this table.
+
+## 15. CRYSTALL Consequences
 
 The later CRYSTALL round must amend:
 
@@ -629,7 +669,7 @@ native provider ABI contract before native code is touched
 The CRYSTALL must explicitly mark prior single-lifecycle and generic
 `provider_no_effect` wording as superseded. It may not begin QA design.
 
-## 15. Explicit Deferrals
+## 16. Explicit Deferrals
 
 ```text
 QA capability/check/verdict execution
@@ -644,7 +684,7 @@ CLI/TUI rendering
 documentation export
 ```
 
-## 16. Table Thesis
+## 17. Table Thesis
 
 ```text
 A seal is the moment when the body proves both what exists and that it has

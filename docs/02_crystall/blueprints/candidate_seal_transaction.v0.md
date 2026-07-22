@@ -17,6 +17,8 @@ depends on:
 QA authority: forbidden
 fresh repository allocator authority: forbidden
 router promotion: forbidden
+amended 2026-07-22: immutable seal-record finality is separated from pure
+  current artifact alignment
 ```
 
 ## 0. Crystallized Claim
@@ -109,6 +111,12 @@ candidate_seal.find(instance, candidate_seal_id)
 candidate_seal.current(instance)
   -> detached_seal, event | nil, reason
 
+candidate_seal.validate_record(instance, seal)
+  -> true | nil, err
+
+candidate_seal.inspect_alignment(instance, seal)
+  -> detached_alignment | nil, err
+
 candidate_seal.validate_request(instance, request)
   -> true | nil, err
 
@@ -123,6 +131,12 @@ does not enter `seal_pending`, invoke the provider or append trace.
 `execute` is a trusted body service used by the ☶ boundary. It owns the causal
 order but delegates every fact to its named writer. It never accepts caller-
 supplied replacement declarations, inventories, closure receipts or seal ids.
+
+`validate_record` verifies immutable schema, digest identity and Packet subject
+binding without consulting mutable current artifact evidence. `find` and
+`current` use that historical verifier. `validate_seal` remains the stricter
+writer-side verifier and additionally requires exact current body evidence at
+the original append boundary.
 
 ## 4. Seal Request Schema
 
@@ -539,6 +553,43 @@ work_layer = build ⊞ / candidate_sealed_qa_pending
 They may not derive QA acceptance, software acceptance, stage completion or
 root delivery.
 
+### 12.1 Historical Finality And Alignment
+
+A valid candidate-seal event remains visible for the rest of its generation.
+Later field motion cannot turn it into `candidate_seal_absent`.
+
+The current comparison is a separate pure projection:
+
+```lua
+{
+  protocol_version = "repository.candidate_seal_alignment.v0",
+  alignment_id = "candidate-seal-alignment:<sha256>",
+  packet_id = string,
+  lineage_id = string,
+  generation = integer,
+  candidate_seal_id = string,
+  sealed_artifact_set_id = string,
+  current_artifact_set_id = string | nil,
+  state = "aligned" | "diverged",
+  reason = "exact_current_artifact_evidence"
+    | "current_artifact_set_unavailable"
+    | "current_artifact_set_changed"
+    | "current_artifact_evidence_changed",
+  source_refs = string[],
+  conflicting_refs = string[],
+  event_truth_status = "runtime_confirmed",
+}
+```
+
+Identity hashes every field except `alignment_id`. `aligned` requires the exact
+current artifact-set identity, completed artifact evidence, completion refs,
+verification refs and sealed artifact values. A typed current-body absence or
+staleness derives `diverged`; malformed body/seal invariants remain loud.
+
+The view stores no state and grants no authority. Divergence cannot reopen the
+root, lower physical scope below `candidate_sealed`, authorize QA acceptance or
+request repository materialization.
+
 ## 13. Control Battery
 
 Implement all TABLE controls `ST01` through `ST34`. The minimum blocking
@@ -563,6 +614,12 @@ commit
 mortality/isolation
   grown quarantine death, malformed trusted output keeps harness red
   observer enabled/disabled has identical route/loss/budget/revisions
+
+finality/alignment
+  SF01-SF08 from TABLE
+  historical seal remains visible after relevant body drift
+  divergence is typed and detached; malformed history remains loud
+  completion/work layer never request materialization from a sealed root
 ```
 
 Hostile inventory tests use real descriptors and race hooks in the native
@@ -581,6 +638,7 @@ schema-valid quarantine reaches existing effect_failure mortality
 malformed trusted output never becomes ordinary Packet death
 hand-disabled and seal-observer-disabled ablations are exact
 router/pressure trace is unchanged before promotion
+post-seal drift preserves seal identity and terminal root authority
 ```
 
 The native implementation is not accepted on fake-provider tests alone.

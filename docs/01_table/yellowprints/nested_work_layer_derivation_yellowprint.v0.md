@@ -14,6 +14,8 @@ amended 2026-07-21: F3 process_contract_id separated from semantic context;
   final QA verdicts and removes the standalone failure crystal
 audit source: docs/00_chaos/fable_preimplementation_crystall_audit_raw_2026-07-21.md
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
+amended 2026-07-22: a sealed candidate with diverged current artifact evidence
+  remains sealed and projects a fresh-generation need, never materialization
 ```
 
 Date:
@@ -126,6 +128,8 @@ Exact candidate envelope:
   reason = "plan_structure_missing" | string,
   completion_scope = "none" | "work_item" | "artifact_set"
     | "candidate_sealed",
+  candidate_alignment = "not_applicable" | "aligned" | "diverged"
+    | "unsupported",
   boundary_candidate = "none" | "plan_stage_ready"
     | "software_acceptance_ready"
     | "rejected_generation_recovery_ready",
@@ -165,6 +169,7 @@ Packet identity
 lineage/generation/stage identity when present
 process-contract identity, semantic context and mode
 glyph/state/reason/scope
+candidate artifact alignment
 boundary candidate and terminalization fields
 ordered source refs
 ordered object-version refs
@@ -282,6 +287,7 @@ Precedence is again evaluated from the strongest proved boundary downward.
 
 | Priority | Required evidence | Glyph | State | Scope | Boundary candidate | Reason | Missing requirement |
 |---:|---|---|---|---|---|---|---|
+| B0 | current candidate sealed + current repository-artifact alignment diverged | `⊞` | `checking` | `candidate_sealed` | `none` | `candidate_sealed_body_conflict` | fresh-generation PLAN bound to the exact seal/conflict refs |
 | B1 | current sealed candidate + exact accepted required QA + Packet-local software acceptance prerequisites satisfied | `▲` | `boundary` | `candidate_sealed` | `software_acceptance_ready` | `software_acceptance_candidate_ready` | Packet terminal manifest/corpse, then lineage software assessment and any required documentation |
 | B2 | one final rejected QA verdict bound to the current seal, QA contract and rejected check refs | `▲` | `boundary` | `candidate_sealed` | `rejected_generation_recovery_ready` | `rejected_generation_recovery_ready` | △ embeds the rejected-generation terminal projection, then corpse and lineage recovery assessment |
 | B3 | one or more current required QA checks rejected; final current verdict absent | `◈` | `crystallizing_verdict` | `candidate_sealed` | `none` | `qa_rejection_verdict_pending` | one final immutable rejected QA verdict |
@@ -372,6 +378,7 @@ Candidate mappings, not yet authority:
 | `candidate_materialization_incomplete` | declared materialization need | effect-capable path |
 | `artifact_set_complete_seal_missing` | candidate seal need | ☱ or a dedicated body action |
 | `candidate_sealed_qa_missing` | QA evidence need | ☶ through a lawful QA capability |
+| `candidate_sealed_body_conflict` | immutable candidate/current body disagreement | future PLAN/stage-lineage boundary; never repository materialization |
 | `qa_rejection_verdict_pending` | final rejected-verdict assembly need | future dedicated QA verdict writer after exact ☶/☱ evidence |
 | `rejected_generation_recovery_ready` | terminal/rebirth accounting need | △ / lineage runner boundary |
 

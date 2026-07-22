@@ -18,6 +18,8 @@ F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026
 amended 2026-07-22: step 8.4 detailed declaration, root-lifecycle and seal
   transaction physics moved into three specialized TABLE contracts; this file
   retains completion-scope, QA and root-composition authority
+amended 2026-07-22: immutable seal existence and mutable artifact alignment are
+  separate; post-seal drift cannot project `unsealed` or materialization
 specialized TABLE gate: cross-table audit required before CRYSTALL amendment
 ```
 
@@ -218,6 +220,9 @@ Candidate envelope:
       | "qa_accepted" | "qa_rejected" | "unsupported",
     candidate_seal_id = "candidate-seal:..." | nil,
     candidate_seal_event_ref = "trace:..." | nil,
+    artifact_alignment = "not_applicable" | "aligned" | "diverged"
+      | "unsupported",
+    alignment_ref = "candidate-seal-alignment:..." | nil,
     qa_verdict_ref = "qa-verdict:..." | nil,
   },
 
@@ -257,6 +262,13 @@ requirement.
 
 The inspector is read-only. It may not create the seal, QA verdict, stage
 completion or documentation receipt that it is inspecting.
+
+The inspector reads a valid immutable seal before evaluating mutable current
+artifact evidence. Once the seal exists, `highest_scope` cannot fall below
+`candidate_sealed`. Current artifact drift is exposed as
+`candidate.artifact_alignment = diverged`, exact `conflicting_refs` and a
+`post_seal_body_conflict_disposition` requirement. It is never reported as an
+absent seal and never asks the sealed root to materialize more files.
 
 Subject ceiling:
 
@@ -538,6 +550,7 @@ result must prove.
 | Evidence | Candidate state | Stage/root consequence |
 |---|---|---|
 | no seal | QA unavailable | candidate still forming |
+| seal + diverged current artifact alignment | `sealed` | QA acceptance blocked; fresh-generation plan required |
 | seal, no QA receipt | `sealed` | build checking; root unfinished |
 | all required checks accepted | `qa_accepted` | software acceptance candidate |
 | any current required check rejected, final verdict absent | `qa_rejection_observed` | final rejected-verdict assembly required |
@@ -549,6 +562,9 @@ result must prove.
 
 QA cannot mutate the sealed source tree. A test that changes source bytes makes
 the capability contract fail; it does not create a new candidate version.
+Every Packet-local transition beyond `sealed` additionally requires current
+`artifact_alignment = aligned`. A diverged Packet may preserve historical QA
+evidence, but it cannot turn that evidence into acceptance or a QA boundary.
 
 ## 12. Rejected Candidate Boundary
 
@@ -647,6 +663,7 @@ The living build Packet can produce a software-acceptance candidate from:
 ```text
 exact current build stage
 exact current candidate seal
+candidate artifact alignment = aligned
 exact accepted required QA verdict bound to that seal
 boundary_candidate.terminalized = false
 ```
@@ -759,6 +776,7 @@ transporting it.
 | seal provider denies closure | typed effect failure | no false seal |
 | malformed closure receipt | harness/world invariant failure | runner fails loudly |
 | post-seal source write attempt | denied capability action | candidate remains sealed |
+| post-seal repository-artifact body drift | typed alignment conflict | candidate remains sealed; QA acceptance and rematerialization blocked; fresh-generation plan required |
 | QA required but capability absent | typed missing capability | root unfinished |
 | QA check rejects | task evidence | final verdict assembly; no acceptance |
 | malformed QA provider response | harness/world invariant failure | runner fails loudly |

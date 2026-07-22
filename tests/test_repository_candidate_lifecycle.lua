@@ -160,6 +160,16 @@ suite:check("LC07 repository id cannot alias one trusted root", function()
     H.assert_eq(code(err), "repository_root_logical_alias", "alias is typed")
 end)
 
+suite:check("LC07a lineage id cannot alias one trusted root", function()
+    local registry = fixture.new_registry(capabilities)
+    local alias, err = capabilities.mint(registry, fixture.grant_input({
+        lineage_id = "foreign-lineage",
+    }))
+    H.assert_nil(alias, "foreign lineage cannot claim the same physical root")
+    H.assert_eq(code(err), "repository_root_logical_alias",
+        "cross-lineage alias is typed")
+end)
+
 suite:check("LC08 provider dispatch is in flight only during the call", function()
     local registry
     local grant

@@ -28,6 +28,12 @@ local valid_candidates = {
     software_acceptance_ready = true,
     rejected_generation_recovery_ready = true,
 }
+local valid_alignments = {
+    not_applicable = true,
+    aligned = true,
+    diverged = true,
+    unsupported = true,
+}
 
 local function copy_value(value, seen)
     if type(value) ~= "table" then
@@ -108,6 +114,7 @@ local function base(scope, mode, revisions)
         state = "unsupported",
         reason = "work_layer_unsupported",
         completion_scope = scope.highest_scope,
+        candidate_alignment = scope.candidate.artifact_alignment,
         boundary_candidate = scope.boundary_candidate.state,
         boundary_terminalized = scope.boundary_candidate.terminalized,
         boundary_terminal_ref = scope.boundary_candidate.terminal_ref,
@@ -208,6 +215,15 @@ end
 
 local function derive_build(scope, value)
     local set_state = scope.artifact_set.state
+    if scope.candidate.state == "sealed"
+        and scope.candidate.artifact_alignment == "diverged" then
+        value.glyph = "⊞"
+        value.state = "checking"
+        value.reason = "candidate_sealed_body_conflict"
+        value.missing_requirements[#value.missing_requirements + 1] =
+            "fresh_generation_plan_for:" .. scope.candidate.candidate_seal_id
+        return true
+    end
     if scope.candidate.state == "sealed" then
         value.glyph = "⊞"
         value.state = "checking"
@@ -318,6 +334,7 @@ function work_layer.verify(value)
         or not valid_states[value.state]
         or (value.glyph ~= nil and not valid_glyphs[value.glyph])
         or not valid_scopes[value.completion_scope]
+        or not valid_alignments[value.candidate_alignment]
         or not valid_candidates[value.boundary_candidate]
         or type(value.boundary_terminalized) ~= "boolean"
         or type(value.reason) ~= "string" or value.reason == ""

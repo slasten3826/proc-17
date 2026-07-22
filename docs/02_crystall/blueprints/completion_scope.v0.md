@@ -19,6 +19,8 @@ F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026
 2026-07-21 cross-table documentary gate: satisfied
 amended 2026-07-22: artifact-set scope must be re-derived from body formation;
   candidate-sealed scope reads the dedicated immutable body event
+amended 2026-07-22: a valid historical seal is read before mutable artifact
+  evidence; current alignment is a separate pure projection
 ```
 
 ## 0. Crystallized Claim
@@ -165,6 +167,9 @@ whose named writers do not exist yet. It may not infer them from nearby data.
       | "qa_accepted" | "qa_rejected" | "unsupported",
     candidate_seal_id = string | nil,
     candidate_seal_event_ref = string | nil,
+    artifact_alignment = "not_applicable" | "aligned" | "diverged"
+      | "unsupported",
+    alignment_ref = string | nil,
     qa_verdict_ref = string | nil,
   },
 
@@ -214,10 +219,13 @@ The inspector applies this order and stops at the highest exact scope:
 2. bind one exact process contract/context/stage/generation
 3. reject cross-generation and conflicting refs
 4. derive work-item progress from named completion events
-5. re-derive the authoritative artifact set from current body formation and
-   inspect its exact completion; a caller-supplied assertion cannot advance it
-6. verify the dedicated immutable candidate-seal body event when present
-7. derive local QA state bound to that exact seal
+5. verify the dedicated immutable candidate-seal body event when present,
+   without consulting mutable current artifact evidence
+6. re-derive the authoritative artifact set from current body formation and
+   inspect its exact completion; when a seal exists, derive a separate current
+   alignment view against it
+7. derive local QA state bound to that exact seal and require aligned current
+   evidence before any accepted/rejected boundary advancement
 8. derive one Packet/corpse boundary candidate when supported
 9. for lineage subject only, verify stage assessment
 10. for lineage subject only, verify software assessment
@@ -227,6 +235,13 @@ The inspector applies this order and stops at the highest exact scope:
 
 Missing evidence lowers or makes a scope unsupported. It never becomes success.
 Contradictory trusted records return an error instead of a prettier inspection.
+
+Once step 5 finds a valid seal, `highest_scope` cannot fall below
+`candidate_sealed`. Missing or changed current artifact evidence yields
+`candidate.artifact_alignment="diverged"`, exact conflict refs and the missing
+requirement `post_seal_body_conflict_disposition`; it does not turn the
+candidate back into `unsealed` or request more materialization from the sealed
+root.
 
 ## 5. Packet And Corpse Boundary Candidates
 
@@ -250,6 +265,7 @@ that later act.
 
 ```text
 exact current candidate seal
+aligned current artifact evidence for that seal
 exact accepted required QA verdict bound to that seal
 no conflicting current verdict
 ```
@@ -265,6 +281,7 @@ requires the Packet-local manifest to bind the same seal/verdict refs and report
 
 ```text
 exact current candidate seal
+aligned current artifact evidence for that seal
 one final rejected QA verdict bound to that seal and QA contract
 all rejected required check refs named by that verdict
 ```
@@ -352,6 +369,7 @@ lineage applicability decision         runtime_confirmed act over preserved inpu
 | expected evidence absent/stale | lower honest scope |
 | cross-generation QA/seal | rejected evidence, no advancement |
 | conflicting current verdicts | loud body/lineage invariant failure |
+| valid seal plus changed/missing current artifact evidence | preserve `candidate_sealed`; typed `diverged` alignment and conflict disposition |
 | malformed trusted record | loud harness/runtime failure |
 | substrate says complete | zero authority delta |
 
@@ -379,6 +397,9 @@ CS16 same semantic context under plan.only and software.create retains distinct 
 CS17 rejected check evidence without a final verdict is not a terminal candidate
 CS18 final rejected verdict yields terminalized=false before △ and true only from the corpse manifest
 CS19 rejected evidence older than trace_tail remains available through the full manifest projection
+CS20 valid seal remains candidate_sealed after relevant body drift
+CS21 post-seal drift derives diverged alignment and never requests materialization
+CS22 unrelated body motion preserves aligned seal evidence
 ```
 
 Tests must grow real Packet/corpse evidence through current helpers. Synthetic
@@ -428,6 +449,7 @@ G4 observer ablation is exact
 G5 accepted/rejected grown lives bind exact seals and corpses
 G6 completion/economics ablation is exact
 G7 no invariant failure becomes honest Packet death
+G8 post-seal body drift cannot erase the historical seal or advance QA
 ```
 
 ## 14. Explicit Deferrals
