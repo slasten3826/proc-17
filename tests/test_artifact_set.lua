@@ -1,7 +1,6 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local H = require("tests.support.red_contract")
-local digest = require("core.digest")
 local fixture = require("tests.support.repository_hands")
 local logic = require("organs.logic")
 local capabilities = require("runtime.repository_capability")
@@ -10,50 +9,6 @@ local repository_action = require("runtime.repository_action")
 local work_completion = require("runtime.work_completion")
 local artifact_set, artifact_set_err = H.optional_require("runtime.artifact_set")
 local suite = H.new("artifact-set")
-
-local function normalized_seed(value)
-    local seed = H.copy(value)
-    seed.artifact_set_id = nil
-    table.sort(seed.artifacts, function(left, right)
-        if left.relative_path ~= right.relative_path then
-            return left.relative_path < right.relative_path
-        end
-        return left.work_unit_id < right.work_unit_id
-    end)
-    table.sort(seed.source_refs)
-    return seed
-end
-
-local function contract_for(instance, artifacts, overrides)
-    local value = {
-        protocol_version = "repository.artifact_set_contract.v0",
-        artifact_set_id = nil,
-        packet_id = instance.id,
-        lineage_id = instance.lineage_id,
-        generation = instance.generation,
-        stage_id = "stage:" .. instance.lineage_id .. ":"
-            .. tostring(instance.generation) .. ":build",
-        repository_id = "repo-a",
-        artifacts = H.copy(artifacts),
-        source_refs = {"fixture:artifact-set"},
-        event_truth_status = "runtime_confirmed",
-        content_truth_status = "semantic_proposal",
-    }
-    for key, child in pairs(overrides or {}) do
-        value[key] = H.copy(child)
-    end
-    value.artifact_set_id = "artifact-set:" .. assert(digest.record(normalized_seed(value)))
-    return value
-end
-
-local function artifact_for(unit)
-    return {
-        work_unit_id = unit.id,
-        work_unit_version = unit.version,
-        relative_path = unit.carrier.value.path,
-        expected_kind = "regular_file",
-    }
-end
 
 local function completed_one(label)
     local instance = fixture.packet({{
@@ -93,8 +48,8 @@ suite:check("AS01 duplicate path and work identities reject", function()
     local instance = fixture.packet({{path = "a.lua", content = "return 1\n"}}, {
         label = "artifact-set-duplicate",
     })
-    local unit = fixture.repository_units(instance)[1]
-    local duplicated = contract_for(instance, {artifact_for(unit), artifact_for(unit)})
+    local duplicated = assert(module.derive(instance))
+    duplicated.artifacts[2] = H.copy(duplicated.artifacts[1])
     local normalized, err = module.validate(duplicated)
     H.assert_nil(normalized, "duplicate declaration is denied")
     H.assert_contains(err, "duplicate", "duplicate denial is explicit")
@@ -103,12 +58,7 @@ end)
 suite:check("AS02 exact current completion satisfies declaration", function()
     local module = suite:require_module(artifact_set, artifact_set_err, "runtime.artifact_set")
     local instance, action = completed_one("artifact-set-complete")
-    local contract = contract_for(instance, {{
-        work_unit_id = action.work_unit.id,
-        work_unit_version = action.work_unit.version,
-        relative_path = action.target.relative_path,
-        expected_kind = "regular_file",
-    }})
+    local contract = assert(module.derive(instance))
     local inspection = assert(module.inspect(instance, contract))
     H.assert_eq(inspection.state, "complete", "exact declaration completes")
     H.assert_eq(inspection.done_count, 1, "one exact completion")
@@ -120,12 +70,7 @@ end)
 suite:check("AS03 stale version cannot satisfy declaration", function()
     local module = suite:require_module(artifact_set, artifact_set_err, "runtime.artifact_set")
     local instance, action = completed_one("artifact-set-stale")
-    local contract = contract_for(instance, {{
-        work_unit_id = action.work_unit.id,
-        work_unit_version = action.work_unit.version,
-        relative_path = action.target.relative_path,
-        expected_kind = "regular_file",
-    }})
+    local contract = assert(module.derive(instance))
     instance.field.units[action.work_unit.id].version = action.work_unit.version + 1
     local inspection = assert(module.inspect(instance, contract))
     H.assert_eq(inspection.state, "incomplete", "stale completion is not current")
@@ -139,9 +84,10 @@ suite:check("AS04 undeclared current material never counts toward set", function
         {path = "src/a.lua", content = "return 'a'\n"},
         {path = "src/b.lua", content = "return 'b'\n"},
     }, {label = "artifact-set-undeclared"})
-    local units = fixture.repository_units(instance)
-    local inspection = assert(module.inspect(instance,
-        contract_for(instance, {artifact_for(units[1])})))
+    local contract = assert(module.derive(instance))
+    contract.artifacts = {H.copy(contract.artifacts[1])}
+    contract.artifact_set_id = assert(module.identify(contract))
+    local inspection = assert(module.inspect(instance, contract))
     H.assert_eq(inspection.state, "incomplete", "declared artifact is still incomplete")
     H.assert_eq(#inspection.undeclared_artifacts, 1, "extra material is visible")
     H.assert_false(inspection.inventory_compatible,
@@ -154,19 +100,77 @@ suite:check("AS05 declaration identity is order stable and detached", function()
         {path = "src/a.lua", content = "return 'a'\n"},
         {path = "src/b.lua", content = "return 'b'\n"},
     }, {label = "artifact-set-order"})
-    local units = fixture.repository_units(instance)
-    local left = contract_for(instance, {artifact_for(units[1]), artifact_for(units[2])}, {
-        source_refs = {"source:b", "source:a"},
-    })
-    local right = contract_for(instance, {artifact_for(units[2]), artifact_for(units[1])}, {
-        source_refs = {"source:a", "source:b"},
-    })
+    local left = assert(module.derive(instance))
+    local right = H.copy(left)
+    right.artifacts[1], right.artifacts[2] = right.artifacts[2], right.artifacts[1]
+    local reversed = {}
+    for index = #right.source_refs, 1, -1 do
+        reversed[#reversed + 1] = right.source_refs[index]
+    end
+    right.source_refs = reversed
+    for _, artifact in ipairs(right.artifacts) do
+        local refs = {}
+        for index = #artifact.provenance_refs, 1, -1 do
+            refs[#refs + 1] = artifact.provenance_refs[index]
+        end
+        artifact.provenance_refs = refs
+    end
     local normalized = assert(module.validate(left))
     local other = assert(module.validate(right))
     H.assert_eq(normalized.artifact_set_id, other.artifact_set_id, "canonical id")
     H.assert_true(module.same(normalized, other), "set equality ignores declaration order")
     normalized.artifacts[1].relative_path = "caller-mutated"
     H.assert_true(module.same(left, right), "returned values do not alias input")
+end)
+
+suite:check("AS06 body derivation round-trips through exact schema", function()
+    local module = suite:require_module(artifact_set, artifact_set_err, "runtime.artifact_set")
+    local instance = fixture.packet({
+        {path = "src/a.lua", content = "return 'a'\n"},
+        {path = "src/b.lua", content = "return 'b'\n"},
+    }, {label = "artifact-set-derived"})
+    local derived = assert(module.derive(instance))
+    local validated = assert(module.validate(derived))
+    H.assert_eq(derived.artifact_set_id, validated.artifact_set_id,
+        "derive and validate agree")
+    H.assert_eq(derived.birth_ref, instance.trace[1].id, "birth is named")
+    H.assert_true(type(derived.formation_event_ref) == "string",
+        "formation is named")
+    H.assert_eq(#derived.artifacts, 2, "all current required artifacts derive")
+end)
+
+suite:check("AS07 legacy caller-built schema is rejected", function()
+    local module = suite:require_module(artifact_set, artifact_set_err, "runtime.artifact_set")
+    local instance = fixture.packet({{path = "src/main.lua", content = "return 1\n"}}, {
+        label = "artifact-set-legacy",
+    })
+    local derived = assert(module.derive(instance))
+    derived.birth_ref = nil
+    derived.formation_event_ref = nil
+    derived.process_contract_id = nil
+    derived.context = nil
+    derived.artifacts[1].unit_created_event_ref = nil
+    derived.artifacts[1].provenance_refs = nil
+    local value = module.validate(derived)
+    H.assert_nil(value, "old declaration has no authority after schema migration")
+end)
+
+suite:check("AS08 derivation is physically massless", function()
+    local module = suite:require_module(artifact_set, artifact_set_err, "runtime.artifact_set")
+    local instance = fixture.packet({{path = "src/main.lua", content = "return 1\n"}}, {
+        label = "artifact-set-massless",
+    })
+    local before_trace = #instance.trace
+    local before_revisions = H.copy(instance.revisions)
+    local first = assert(module.derive(instance))
+    local second = assert(module.derive(instance))
+    H.assert_eq(first.artifact_set_id, second.artifact_set_id,
+        "repeat derivation is stable")
+    H.assert_eq(#instance.trace, before_trace, "derivation appends no event")
+    for key, value in pairs(before_revisions) do
+        H.assert_eq(instance.revisions[key], value,
+            "derivation does not move revision " .. key)
+    end
 end)
 
 suite:finish()

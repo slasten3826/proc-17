@@ -22,7 +22,7 @@ static int unavailable(lua_State *L)
 
 int luaopen_proc17_repository_fs(lua_State *L)
 {
-    lua_createtable(L, 0, 10);
+    lua_createtable(L, 0, 11);
     set_string(L, "protocol_version", "repository.native_provider.v0");
     set_string(L, "abi_version", "proc17.repository.fs.lua54.wrong");
     set_string(L, "provider_id", "linux.openat2.renameat2.v0");
@@ -44,6 +44,8 @@ int luaopen_proc17_repository_fs(lua_State *L)
     lua_setfield(L, -2, "create_text_file");
     lua_pushcfunction(L, unavailable);
     lua_setfield(L, -2, "read_text_file");
+    lua_pushcfunction(L, unavailable);
+    lua_setfield(L, -2, "inventory_tree");
     lua_pushcfunction(L, unavailable);
     lua_setfield(L, -2, "close");
     return 1;

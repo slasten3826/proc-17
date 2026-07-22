@@ -6,6 +6,7 @@ local capability = {
 
 local states = setmetatable({}, {__mode = "k"})
 local effect_leases = setmetatable({}, {__mode = "k"})
+local seal_leases = setmetatable({}, {__mode = "k"})
 
 local allowed_provider_id = "linux.openat2.renameat2.v0"
 local allowed_provider_contract = "repository.provider.create_readback.v0"
@@ -30,6 +31,31 @@ local create_request_keys = {
     content_bytes = true,
     content_sha256 = true,
     precondition = true,
+}
+local candidate_seal_request_keys = {
+    protocol_version = true,
+    request_id = true,
+    packet_id = true,
+    lineage_id = true,
+    generation = true,
+    process_contract_id = true,
+    context = true,
+    stage_id = true,
+    repository_id = true,
+    root_authority_id = true,
+    lifecycle_id = true,
+    lifecycle_revision = true,
+    root_fingerprint = true,
+    grant_id = true,
+    grant_revision = true,
+    artifact_set_id = true,
+    artifact_set_inspection_id = true,
+    expected_files = true,
+    expected_directories = true,
+    inventory_bounds = true,
+    source_refs = true,
+    event_truth_status = true,
+    content_truth_status = true,
 }
 local allowed_policy = {
     file_mode = true,
@@ -228,6 +254,7 @@ local function validate_provider(provider, provider_id)
         "revalidate",
         "create_text_file",
         "read_text_file",
+        "inventory_tree",
         "close",
     }) do
         if type(provider[method]) ~= "function" then
@@ -311,7 +338,59 @@ local function state_for(registry)
     return state
 end
 
+local function map_count(value)
+    local count = 0
+    for _ in pairs(value or {}) do
+        count = count + 1
+    end
+    return count
+end
+
+local function active_grant_count(root)
+    local count = 0
+    for _, grant in pairs(root.grant_ids or {}) do
+        if grant.state == "active" then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function root_authority_identity(state, provider_id, identity)
+    local value, err = digest.record({
+        session_id = state.session_id,
+        provider_id = provider_id,
+        project_base_identity = identity.project_base_identity,
+        root_fingerprint = identity.root_identity.fingerprint,
+    })
+    if not value then
+        return nil, err
+    end
+    return "root-authority:" .. value
+end
+
+local function root_projection(root)
+    return copy_value({
+        protocol_version = "repository.root_authority_projection.v0",
+        root_authority_id = root.root_authority_id,
+        root_fingerprint = root.root_fingerprint,
+        lineage_id = root.lineage_id,
+        repository_id = root.repository_id,
+        state = root.state,
+        revision = root.revision,
+        lifecycle_id = root.claim and root.claim.lifecycle_id or nil,
+        owner_generation = root.claim and root.claim.generation or nil,
+        active_grant_count = active_grant_count(root),
+        active_dispatch_count = map_count(root.in_flight_dispatches),
+        seal_request_id = root.seal_request_id,
+        closure_id = root.closure_id,
+        inventory_digest = root.inventory_digest,
+        event_truth_status = "runtime_confirmed",
+    })
+end
+
 local function projection(grant)
+    local root = grant.root_authority
     return copy_value({
         protocol_version = "repository.capability_projection.v0",
         grant_id = grant.grant_id,
@@ -322,6 +401,12 @@ local function projection(grant)
         repository_id = grant.repository_id,
         provider_id = grant.provider_id,
         root_fingerprint = grant.root_identity.fingerprint,
+        root_authority_id = root.root_authority_id,
+        root_state = root.state,
+        root_revision = root.revision,
+        lifecycle_id = root.claim and root.claim.lifecycle_id or nil,
+        owner_generation = root.claim and root.claim.generation or nil,
+        active_dispatch_count = map_count(root.in_flight_dispatches),
         operations = grant.public_operations,
         bounds = grant.bounds,
         policy_digest = grant.policy_digest,
@@ -342,6 +427,87 @@ local function close_handle(grant)
         return nil, "provider close failed: " .. tostring(err or closed)
     end
     return true
+end
+
+local function quarantine_root(registry_state, root, reason)
+    local normalized_reason = copy_value(reason or {
+        code = "repository_root_quarantined",
+    })
+    local reason_id, reason_err = digest.record({reason = normalized_reason})
+    if not reason_id then
+        return nil, "repository quarantine reason is not digestible: "
+            .. tostring(reason_err)
+    end
+    if root.state == "quarantined" then
+        local existing_id = digest.record({reason = root.quarantine_reason})
+        if existing_id ~= reason_id then
+            return nil, "repository root received contradictory quarantine reason"
+        end
+        return root_projection(root)
+    end
+    if root.state == "sealed" then
+        return nil, "sealed repository root cannot be reclassified as quarantined"
+    end
+
+    root.state = "quarantined"
+    root.revision = registry_state.next_revision
+    registry_state.next_revision = registry_state.next_revision + 1
+    root.quarantine_reason = normalized_reason
+    root.in_flight_dispatches = {}
+
+    local first_close_err
+    for _, grant in pairs(root.grant_ids) do
+        if grant.state == "active" then
+            grant.state = "quarantined"
+            grant.revision = registry_state.next_revision
+            registry_state.next_revision = registry_state.next_revision + 1
+        end
+        local closed, close_err = close_handle(grant)
+        if not closed and not first_close_err then
+            first_close_err = close_err
+        end
+    end
+    if first_close_err then
+        return nil, first_close_err
+    end
+    return root_projection(root)
+end
+
+local function with_provider_dispatch(registry, lease_state_value, phase, fn, ...)
+    local root = lease_state_value.root
+    local dispatch_digest, dispatch_err = digest.record({
+        lifecycle_id = lease_state_value.lifecycle_id,
+        action_id = lease_state_value.action_id,
+        phase = phase,
+    })
+    if not dispatch_digest then
+        return nil, dispatch_err
+    end
+    local dispatch_id = "repository-dispatch:" .. dispatch_digest
+    if root.in_flight_dispatches[dispatch_id] then
+        return nil, "repository provider dispatch is already in flight"
+    end
+    root.in_flight_dispatches[dispatch_id] = {
+        dispatch_id = dispatch_id,
+        action_id = lease_state_value.action_id,
+        phase = phase,
+    }
+    local returned = table.pack(pcall(fn, ...))
+    root.in_flight_dispatches[dispatch_id] = nil
+    if returned[1] ~= true then
+        local registry_state = assert(states[registry])
+        local _, quarantine_err = quarantine_root(registry_state, root, {
+            code = "repository_provider_panic",
+            phase = phase,
+            message = tostring(returned[2]),
+        })
+        if quarantine_err then
+            error("repository provider panic and quarantine failed: "
+                .. tostring(quarantine_err))
+        end
+        error("repository provider invariant failure: " .. tostring(returned[2]))
+    end
+    return table.unpack(returned, 2, returned.n)
 end
 
 function capability.new(options)
@@ -381,6 +547,8 @@ function capability.new(options)
         provider_limits = provider_limits,
         grants = {},
         grant_order = {},
+        root_authorities = {},
+        root_order = {},
         next_serial = 1,
         next_revision = 1,
         id_source = options.id_source,
@@ -480,6 +648,60 @@ function capability.mint(registry, input)
         pcall(provider.close, handle)
         return nil, policy_digest_err
     end
+    local root_authority_id, root_id_err = root_authority_identity(
+        state,
+        input.provider_id,
+        identity
+    )
+    if not root_authority_id then
+        pcall(provider.close, handle)
+        return nil, root_id_err
+    end
+    local root = state.root_authorities[root_authority_id]
+    local new_root = root == nil
+    if root then
+        if root.lineage_id ~= lineage_id or root.repository_id ~= repository_id then
+            pcall(provider.close, handle)
+            return nil, diagnostic("repository_root_logical_alias")
+        end
+        if root.state == "seal_pending" then
+            pcall(provider.close, handle)
+            return nil, diagnostic("repository_root_seal_pending")
+        end
+        if root.state == "sealed" then
+            pcall(provider.close, handle)
+            return nil, diagnostic("repository_root_sealed")
+        end
+        if root.state == "quarantined" then
+            pcall(provider.close, handle)
+            return nil, diagnostic("repository_root_quarantined")
+        end
+    else
+        root = {
+            protocol_version = "repository.root_authority.v0",
+            root_authority_id = root_authority_id,
+            session_id = state.session_id,
+            provider_id = input.provider_id,
+            project_base_identity = copy_value(identity.project_base_identity),
+            root_identity = copy_value(identity.root_identity),
+            root_fingerprint = identity.root_identity.fingerprint,
+            lineage_id = lineage_id,
+            repository_id = repository_id,
+            state = "unclaimed",
+            revision = state.next_revision,
+            claim = nil,
+            grant_ids = {},
+            in_flight_dispatches = {},
+            seal_transaction_id = nil,
+            seal_request_id = nil,
+            closure_id = nil,
+            inventory_id = nil,
+            inventory_digest = nil,
+            closure_projection = nil,
+            quarantine_reason = nil,
+        }
+        state.next_revision = state.next_revision + 1
+    end
     local serial = state.next_serial
     state.next_serial = state.next_serial + 1
     local seed = {
@@ -489,6 +711,7 @@ function capability.mint(registry, input)
         repository_id = repository_id,
         provider_id = input.provider_id,
         root_fingerprint = identity.root_identity.fingerprint,
+        root_authority_id = root_authority_id,
         operations = public_operations,
         bounds = bounds,
         policy_digest = policy_digest,
@@ -531,6 +754,8 @@ function capability.mint(registry, input)
         repository_handle = handle,
         project_base_identity = identity.project_base_identity,
         root_identity = identity.root_identity,
+        root_authority_id = root_authority_id,
+        root_authority = root,
         operations = operations,
         public_operations = public_operations,
         bounds = bounds,
@@ -540,6 +765,11 @@ function capability.mint(registry, input)
         action_dispatches = {},
     }
     state.next_revision = state.next_revision + 1
+    if new_root then
+        state.root_authorities[root_authority_id] = root
+        state.root_order[#state.root_order + 1] = root_authority_id
+    end
+    root.grant_ids[grant_id] = grant
     state.grants[grant_id] = grant
     state.grant_order[#state.grant_order + 1] = grant_id
     return projection(grant)
@@ -590,6 +820,7 @@ function capability.resolve(registry, context)
     local matches = {}
     local revoked = false
     local quarantined = false
+    local root_denial
     for _, grant_id in ipairs(state.grant_order) do
         local grant = state.grants[grant_id]
         local exact_scope = grant.session_id == context.session_id
@@ -598,11 +829,35 @@ function capability.resolve(registry, context)
             and grant.operations[context.operation] == true
         if exact_scope then
             if grant.state == "active" then
-                matches[#matches + 1] = grant
+                local root = grant.root_authority
+                if root.state == "unclaimed" then
+                    matches[#matches + 1] = grant
+                elseif root.state == "materializing" then
+                    if root.claim and root.claim.lineage_id == context.lineage_id
+                        and root.claim.generation == context.generation
+                        and root.claim.repository_id == context.repository_id then
+                        matches[#matches + 1] = grant
+                    else
+                        root_denial = root_denial
+                            or "repository_root_claimed_by_other_generation"
+                    end
+                elseif root.state == "seal_pending" then
+                    root_denial = root_denial or "repository_root_seal_pending"
+                elseif root.state == "sealed" then
+                    root_denial = root_denial or "repository_root_sealed"
+                elseif root.state == "quarantined" then
+                    root_denial = root_denial or "repository_root_quarantined"
+                else
+                    return nil, "repository root has invalid private state"
+                end
             elseif grant.state == "revoked" then
                 revoked = true
+            elseif grant.state == "sealed" then
+                root_denial = root_denial or "repository_root_sealed"
             elseif grant.state == "quarantined" then
                 quarantined = true
+            else
+                return nil, "repository grant has invalid private state"
             end
         end
     end
@@ -611,6 +866,9 @@ function capability.resolve(registry, context)
     end
     if #matches == 1 then
         return projection(matches[1])
+    end
+    if root_denial then
+        return nil, diagnostic(root_denial)
     end
     if revoked then
         return nil, diagnostic("revoked_capability")
@@ -631,6 +889,568 @@ function capability.project(registry, grant_id)
         return nil, diagnostic("missing_capability")
     end
     return projection(grant)
+end
+
+local function root_from_query(state, query)
+    if type(query) ~= "table" then
+        return nil, "repository root query must be table"
+    end
+    local ok, err = validate_keys(query, {
+        root_authority_id = true,
+        grant_id = true,
+    }, "repository root query")
+    if not ok then
+        return nil, err
+    end
+    if (query.root_authority_id == nil) == (query.grant_id == nil) then
+        return nil, "repository root query requires exactly one identity"
+    end
+    local root
+    if query.root_authority_id ~= nil then
+        local _, id_err = non_empty(query.root_authority_id, "root_authority_id")
+        if id_err then
+            return nil, id_err
+        end
+        root = state.root_authorities[query.root_authority_id]
+    elseif query.grant_id ~= nil then
+        local _, id_err = non_empty(query.grant_id, "grant_id")
+        if id_err then
+            return nil, id_err
+        end
+        local grant = state.grants[query.grant_id]
+        root = grant and grant.root_authority or nil
+    else
+        return nil, "repository root query requires one identity"
+    end
+    if not root then
+        return nil, diagnostic("repository_root_missing")
+    end
+    return root
+end
+
+function capability.root_authority(registry, query)
+    local state, state_err = state_for(registry)
+    if not state then
+        return nil, state_err
+    end
+    local root, root_err = root_from_query(state, query)
+    if not root then
+        return nil, root_err
+    end
+    return root_projection(root)
+end
+
+function capability.candidate_lifecycle(registry, query)
+    local state, state_err = state_for(registry)
+    if not state then
+        return nil, state_err
+    end
+    local root, root_err = root_from_query(state, query)
+    if not root then
+        return nil, root_err
+    end
+    local projection_value = root_projection(root)
+    return copy_value({
+        protocol_version = "repository.candidate_lifecycle_projection.v0",
+        root_authority_id = projection_value.root_authority_id,
+        lifecycle_id = projection_value.lifecycle_id,
+        lineage_id = projection_value.lineage_id,
+        generation = projection_value.owner_generation,
+        repository_id = projection_value.repository_id,
+        root_fingerprint = projection_value.root_fingerprint,
+        state = projection_value.state,
+        revision = projection_value.revision,
+        active_grant_count = projection_value.active_grant_count,
+        active_dispatch_count = projection_value.active_dispatch_count,
+        seal_request_id = projection_value.seal_request_id,
+        closure_id = projection_value.closure_id,
+        inventory_digest = projection_value.inventory_digest,
+        event_truth_status = "runtime_confirmed",
+    })
+end
+
+local function strict_string_array(value, name)
+    if type(value) ~= "table" or getmetatable(value) ~= nil then
+        return nil, name .. " must be an array"
+    end
+    local seen = {}
+    for index, item in ipairs(value) do
+        if type(item) ~= "string" or item == "" or seen[item] then
+            return nil, name .. " must contain unique non-empty strings"
+        end
+        seen[item] = true
+        if value[index] ~= item then
+            return nil, name .. " must be an array"
+        end
+    end
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key > #value
+            or key ~= math.floor(key) then
+            return nil, name .. " must be an array"
+        end
+    end
+    return true
+end
+
+local function normalized_refs(value)
+    local result = copy_value(value or {})
+    table.sort(result)
+    return result
+end
+
+local function validate_candidate_seal_request(value)
+    local ok, err = validate_plain_record(
+        value,
+        candidate_seal_request_keys,
+        "candidate seal request"
+    )
+    if not ok then
+        return nil, err
+    end
+    if value.protocol_version ~= "repository.candidate_seal_request.v0"
+        or value.event_truth_status ~= "runtime_confirmed"
+        or (value.content_truth_status ~= "semantic_proposal"
+            and value.content_truth_status ~= "mixed") then
+        return nil, "candidate seal request protocol or truth status is invalid"
+    end
+    for _, key in ipairs({
+        "request_id", "packet_id", "lineage_id", "process_contract_id",
+        "context", "stage_id", "repository_id", "root_authority_id",
+        "lifecycle_id", "root_fingerprint", "grant_id", "artifact_set_id",
+        "artifact_set_inspection_id",
+    }) do
+        local _, value_err = non_empty(value[key], "candidate seal " .. key)
+        if value_err then
+            return nil, value_err
+        end
+    end
+    for _, key in ipairs({"generation", "lifecycle_revision", "grant_revision"}) do
+        local _, value_err = positive_integer(value[key], "candidate seal " .. key)
+        if value_err then
+            return nil, value_err
+        end
+    end
+    if type(value.expected_files) ~= "table"
+        or getmetatable(value.expected_files) ~= nil
+        or type(value.inventory_bounds) ~= "table"
+        or getmetatable(value.inventory_bounds) ~= nil then
+        return nil, "candidate seal request contains invalid nested records"
+    end
+    local directories_ok, directories_err = strict_string_array(
+        value.expected_directories,
+        "candidate seal expected_directories"
+    )
+    if not directories_ok then
+        return nil, directories_err
+    end
+    local refs_ok, refs_err = strict_string_array(
+        value.source_refs,
+        "candidate seal source_refs"
+    )
+    if not refs_ok then
+        return nil, refs_err
+    end
+    local seed = copy_value(value)
+    seed.request_id = nil
+    local identity, identity_err = digest.record(seed)
+    if not identity then
+        return nil, identity_err
+    end
+    if value.request_id ~= "candidate-seal-request:" .. identity then
+        return nil, "candidate seal request identity mismatch"
+    end
+    return true
+end
+
+local function seal_lease_state(registry, lease)
+    local lease_value = seal_leases[lease]
+    if not lease_value or lease_value.registry ~= registry then
+        return nil, "invalid repository candidate seal lease"
+    end
+    if lease_value.consumed then
+        return nil, "repository candidate seal lease already consumed"
+    end
+    local root = lease_value.root
+    if root.state == "quarantined" then
+        return nil, diagnostic("repository_root_quarantined")
+    end
+    if root.state == "sealed" then
+        return nil, diagnostic("repository_root_sealed")
+    end
+    if root.state ~= "seal_pending"
+        or root.revision ~= lease_value.pending_revision
+        or root.seal_transaction_id ~= lease_value.transaction_id
+        or root.seal_request_id ~= lease_value.request_id
+        or not root.claim
+        or root.claim.lifecycle_id ~= lease_value.lifecycle_id then
+        return nil, "repository candidate seal private state changed"
+    end
+    if lease_value.grant.state ~= "active"
+        or lease_value.grant.revision ~= lease_value.grant_revision
+        or lease_value.grant.repository_handle == nil then
+        return nil, "repository candidate seal grant state changed"
+    end
+    return lease_value
+end
+
+function capability.begin_candidate_seal(registry, request)
+    local state, state_err = state_for(registry)
+    if not state then
+        return nil, state_err
+    end
+    local request_ok, request_err = validate_candidate_seal_request(request)
+    if not request_ok then
+        return nil, request_err
+    end
+    local root = state.root_authorities[request.root_authority_id]
+    if not root then
+        return nil, diagnostic("repository_root_missing")
+    end
+    if root.state == "seal_pending" then
+        return nil, diagnostic("repository_root_seal_pending")
+    end
+    if root.state == "sealed" then
+        return nil, diagnostic("repository_root_sealed")
+    end
+    if root.state == "quarantined" then
+        return nil, diagnostic("repository_root_quarantined")
+    end
+    if root.state ~= "materializing" or not root.claim then
+        return nil, diagnostic("repository_candidate_not_materializing")
+    end
+    if root.lineage_id ~= request.lineage_id
+        or root.repository_id ~= request.repository_id
+        or root.root_fingerprint ~= request.root_fingerprint
+        or root.claim.lifecycle_id ~= request.lifecycle_id
+        or root.claim.lineage_id ~= request.lineage_id
+        or root.claim.generation ~= request.generation
+        or root.claim.repository_id ~= request.repository_id
+        or root.revision ~= request.lifecycle_revision then
+        return nil, "candidate seal request contradicts private lifecycle"
+    end
+    if map_count(root.in_flight_dispatches) ~= 0 then
+        return nil, diagnostic("repository_provider_dispatch_in_flight")
+    end
+    if root.seal_transaction_id ~= nil then
+        return nil, "repository root has contradictory pending seal identity"
+    end
+    if active_grant_count(root) ~= 1 then
+        return nil, diagnostic("repository_candidate_grant_ambiguous")
+    end
+    local grant = state.grants[request.grant_id]
+    if not grant or grant.root_authority ~= root or grant.state ~= "active"
+        or grant.revision ~= request.grant_revision
+        or grant.repository_handle == nil then
+        return nil, "candidate seal request contradicts private grant"
+    end
+
+    local transaction_digest, transaction_err = digest.record({
+        root_authority_id = root.root_authority_id,
+        lifecycle_id = root.claim.lifecycle_id,
+        request_id = request.request_id,
+        revision_before = root.revision,
+    })
+    if not transaction_digest then
+        return nil, transaction_err
+    end
+    local revision_before = root.revision
+    root.state = "seal_pending"
+    root.revision = state.next_revision
+    state.next_revision = state.next_revision + 1
+    root.seal_transaction_id = "candidate-seal-transaction:" .. transaction_digest
+    root.seal_request_id = request.request_id
+
+    local lease = setmetatable({}, {
+        __metatable = "repository.candidate_seal_lease.v0",
+    })
+    seal_leases[lease] = {
+        registry = registry,
+        root = root,
+        grant = grant,
+        grant_revision = grant.revision,
+        lifecycle_id = root.claim.lifecycle_id,
+        generation = root.claim.generation,
+        request_id = request.request_id,
+        transaction_id = root.seal_transaction_id,
+        revision_before = revision_before,
+        pending_revision = root.revision,
+        action_id = root.seal_transaction_id,
+        inventory_called = false,
+        consumed = false,
+    }
+    return lease
+end
+
+function capability.inventory_candidate(registry, lease, input)
+    local lease_value, lease_err = seal_lease_state(registry, lease)
+    if not lease_value then
+        return nil, lease_err
+    end
+    local allowed = {
+        protocol_version = true,
+        request_id = true,
+        transaction_id = true,
+        inventory_bounds = true,
+    }
+    local input_ok, input_err = validate_plain_record(
+        input,
+        allowed,
+        "candidate inventory request"
+    )
+    if not input_ok then
+        return nil, input_err
+    end
+    if input.protocol_version ~= "repository.candidate_inventory_request.v0"
+        or input.request_id ~= lease_value.request_id
+        or input.transaction_id ~= lease_value.transaction_id
+        or type(input.inventory_bounds) ~= "table"
+        or getmetatable(input.inventory_bounds) ~= nil then
+        return nil, "candidate inventory request contradicts seal lease"
+    end
+    if lease_value.inventory_called then
+        return nil, "candidate inventory lease already consumed"
+    end
+    lease_value.inventory_called = true
+    return with_provider_dispatch(
+        registry,
+        lease_value,
+        "inventory_tree",
+        lease_value.grant.provider.inventory_tree,
+        lease_value.grant.repository_handle,
+        copy_value(input.inventory_bounds)
+    )
+end
+
+function capability.candidate_inventory_root_matches(registry, lease, before, after)
+    local lease_value, lease_err = seal_lease_state(registry, lease)
+    if not lease_value then
+        return nil, lease_err
+    end
+    local expected = lease_value.root.root_identity
+    local function matches(value)
+        return type(value) == "table"
+            and value.device == expected.device
+            and value.inode == expected.inode
+    end
+    return matches(before) and matches(after)
+end
+
+function capability.abort_candidate_seal(registry, lease, proof)
+    local state, state_err = state_for(registry)
+    if not state then
+        return nil, state_err
+    end
+    local lease_value, lease_err = seal_lease_state(registry, lease)
+    if not lease_value then
+        return nil, lease_err
+    end
+    local proof_ok, proof_err = validate_plain_record(proof, {
+        protocol_version = true,
+        request_id = true,
+        transaction_id = true,
+        provider = true,
+        source_refs = true,
+        event_truth_status = true,
+    }, "candidate seal abort proof")
+    if not proof_ok then
+        return nil, proof_err
+    end
+    local provider_ok, provider_err = validate_plain_record(proof.provider, {
+        root_continuity = true,
+        observation_postcondition = true,
+        root_before_ref = true,
+        root_after_ref = true,
+    }, "candidate seal provider abort proof")
+    if not provider_ok then
+        return nil, provider_err
+    end
+    local refs_ok, refs_err = strict_string_array(
+        proof.source_refs,
+        "candidate seal abort source_refs"
+    )
+    if not refs_ok then
+        return nil, refs_err
+    end
+    local root = lease_value.root
+    local registry_proof = {
+        closure_commit_absent = root.closure_id == nil
+            and root.closure_projection == nil,
+        current_transaction = root.state == "seal_pending"
+            and root.seal_transaction_id == lease_value.transaction_id
+            and root.seal_request_id == lease_value.request_id,
+        in_flight_dispatches = map_count(root.in_flight_dispatches),
+        root_revision = root.revision,
+    }
+    if not lease_value.inventory_called
+        or proof.protocol_version ~= "repository.candidate_seal_abort_proof.v0"
+        or proof.request_id ~= lease_value.request_id
+        or proof.transaction_id ~= lease_value.transaction_id
+        or proof.event_truth_status ~= "runtime_confirmed"
+        or registry_proof.closure_commit_absent ~= true
+        or registry_proof.current_transaction ~= true
+        or registry_proof.in_flight_dispatches ~= 0
+        or registry_proof.root_revision ~= lease_value.pending_revision
+        or proof.provider.root_continuity ~= "proven"
+        or (proof.provider.observation_postcondition ~= "stable_mismatch"
+            and proof.provider.observation_postcondition ~= "bounded_no_closure")
+        or type(proof.provider.root_before_ref) ~= "string"
+        or proof.provider.root_before_ref == ""
+        or type(proof.provider.root_after_ref) ~= "string"
+        or proof.provider.root_after_ref == "" then
+        return nil, "candidate seal abort proof is insufficient"
+    end
+
+    root.state = "materializing"
+    root.revision = state.next_revision
+    state.next_revision = state.next_revision + 1
+    root.seal_transaction_id = nil
+    root.seal_request_id = nil
+    lease_value.consumed = true
+    return root_projection(root)
+end
+
+function capability.commit_candidate_seal(registry, lease, input)
+    local state, state_err = state_for(registry)
+    if not state then
+        return nil, state_err
+    end
+    local lease_value, lease_err = seal_lease_state(registry, lease)
+    if not lease_value then
+        return nil, lease_err
+    end
+    local input_ok, input_err = validate_plain_record(input, {
+        protocol_version = true,
+        request_id = true,
+        transaction_id = true,
+        inventory_id = true,
+        inventory_digest = true,
+        root_fingerprint = true,
+        comparison = true,
+        source_refs = true,
+    }, "candidate seal commit")
+    if not input_ok then
+        return nil, input_err
+    end
+    local refs_ok, refs_err = strict_string_array(
+        input.source_refs,
+        "candidate seal commit source_refs"
+    )
+    if not refs_ok then
+        return nil, refs_err
+    end
+    for _, key in ipairs({"inventory_id", "inventory_digest", "root_fingerprint"}) do
+        local _, value_err = non_empty(input[key], "candidate seal commit " .. key)
+        if value_err then
+            return nil, value_err
+        end
+    end
+    if not lease_value.inventory_called
+        or input.protocol_version ~= "repository.candidate_seal_commit.v0"
+        or input.request_id ~= lease_value.request_id
+        or input.transaction_id ~= lease_value.transaction_id
+        or input.root_fingerprint ~= lease_value.root.root_fingerprint
+        or input.comparison ~= "exact" then
+        return nil, "candidate seal commit contradicts private transaction"
+    end
+
+    local root = lease_value.root
+    local revision_after = state.next_revision
+    local receipt = {
+        protocol_version = "repository.candidate_closure_receipt.v0",
+        closure_id = nil,
+        request_id = input.request_id,
+        root_authority_id = root.root_authority_id,
+        lifecycle_id = root.claim.lifecycle_id,
+        root_fingerprint = root.root_fingerprint,
+        grant_id = lease_value.grant.grant_id,
+        lifecycle_revision_before = lease_value.revision_before,
+        lifecycle_revision_after = revision_after,
+        inventory_id = input.inventory_id,
+        inventory_digest = input.inventory_digest,
+        state = "sealed",
+        source_refs = normalized_refs(input.source_refs),
+        event_truth_status = "runtime_confirmed",
+    }
+    local receipt_seed = copy_value(receipt)
+    receipt_seed.closure_id = nil
+    local closure_digest, closure_err = digest.record(receipt_seed)
+    if not closure_digest then
+        return nil, closure_err
+    end
+    receipt.closure_id = "candidate-closure:" .. closure_digest
+
+    root.state = "sealed"
+    root.revision = revision_after
+    state.next_revision = state.next_revision + 1
+    root.closure_id = receipt.closure_id
+    root.inventory_id = input.inventory_id
+    root.inventory_digest = input.inventory_digest
+    root.closure_projection = copy_value(receipt)
+    lease_value.consumed = true
+
+    local first_close_err
+    for _, grant in pairs(root.grant_ids) do
+        if grant.state == "active" then
+            grant.state = "sealed"
+            grant.revision = state.next_revision
+            state.next_revision = state.next_revision + 1
+        end
+        local closed, close_err = close_handle(grant)
+        if not closed and not first_close_err then
+            first_close_err = close_err
+        end
+    end
+    if first_close_err then
+        return nil, "candidate closure committed but handle close failed: "
+            .. tostring(first_close_err)
+    end
+    return copy_value(receipt)
+end
+
+function capability.quarantine_candidate_seal(registry, lease, reason)
+    local state, state_err = state_for(registry)
+    if not state then
+        return nil, state_err
+    end
+    local lease_value = seal_leases[lease]
+    if not lease_value or lease_value.registry ~= registry then
+        return nil, "invalid repository candidate seal lease"
+    end
+    local result, result_err = quarantine_root(state, lease_value.root, reason)
+    if result then
+        lease_value.consumed = true
+    end
+    return result, result_err
+end
+
+function capability.observe_candidate_closure(registry, query)
+    local state, state_err = state_for(registry)
+    if not state then
+        return nil, state_err
+    end
+    local query_ok, query_err = validate_plain_record(query, {
+        root_authority_id = true,
+        lifecycle_id = true,
+        request_id = true,
+    }, "candidate closure query")
+    if not query_ok then
+        return nil, query_err
+    end
+    local root = state.root_authorities[query.root_authority_id]
+    if not root then
+        return nil, diagnostic("repository_root_missing")
+    end
+    if root.state ~= "sealed" then
+        return nil, diagnostic("repository_candidate_not_sealed")
+    end
+    if not root.claim or root.claim.lifecycle_id ~= query.lifecycle_id
+        or root.seal_request_id ~= query.request_id then
+        return nil, diagnostic("repository_candidate_closure_mismatch")
+    end
+    if type(root.closure_projection) ~= "table" then
+        return nil, "sealed repository root lacks closure projection"
+    end
+    return copy_value(root.closure_projection)
 end
 
 function capability.revoke(registry, grant_id)
@@ -691,15 +1511,36 @@ local function exact_action_grant(state, action)
         or grant.grant_id ~= action.capability.grant_id
         or grant.revision ~= action.capability.revision
         or grant.root_identity.fingerprint ~= action.capability.root_fingerprint
+        or grant.root_authority_id ~= action.capability.root_authority_id
         or grant.policy_digest ~= action.capability.policy_digest
         or grant.operations[action.operation] ~= true then
         return nil, "repository action contradicts private grant identity"
+    end
+    local root = grant.root_authority
+    if root.state == "seal_pending" then
+        return nil, diagnostic("repository_root_seal_pending")
+    end
+    if root.state == "sealed" then
+        return nil, diagnostic("repository_root_sealed")
+    end
+    if root.state == "quarantined" then
+        return nil, diagnostic("repository_root_quarantined")
+    end
+    if root.state ~= "unclaimed" and root.state ~= "materializing" then
+        return nil, "repository root has invalid private state"
+    end
+    if root.state == "materializing"
+        and (not root.claim
+            or root.claim.lineage_id ~= action.lineage_id
+            or root.claim.generation ~= action.generation
+            or root.claim.repository_id ~= grant.repository_id) then
+        return nil, diagnostic("repository_root_claimed_by_other_generation")
     end
     if #action.target.relative_path > grant.bounds.max_relative_path_bytes
         or action.content.bytes > grant.bounds.max_content_bytes then
         return nil, diagnostic("capability_bounds_exceeded")
     end
-    return grant
+    return grant, root
 end
 
 function capability.begin_effect(registry, action, instance)
@@ -712,10 +1553,31 @@ function capability.begin_effect(registry, action, instance)
     if not action_ok then
         return nil, action_err
     end
-    local grant, grant_err = exact_action_grant(state, action)
-    if not grant then
-        return nil, grant_err
+    local replay_grant = type(action.capability) == "table"
+        and state.grants[action.capability.grant_id] or nil
+    local fixed_grant_identity = replay_grant
+        and replay_grant.session_id == action.session_id
+        and replay_grant.lineage_id == action.lineage_id
+        and replay_grant.repository_id == action.capability.repository_id
+        and replay_grant.provider_id == action.capability.provider_id
+        and replay_grant.revision == action.capability.revision
+        and replay_grant.root_authority_id == action.capability.root_authority_id
+        and replay_grant.root_identity.fingerprint == action.capability.root_fingerprint
+        and replay_grant.policy_digest == action.capability.policy_digest
+    if fixed_grant_identity then
+        if replay_grant.action_dispatches[action.action_id] then
+            return nil, diagnostic("action_already_dispatched")
+        end
+        local preflight_used = replay_grant.effect_counts[tostring(action.generation)] or 0
+        if preflight_used >= replay_grant.bounds.max_effects_per_generation then
+            return nil, diagnostic("effect_limit_exhausted")
+        end
     end
+    local grant, root_or_err = exact_action_grant(state, action)
+    if not grant then
+        return nil, root_or_err
+    end
+    local root = root_or_err
 
     if grant.action_dispatches[action.action_id] then
         return nil, diagnostic("action_already_dispatched")
@@ -726,7 +1588,30 @@ function capability.begin_effect(registry, action, instance)
         return nil, diagnostic("effect_limit_exhausted")
     end
 
-    -- Consumed authority is never refunded, even when the provider denies the call.
+    if root.state == "unclaimed" then
+        local lifecycle_digest, lifecycle_err = digest.record({
+            root_authority_id = root.root_authority_id,
+            lineage_id = action.lineage_id,
+            generation = action.generation,
+            repository_id = grant.repository_id,
+        })
+        if not lifecycle_digest then
+            return nil, lifecycle_err
+        end
+        root.state = "materializing"
+        root.revision = state.next_revision
+        state.next_revision = state.next_revision + 1
+        root.claim = {
+            lifecycle_id = "candidate-lifecycle:" .. lifecycle_digest,
+            lineage_id = action.lineage_id,
+            generation = action.generation,
+            repository_id = grant.repository_id,
+            first_action_id = action.action_id,
+            claim_revision = root.revision,
+        }
+    end
+
+    -- Claim and consumed authority are never refunded after this point.
     grant.effect_counts[generation_key] = used + 1
     grant.action_dispatches[action.action_id] = true
 
@@ -735,6 +1620,10 @@ function capability.begin_effect(registry, action, instance)
         registry = registry,
         grant = grant,
         grant_revision = grant.revision,
+        root = root,
+        root_revision = root.revision,
+        lifecycle_id = root.claim.lifecycle_id,
+        generation = action.generation,
         action_id = action.action_id,
         relative_path = action.target.relative_path,
         content_bytes = action.content.bytes,
@@ -752,6 +1641,15 @@ local function lease_state(registry, lease)
     if not state or state.registry ~= registry then
         return nil, "invalid repository effect lease"
     end
+    if state.root.state == "seal_pending" then
+        return nil, diagnostic("repository_root_seal_pending")
+    end
+    if state.root.state == "sealed" then
+        return nil, diagnostic("repository_root_sealed")
+    end
+    if state.root.state == "quarantined" then
+        return nil, diagnostic("repository_root_quarantined")
+    end
     if state.grant.state == "revoked" then
         return nil, diagnostic("grant_revoked")
     end
@@ -762,6 +1660,13 @@ local function lease_state(registry, lease)
         or state.grant.revision ~= state.grant_revision
         or state.grant.repository_handle == nil then
         return nil, "repository effect lease grant state changed"
+    end
+    if state.root.state ~= "materializing"
+        or state.root.revision ~= state.root_revision
+        or not state.root.claim
+        or state.root.claim.lifecycle_id ~= state.lifecycle_id
+        or state.root.claim.generation ~= state.generation then
+        return nil, "repository effect lease root state changed"
     end
     return state
 end
@@ -795,7 +1700,11 @@ function capability.effect_create(registry, lease, request)
     end
 
     state.create_called = true
-    local result, err = state.grant.provider.create_text_file(
+    local result, err = with_provider_dispatch(
+        registry,
+        state,
+        "create_text_file",
+        state.grant.provider.create_text_file,
         state.grant.repository_handle,
         {
             protocol_version = "repository.create_text_file.request.v0",
@@ -824,7 +1733,11 @@ function capability.effect_read_back(registry, lease)
         return nil, "repository effect read-back lease already consumed"
     end
     state.read_called = true
-    return state.grant.provider.read_text_file(
+    return with_provider_dispatch(
+        registry,
+        state,
+        "read_text_file",
+        state.grant.provider.read_text_file,
         state.grant.repository_handle,
         {
             relative_path = state.relative_path,
@@ -844,22 +1757,15 @@ function capability.effect_root_matches(registry, lease, root)
 end
 
 function capability.quarantine_effect(registry, lease, reason)
-    local state, state_err = lease_state(registry, lease)
-    if not state then
-        return nil, state_err
+    local registry_state, registry_err = state_for(registry)
+    if not registry_state then
+        return nil, registry_err
     end
-    local grant = state.grant
-    if grant.state == "active" then
-        grant.state = "quarantined"
-        grant.revision = states[registry].next_revision
-        states[registry].next_revision = states[registry].next_revision + 1
-        grant.quarantine_reason = copy_value(reason)
-        local closed, close_err = close_handle(grant)
-        if not closed then
-            return nil, close_err
-        end
+    local lease_value = effect_leases[lease]
+    if not lease_value or lease_value.registry ~= registry then
+        return nil, "invalid repository effect lease"
     end
-    return projection(grant)
+    return quarantine_root(registry_state, lease_value.root, reason)
 end
 
 return capability

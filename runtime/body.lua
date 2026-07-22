@@ -151,6 +151,14 @@ local work_completion_keys = {
     validation_ref = true, completed_status = true, completed_by = true,
     source_refs = true, event_truth_status = true, content_truth_status = true,
 }
+local candidate_closure_keys = {
+    protocol_version = true, closure_id = true, request_id = true,
+    root_authority_id = true, lifecycle_id = true, root_fingerprint = true,
+    grant_id = true, lifecycle_revision_before = true,
+    lifecycle_revision_after = true, inventory_id = true,
+    inventory_digest = true, state = true, source_refs = true,
+    event_truth_status = true,
+}
 local target_keys = {relative_path = true, kind = true}
 local observation_keys = {bytes = true, sha256 = true}
 local effect_cost_keys = {tool_calls = true, file_writes = true, time_ms = true}
@@ -310,6 +318,39 @@ local function validate_work_completion(value)
         if not non_empty_string(value[key]) then
             return nil, "invalid work completion " .. key
         end
+    end
+    return true
+end
+
+local function validate_candidate_closure(value)
+    local ok, err = exact_keys(value, candidate_closure_keys,
+        "candidate closure receipt")
+    if not ok then return nil, err end
+    if value.protocol_version ~= "repository.candidate_closure_receipt.v0"
+        or value.state ~= "sealed"
+        or value.event_truth_status ~= "runtime_confirmed"
+        or not positive_integer(value.lifecycle_revision_before)
+        or not positive_integer(value.lifecycle_revision_after)
+        or value.lifecycle_revision_after <= value.lifecycle_revision_before
+        or not repository_refs(value.source_refs) then
+        return nil, "invalid candidate closure receipt"
+    end
+    for _, key in ipairs({
+        "closure_id", "request_id", "root_authority_id", "lifecycle_id",
+        "root_fingerprint", "grant_id", "inventory_id", "inventory_digest",
+    }) do
+        if not non_empty_string(value[key]) then
+            return nil, "invalid candidate closure receipt " .. key
+        end
+    end
+    local seed = copy_value(value)
+    seed.closure_id = nil
+    local identity, identity_err = digest.record(seed)
+    if not identity then
+        return nil, identity_err
+    end
+    if value.closure_id ~= "candidate-closure:" .. identity then
+        return nil, "candidate closure receipt identity mismatch"
     end
     return true
 end
@@ -833,6 +874,52 @@ end
 function body.record_work_completion(instance, payload)
     return record_repository_event(instance, "☱", "work_completion",
         payload, validate_work_completion, "history")
+end
+
+function body.record_candidate_seal(instance, payload, registry, closure)
+    local candidate_seal = require("runtime.candidate_seal")
+    local capabilities = require("runtime.repository_capability")
+    local payload_ok, payload_err = candidate_seal.validate_seal(instance, payload)
+    if not payload_ok then
+        return nil, payload_err
+    end
+    local closure_ok, closure_err = validate_candidate_closure(closure)
+    if not closure_ok then
+        return nil, closure_err
+    end
+    if closure.request_id ~= payload.request_id
+        or closure.root_authority_id ~= payload.root_authority_id
+        or closure.lifecycle_id ~= payload.lifecycle_id
+        or closure.root_fingerprint ~= payload.root_fingerprint
+        or closure.inventory_id ~= payload.inventory_id
+        or closure.inventory_digest ~= payload.inventory_digest
+        or closure.closure_id ~= payload.authority_closure_ref then
+        return nil, "candidate seal contradicts closure receipt"
+    end
+    local observed, observed_err = capabilities.observe_candidate_closure(registry, {
+        root_authority_id = payload.root_authority_id,
+        lifecycle_id = payload.lifecycle_id,
+        request_id = payload.request_id,
+    })
+    if not observed then
+        return nil, observed_err
+    end
+    if not equal_value(observed, closure) then
+        return nil, "candidate closure receipt contradicts private registry"
+    end
+    for _, event in ipairs(instance.trace or {}) do
+        if event.type == "candidate_seal" then
+            if event.operator == "☶" and event.truth_status == "runtime_confirmed"
+                and equal_value(event.payload, payload) then
+                return copy_value(event.payload), copy_value(event)
+            end
+            return nil, "Packet contains contradictory candidate seal event"
+        end
+    end
+    return record_repository_event(instance, "☶", "candidate_seal", payload,
+        function(value)
+            return candidate_seal.validate_seal(instance, value)
+        end, "evidence")
 end
 
 function body.record_choice(instance, choice_payload)

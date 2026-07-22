@@ -2,6 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local H = require("tests.support.red_contract")
 local artifact_set = require("runtime.artifact_set")
+local candidate_seal = require("runtime.candidate_seal")
 local capabilities = require("runtime.repository_capability")
 local corpse = require("runtime.corpse")
 local fixture = require("tests.support.repository_hands")
@@ -52,29 +53,13 @@ local function completed_build(label)
         verification_ref = validation.verification_ref,
         validation_ref = validation.trace_event_id,
     }))))
-    return instance, action
+    return instance, action, registry
 end
 
 local function build_contract(instance, action)
-    local declared = {
-        protocol_version = "repository.artifact_set_contract.v0",
-        artifact_set_id = nil,
-        packet_id = instance.id,
-        lineage_id = instance.lineage_id,
-        generation = instance.generation,
-        stage_id = instance.stage_id,
-        repository_id = instance.repository_id,
-        artifacts = {{
-            work_unit_id = action.work_unit.id,
-            work_unit_version = action.work_unit.version,
-            relative_path = action.target.relative_path,
-            expected_kind = "regular_file",
-        }},
-        source_refs = {action.work_unit.formation_event_ref},
-        event_truth_status = "runtime_confirmed",
-        content_truth_status = "semantic_proposal",
-    }
-    declared.artifact_set_id = assert(artifact_set.identify(declared))
+    local declared = assert(artifact_set.derive(instance))
+    H.assert_eq(declared.artifacts[1].work_unit_id, action.work_unit.id,
+        "fixture derives its completed action")
     return {
         protocol_version = "runtime.work_contract_view.v0",
         process_contract_id = instance.process_contract_id,
@@ -115,6 +100,36 @@ suite:check("WL01 plan formation projects four exact layers", function()
     H.assert_eq(inherited.glyph, "▲", "corpse retains final glyph")
     H.assert_eq(inherited.boundary_terminal_ref, dead.corpse_id,
         "corpse projection names frozen boundary")
+end)
+
+suite:check("WL02c sealed build waits at QA without acceptance", function()
+    local module = suite:require_module(work_layer, work_layer_err, "runtime.work_layer")
+    local instance, _, registry = completed_build("work-layer-build-sealed")
+    local services = {repository_capabilities = registry}
+    local request = assert(candidate_seal.prepare(instance, services))
+    fixture.move_to(instance, "☶")
+    local sealed = assert(candidate_seal.execute(instance, request, services))
+    local trace_count = #instance.trace
+    local budget_before = H.copy(instance.runtime.budget)
+    local revisions_before = H.copy(instance.revisions)
+
+    local projection = assert(module.inspect_packet(instance))
+    H.assert_eq(projection.glyph, "⊞", "sealed candidate enters checking")
+    H.assert_eq(projection.state, "checking", "QA remains pending")
+    H.assert_eq(projection.completion_scope, "candidate_sealed",
+        "seal raises only Packet-local scope")
+    H.assert_eq(projection.reason, "candidate_sealed_qa_missing",
+        "missing QA is explicit")
+    H.assert_eq(projection.boundary_candidate, "none",
+        "seal alone is not software acceptance")
+    H.assert_contains(table.concat(projection.missing_requirements, "\n"),
+        "qa_verdict_for:" .. sealed.seal.candidate_seal_id,
+        "missing verdict binds the exact seal")
+    H.assert_eq(#instance.trace, trace_count, "reader appends no event")
+    H.assert_eq(require("core.json").encode(instance.runtime.budget),
+        require("core.json").encode(budget_before), "reader spends no budget")
+    H.assert_eq(require("core.json").encode(instance.revisions),
+        require("core.json").encode(revisions_before), "reader moves no revision")
 end)
 
 suite:check("WL02 current build baseline stays honestly low", function()

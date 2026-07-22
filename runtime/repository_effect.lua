@@ -304,6 +304,23 @@ local function call_boundary(fn, ...)
     return called[2], called[3], false
 end
 
+local function quarantine_invariant(registry, lease, phase, detail)
+    local quarantined, quarantine_err = capabilities.quarantine_effect(
+        registry,
+        lease,
+        {
+            code = "malformed_trusted_repository_result",
+            phase = phase,
+            detail = tostring(detail),
+        }
+    )
+    if not quarantined then
+        return nil, "repository invariant quarantine failed: "
+            .. tostring(quarantine_err)
+    end
+    return true
+end
+
 function repository_effect.execute(instance, action, registry)
     local actor, actor_err = packet_core.assert_actor_tick(instance, "☶",
         "execute repository effect")
@@ -381,6 +398,15 @@ function repository_effect.execute(instance, action, registry)
     end
     local writer, writer_err = validate_create_result(registry, lease, action, create_result)
     if not writer then
+        local quarantined, quarantine_err = quarantine_invariant(
+            registry,
+            lease,
+            "create_result",
+            writer_err
+        )
+        if not quarantined then
+            return nil, quarantine_err
+        end
         return nil, writer_err
     end
 
@@ -445,6 +471,15 @@ function repository_effect.execute(instance, action, registry)
     local observed, observed_err = validate_read_result(
         registry, lease, action, read_result)
     if not observed then
+        local quarantined, quarantine_err = quarantine_invariant(
+            registry,
+            lease,
+            "read_result",
+            observed_err
+        )
+        if not quarantined then
+            return nil, quarantine_err
+        end
         return nil, observed_err
     end
 

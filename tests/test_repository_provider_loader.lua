@@ -81,6 +81,7 @@ local function native_fixture()
         revalidate = refused,
         create_text_file = refused,
         read_text_file = refused,
+        inventory_tree = refused,
         close = refused,
     }
 end
@@ -111,6 +112,7 @@ suite:check("L1 provider API and limits are exact", function()
         revalidate = true,
         create_text_file = true,
         read_text_file = true,
+        inventory_tree = true,
         close = true,
     }
     for key in pairs(current) do

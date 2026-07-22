@@ -25,6 +25,7 @@ local native_keys = {
     revalidate = true,
     create_text_file = true,
     read_text_file = true,
+    inventory_tree = true,
     close = true,
 }
 local limit_keys = {
@@ -109,6 +110,31 @@ local read_result_required = {
     mutation_primitive_entered = true,
     published = true,
     cost = true,
+}
+local inventory_result_keys = {
+    protocol_version = true, operation = true, outcome = true,
+    root_before = true, root_after = true, stable = true, entries = true,
+    bounds_observed = true, mutation_primitive_entered = true,
+    published = true, cost = true,
+}
+local inventory_entry_keys = {
+    relative_path = true, kind = true, identity_before = true,
+    identity_after = true, bytes = true, content = true,
+}
+local inventory_entry_required = {
+    relative_path = true, kind = true, identity_before = true,
+    identity_after = true,
+}
+local inventory_bounds_keys = {
+    protocol_version = true, max_entries = true, max_depth = true,
+    max_path_bytes = true, max_component_bytes = true,
+    max_file_bytes = true, max_total_bytes = true,
+}
+local observed_inventory_bounds_keys = {
+    max_entries = true, max_depth = true, max_path_bytes = true,
+    max_component_bytes = true, max_file_bytes = true,
+    max_total_bytes = true, observed_entries = true,
+    observed_total_bytes = true,
 }
 local residue_keys = {
     protocol_version = true,
@@ -252,6 +278,7 @@ local function validate_native(value)
         "revalidate",
         "create_text_file",
         "read_text_file",
+        "inventory_tree",
         "close",
     }) do
         if type(value[method]) ~= "function" then
@@ -450,6 +477,24 @@ local provider_error_contracts = {
         reobserve_read_target = {target_changed = "world"},
         close_read_descriptors = {io_failure = "world"},
     },
+    inventory_tree = {
+        inventory_handle = {handle_closed = "contract"},
+        validate_inventory_request = {invalid_request = "contract"},
+        open_project_base = {root_changed = "world", provider_unavailable = "world"},
+        observe_project_base = {root_changed = "world", provider_unavailable = "world"},
+        open_repository_root = {root_changed = "world", provider_unavailable = "world"},
+        observe_repository_root = {root_changed = "world", provider_unavailable = "world"},
+        compare_root_identity = {root_changed = "world"},
+        open_inventory_root = {permission_denied = "world", io_failure = "world"},
+        enumerate_inventory_tree = {
+            permission_denied = "world", io_failure = "world",
+        },
+        reobserve_inventory_tree = {io_failure = "world"},
+        verify_inventory_stability = {inventory_unstable = "world"},
+        revalidate_inventory_root = {root_changed = "world"},
+        close_inventory_descriptors = {io_failure = "world"},
+        project_inventory_identity = {identity_unrepresentable = "contract"},
+    },
 }
 
 local function validate_provider_error(operation, value)
@@ -527,6 +572,21 @@ local function validate_provider_error(operation, value)
         end
         local pre_call = value.stage == "read_handle"
             or value.stage == "validate_read_request"
+        if value.cost.tool_calls ~= (pre_call and 0 or 1) then
+            fail(operation .. " returned impossible tool-call cost")
+        end
+        return copy_record(value)
+    end
+
+    if operation == "inventory_tree" then
+        if value.mutation_primitive_entered ~= false
+            or value.published ~= false
+            or value.cost.file_writes ~= 0
+            or value.residue ~= nil then
+            fail(operation .. " reported mutation or residue")
+        end
+        local pre_call = value.stage == "inventory_handle"
+            or value.stage == "validate_inventory_request"
         if value.cost.tool_calls ~= (pre_call and 0 or 1) then
             fail(operation .. " returned impossible tool-call cost")
         end
@@ -749,6 +809,156 @@ local function validate_read_result(value, request)
     return copy_record(value)
 end
 
+local function invalid_inventory_request()
+    return nil, {
+        protocol_version = "repository.provider_error.v0",
+        class = "contract",
+        code = "invalid_request",
+        stage = "validate_inventory_request",
+        mutation_primitive_entered = false,
+        published = false,
+        cost = {tool_calls = 0, file_writes = 0, time_ms = 0},
+    }
+end
+
+local function validate_inventory_request(value)
+    if type(value) ~= "table" or getmetatable(value) ~= nil then
+        return invalid_inventory_request()
+    end
+    for key in pairs(value) do
+        if not inventory_bounds_keys[key] then
+            return invalid_inventory_request()
+        end
+    end
+    for key in pairs(inventory_bounds_keys) do
+        if value[key] == nil then
+            return invalid_inventory_request()
+        end
+    end
+    if value.protocol_version ~= "repository.inventory_bounds.v0" then
+        return invalid_inventory_request()
+    end
+    local ceilings = {
+        max_entries = 4096,
+        max_depth = limits.max_components,
+        max_path_bytes = limits.max_relative_path_bytes,
+        max_component_bytes = limits.max_component_bytes,
+        max_file_bytes = limits.max_content_bytes,
+        max_total_bytes = 67108864,
+    }
+    for key, ceiling in pairs(ceilings) do
+        if not non_negative_integer(value[key]) or value[key] < 1
+            or value[key] > ceiling then
+            return invalid_inventory_request()
+        end
+    end
+    return true
+end
+
+local function strict_array(value, name)
+    if type(value) ~= "table" or getmetatable(value) ~= nil then
+        fail(name .. " must be an array")
+    end
+    local count = 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
+            fail(name .. " must be an array")
+        end
+        count = count + 1
+    end
+    if count ~= #value then
+        fail(name .. " must be a dense array")
+    end
+end
+
+local function valid_inventory_path(value, request)
+    if type(value) ~= "string" or value == "" or value:sub(1, 1) == "/"
+        or value:sub(-1) == "/" or #value > request.max_path_bytes
+        or value:find("//", 1, true) or value:find("%z")
+        or value:find("[%z\1-\31]") or utf8.len(value) == nil then
+        return false
+    end
+    local depth = 0
+    for component in value:gmatch("[^/]+") do
+        depth = depth + 1
+        if component == "." or component == ".."
+            or #component > request.max_component_bytes
+            or depth > request.max_depth then
+            return false
+        end
+    end
+    return depth > 0
+end
+
+local function validate_inventory_result(value, request)
+    exact_plain_record(value, inventory_result_keys, "inventory result")
+    validate_filesystem_identity(value.root_before, "inventory root_before")
+    validate_filesystem_identity(value.root_after, "inventory root_after")
+    validate_cost(value.cost, "inventory result cost")
+    if value.protocol_version ~= "repository.provider_inventory_result.v0"
+        or value.operation ~= "inventory_tree"
+        or (value.outcome ~= "observed" and value.outcome ~= "bound_exceeded")
+        or type(value.stable) ~= "boolean"
+        or value.mutation_primitive_entered ~= false
+        or value.published ~= false
+        or value.cost.tool_calls ~= 1
+        or value.cost.file_writes ~= 0 then
+        fail("inventory_tree returned contradictory success")
+    end
+    exact_plain_record(value.bounds_observed, observed_inventory_bounds_keys,
+        "inventory observed bounds")
+    for key in pairs(inventory_bounds_keys) do
+        if key ~= "protocol_version"
+            and value.bounds_observed[key] ~= request[key] then
+            fail("inventory_tree changed bound: " .. key)
+        end
+    end
+    if not non_negative_integer(value.bounds_observed.observed_entries)
+        or not non_negative_integer(value.bounds_observed.observed_total_bytes) then
+        fail("inventory_tree returned invalid observed counts")
+    end
+    strict_array(value.entries, "inventory entries")
+    if #value.entries > request.max_entries
+        or #value.entries ~= value.bounds_observed.observed_entries then
+        fail("inventory_tree entry count contradicts bounds")
+    end
+    local total = 0
+    local previous
+    for _, entry in ipairs(value.entries) do
+        exact_plain_record(entry, inventory_entry_keys, "inventory entry",
+            inventory_entry_required)
+        if not valid_inventory_path(entry.relative_path, request)
+            or (previous and entry.relative_path <= previous)
+            or (entry.kind ~= "directory" and entry.kind ~= "regular_file"
+                and entry.kind ~= "symlink" and entry.kind ~= "special") then
+            fail("inventory_tree returned invalid canonical entry")
+        end
+        previous = entry.relative_path
+        validate_filesystem_identity(entry.identity_before,
+            "inventory entry identity_before")
+        validate_filesystem_identity(entry.identity_after,
+            "inventory entry identity_after")
+        if entry.kind == "regular_file" then
+            if not non_negative_integer(entry.bytes)
+                or entry.bytes > request.max_file_bytes
+                or type(entry.content) ~= "string"
+                or #entry.content ~= entry.bytes then
+                fail("inventory_tree returned invalid bounded file")
+            end
+            total = total + entry.bytes
+            if total > request.max_total_bytes then
+                fail("inventory_tree exceeded aggregate byte bound")
+            end
+        elseif entry.bytes ~= nil or entry.content ~= nil then
+            fail("inventory_tree returned bytes for non-file entry")
+        end
+    end
+    if total ~= value.bounds_observed.observed_total_bytes then
+        fail("inventory_tree byte total contradicts bounds")
+    end
+    return copy_record(value)
+end
+
 local function exact_input(value, allowed, name)
     if type(value) ~= "table" or getmetatable(value) ~= nil then
         error(name .. " must be a plain table", 2)
@@ -865,6 +1075,35 @@ function provider.read_text_file(handle, request)
         fail("read_text_file success must return exactly one value")
     end
     return validate_read_result(called[2], request)
+end
+
+function provider.inventory_tree(handle, request)
+    if not native then
+        return unavailable("native_module_absent")
+    end
+    require_handle(handle)
+    local valid, request_err = validate_inventory_request(request)
+    if not valid then
+        return nil, copy_record(request_err)
+    end
+    local called = invoke_native("inventory_tree",
+        handle,
+        request.max_entries,
+        request.max_depth,
+        request.max_path_bytes,
+        request.max_component_bytes,
+        request.max_file_bytes,
+        request.max_total_bytes)
+    if called[2] == nil then
+        if called.n ~= 3 then
+            fail("inventory_tree failure must return exactly two values")
+        end
+        return nil, validate_provider_error("inventory_tree", called[3])
+    end
+    if called.n ~= 2 then
+        fail("inventory_tree success must return exactly one value")
+    end
+    return validate_inventory_result(called[2], request)
 end
 
 function provider.close(handle)

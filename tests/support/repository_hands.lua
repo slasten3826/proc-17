@@ -130,7 +130,13 @@ function fixture.fake_provider(options)
     options = options or {}
     local state = {
         files = copy_value(options.files or {}),
-        calls = {open_repository = 0, revalidate = 0, create = 0, read = 0},
+        calls = {
+            open_repository = 0,
+            revalidate = 0,
+            create = 0,
+            read = 0,
+            inventory = 0,
+        },
         root_identity = copy_value(options.root_identity or {
             device = 17,
             inode = 1701,
@@ -138,6 +144,7 @@ function fixture.fake_provider(options)
         create_override = options.create_override,
         read_override = options.read_override,
         revalidate_override = options.revalidate_override,
+        inventory_override = options.inventory_override,
     }
     local provider = {
         provider_id = "linux.openat2.renameat2.v0",
@@ -239,6 +246,90 @@ function fixture.fake_provider(options)
             bytes = #content,
             content = content,
             root = copy_value(state.root_identity),
+            mutation_primitive_entered = false,
+            published = false,
+            cost = {tool_calls = 1, file_writes = 0, time_ms = 0},
+        }
+    end
+
+    function provider.inventory_tree(handle, bounds)
+        state.calls.inventory = state.calls.inventory + 1
+        if state.inventory_override then
+            return state.inventory_override(handle, bounds, state)
+        end
+
+        local paths = {}
+        local kinds = {}
+        for path in pairs(state.files) do
+            kinds[path] = "regular_file"
+            paths[#paths + 1] = path
+            local prefix = ""
+            local components = {}
+            for component in path:gmatch("[^/]+") do
+                components[#components + 1] = component
+            end
+            for index = 1, #components - 1 do
+                prefix = prefix == "" and components[index]
+                    or (prefix .. "/" .. components[index])
+                if not kinds[prefix] then
+                    kinds[prefix] = "directory"
+                    paths[#paths + 1] = prefix
+                end
+            end
+        end
+        table.sort(paths)
+
+        local entries = {}
+        local total_bytes = 0
+        local outcome = "observed"
+        for index, path in ipairs(paths) do
+            local kind = kinds[path]
+            local content = kind == "regular_file" and state.files[path] or nil
+            local bytes = content and #content or nil
+            local depth = 0
+            local max_component = 0
+            for component in path:gmatch("[^/]+") do
+                depth = depth + 1
+                max_component = math.max(max_component, #component)
+            end
+            local next_total = total_bytes + (bytes or 0)
+            if index > bounds.max_entries or depth > bounds.max_depth
+                or #path > bounds.max_path_bytes
+                or max_component > bounds.max_component_bytes
+                or (bytes and bytes > bounds.max_file_bytes)
+                or next_total > bounds.max_total_bytes then
+                outcome = "bound_exceeded"
+                break
+            end
+            total_bytes = next_total
+            local identity = {device = 17, inode = 2000 + index}
+            entries[#entries + 1] = {
+                relative_path = path,
+                kind = kind,
+                identity_before = copy_value(identity),
+                identity_after = copy_value(identity),
+                bytes = bytes,
+                content = content,
+            }
+        end
+        return {
+            protocol_version = "repository.provider_inventory_result.v0",
+            operation = "inventory_tree",
+            outcome = outcome,
+            root_before = copy_value(state.root_identity),
+            root_after = copy_value(state.root_identity),
+            stable = true,
+            entries = entries,
+            bounds_observed = {
+                max_entries = bounds.max_entries,
+                max_depth = bounds.max_depth,
+                max_path_bytes = bounds.max_path_bytes,
+                max_component_bytes = bounds.max_component_bytes,
+                max_file_bytes = bounds.max_file_bytes,
+                max_total_bytes = bounds.max_total_bytes,
+                observed_entries = #entries,
+                observed_total_bytes = total_bytes,
+            },
             mutation_primitive_entered = false,
             published = false,
             cost = {tool_calls = 1, file_writes = 0, time_ms = 0},

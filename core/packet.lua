@@ -47,6 +47,7 @@ packet.event_types = {
     repository_effect_receipt = true,
     repository_verification = true,
     work_completion = true,
+    candidate_seal = true,
     cycle = true,
     runtime_frame = true,
     runtime_reconciliation = true,
@@ -83,6 +84,7 @@ local dedicated_event_types = {
     repository_effect_receipt = true,
     repository_verification = true,
     work_completion = true,
+    candidate_seal = true,
 }
 
 local repository_body_event_types = {
@@ -91,6 +93,7 @@ local repository_body_event_types = {
     repository_effect_receipt = true,
     repository_verification = true,
     work_completion = true,
+    candidate_seal = true,
 }
 
 local event_actor_rights = {
@@ -107,6 +110,7 @@ local event_actor_rights = {
     repository_effect_receipt = {['☶'] = true},
     repository_verification = {['☶'] = true},
     work_completion = {['☱'] = true},
+    candidate_seal = {['☶'] = true},
     cycle = {['☲'] = true},
     runtime_reconciliation = {['☱'] = true},
     plan_completion_assessment = {['☱'] = true},

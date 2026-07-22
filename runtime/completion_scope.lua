@@ -1,6 +1,7 @@
 local digest = require("core.digest")
 local json = require("core.json")
 local artifact_set = require("runtime.artifact_set")
+local candidate_seal = require("runtime.candidate_seal")
 local corpse_module = require("runtime.corpse")
 local plan_completion = require("runtime.plan_completion")
 local work_completion = require("runtime.work_completion")
@@ -278,6 +279,7 @@ local function repository_units(instance)
 end
 
 local function inspect_build_packet(instance, view, result)
+    result.candidate.state = "unsealed"
     local progress = work_completion.repository_progress(instance)
     result.work_items.needed_count = progress.needed_count
     result.work_items.done_count = progress.done_count
@@ -305,14 +307,25 @@ local function inspect_build_packet(instance, view, result)
         end
     end
 
-    if view.artifact_set == nil then
+    local derived_set, derived_err = artifact_set.derive(instance)
+    if not derived_set then
+        if type(derived_err) ~= "table" then
+            return nil, derived_err
+        end
         result.missing_requirements[#result.missing_requirements + 1] =
             "artifact_set_contract"
-        result.missing_requirements[#result.missing_requirements + 1] =
-            "candidate_seal_reader"
         return true
     end
-    local set_view, set_err = artifact_set.inspect(instance, view.artifact_set)
+    if view.artifact_set ~= nil then
+        local supplied, supplied_err = artifact_set.validate(view.artifact_set)
+        if not supplied then
+            return nil, supplied_err
+        end
+        if not artifact_set.same(supplied, derived_set) then
+            return nil, "supplied artifact set does not match body derivation"
+        end
+    end
+    local set_view, set_err = artifact_set.inspect(instance, derived_set)
     if not set_view then
         return nil, set_err
     end
@@ -324,6 +337,23 @@ local function inspect_build_packet(instance, view, result)
     if set_view.state == "complete" and set_view.inventory_compatible then
         result.artifact_set.state = "complete"
         result.highest_scope = "artifact_set"
+
+        local seal, seal_event, seal_err = candidate_seal.current(instance)
+        if seal then
+            result.candidate.state = "sealed"
+            result.candidate.candidate_seal_id = seal.candidate_seal_id
+            result.candidate.candidate_seal_event_ref = seal_event.id
+            result.highest_scope = "candidate_sealed"
+            result.source_refs[#result.source_refs + 1] = seal_event.id
+            result.source_refs[#result.source_refs + 1] = seal.candidate_seal_id
+            append_all(result.source_refs, seal.source_refs)
+            result.content_truth_status = seal.content_truth_status
+        elseif seal_err == "candidate_seal_absent" then
+            result.missing_requirements[#result.missing_requirements + 1] =
+                "candidate_seal"
+        else
+            return nil, seal_err
+        end
     else
         result.artifact_set.state = "incomplete"
         if not set_view.inventory_compatible then
@@ -331,9 +361,9 @@ local function inspect_build_packet(instance, view, result)
                 "artifact_set_inventory_compatible"
         end
     end
-    result.missing_requirements[#result.missing_requirements + 1] =
-        "candidate_seal_reader"
-    result.content_truth_status = set_view.content_truth_status
+    if result.content_truth_status == "runtime_confirmed" then
+        result.content_truth_status = set_view.content_truth_status
+    end
     return true
 end
 

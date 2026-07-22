@@ -10,6 +10,11 @@ scope: first exact repository mutation and verified work completion
 runtime implementation authorized: no
 arbitrary shell authorized: no
 default router promotion authorized: no
+amended 2026-07-22: cross-generation grant re-resolution is provisional only
+  before first root authority consumption; repository candidate lifecycle owns
+  the sticky generation claim and terminal root lock
+amendment source:
+  repository_candidate_lifecycle_yellowprint.v0.md
 ```
 
 ## 0. Selected Decisions
@@ -19,7 +24,9 @@ D01 work, intent, grant, authorized action, effect, verification and completion
     remain separate records
 D02 substrate output can propose an intent but cannot name or mint authority
 D03 the session host owns the capability registry; one v0 grant is scoped to
-    one lineage and is re-resolved for every Packet generation and action
+    one lineage and may be provisionally re-resolved before root claim; first
+    authority consumption binds the root to one generation, after which only
+    that generation may resolve source-write authority
 D04 one grant names one repository root below the configured project base, not
     the complete sandbox tree
 D05 the first operation is create_text_file.v0 over an absent target whose
@@ -245,7 +252,10 @@ explicit bounds
 ```
 
 The grant survives Packet death within that lineage, but no authority crosses
-inside corpse or carrier. Each descendant must resolve the host grant again.
+inside corpse or carrier. A descendant may resolve the host grant only while
+the root remains unclaimed. Once any generation consumes root authority, the
+sticky root claim denies descendant reuse and a later generation requires a
+fresh repository/root under the lifecycle amendment.
 
 ### 6.2 Private grant record
 
@@ -931,7 +941,8 @@ one derivation and enter history only through immutable route/effect projections
 | G2 | one exact active lineage grant | one authorized action |
 | G3 | same grant, wrong session | no match |
 | G4 | same grant, wrong lineage | no match, including descendant of another lineage |
-| G5 | same lineage, next generation | grant re-resolves; new action binds new Packet/generation |
+| G5a | same lineage, next generation, root still unclaimed | grant may resolve provisionally; root remains unclaimed |
+| G5b | same lineage, next generation after first authority consumption | denied before provider call; owner claim remains |
 | G6 | grant revoked before derivation | candidate excluded |
 | G7 | grant revoked after route commitment | typed effect failure, zero provider writes |
 | G8 | two matching grants | typed ambiguity, no canonical selection |

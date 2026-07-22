@@ -1,7 +1,8 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local H = require("tests.support.red_contract")
-local digest = require("core.digest")
+local artifact_set = require("runtime.artifact_set")
+local candidate_seal = require("runtime.candidate_seal")
 local corpse = require("runtime.corpse")
 local lineage = require("runtime.lineage")
 local fixture = require("tests.support.repository_hands")
@@ -44,31 +45,13 @@ local function completed_one(label)
         validation_ref = validation.trace_event_id,
     }))
     assert(work_completion.record(instance, candidate))
-    return instance, action
+    return instance, action, registry
 end
 
 local function artifact_contract(instance, action)
-    local value = {
-        protocol_version = "repository.artifact_set_contract.v0",
-        artifact_set_id = nil,
-        packet_id = instance.id,
-        lineage_id = instance.lineage_id,
-        generation = instance.generation,
-        stage_id = instance.trace[1].payload.stage_id,
-        repository_id = "repo-a",
-        artifacts = {{
-            work_unit_id = action.work_unit.id,
-            work_unit_version = action.work_unit.version,
-            relative_path = action.target.relative_path,
-            expected_kind = "regular_file",
-        }},
-        source_refs = {action.work_unit.formation_event_ref},
-        event_truth_status = "runtime_confirmed",
-        content_truth_status = "semantic_proposal",
-    }
-    local seed = H.copy(value)
-    seed.artifact_set_id = nil
-    value.artifact_set_id = "artifact-set:" .. assert(digest.record(seed))
+    local value = assert(artifact_set.derive(instance))
+    H.assert_eq(value.artifacts[1].work_unit_id, action.work_unit.id,
+        "fixture derives its completed action")
     return value
 end
 
@@ -95,7 +78,7 @@ suite:check("CS00 Packet birth owns process coordinates", function()
     H.assert_eq(birth.repository_id, "repo-a", "repository identity is birth-stamped")
 end)
 
-suite:check("CS01 one completion reaches work_item but no larger implicit scope", function()
+suite:check("CS01 one completed derived set reaches artifact_set", function()
     local module = suite:require_module(
         completion_scope,
         completion_scope_err,
@@ -103,10 +86,11 @@ suite:check("CS01 one completion reaches work_item but no larger implicit scope"
     )
     local instance = completed_one("completion-scope-work-item")
     local inspection = assert(module.inspect_packet(instance))
-    H.assert_eq(inspection.highest_scope, "work_item", "one completion is local work")
-    H.assert_eq(inspection.artifact_set.state, "unsupported",
-        "undeclared set is not inferred")
-    H.assert_eq(inspection.candidate.state, "unsupported", "seal reader is absent")
+    H.assert_eq(inspection.highest_scope, "artifact_set",
+        "body-derived one-file set is complete")
+    H.assert_eq(inspection.artifact_set.state, "complete",
+        "derived set needs no caller declaration")
+    H.assert_eq(inspection.candidate.state, "unsealed", "seal is exactly absent")
     H.assert_eq(inspection.stage.state, "unsupported", "Packet cannot complete stage")
     H.assert_eq(inspection.root.software_state, "unsupported",
         "Packet cannot accept software")
@@ -123,7 +107,7 @@ suite:check("CS02 exact declared set reaches artifact_set and stops", function()
         contract_view(instance, artifact_contract(instance, action))))
     H.assert_eq(inspection.highest_scope, "artifact_set", "declared set is exact")
     H.assert_eq(inspection.artifact_set.state, "complete", "set is complete")
-    H.assert_eq(inspection.candidate.state, "unsupported", "no seal is invented")
+    H.assert_eq(inspection.candidate.state, "unsealed", "no seal is invented")
     H.assert_eq(inspection.boundary_candidate.state, "none", "no QA boundary invented")
 end)
 
@@ -136,12 +120,60 @@ suite:check("CS03 stale current version lowers scope", function()
     local instance, action = completed_one("completion-scope-stale")
     local view = contract_view(instance, artifact_contract(instance, action))
     instance.field.units[action.work_unit.id].version = action.work_unit.version + 1
-    local inspection = assert(module.inspect_packet(instance, view))
-    H.assert_eq(inspection.highest_scope, "none", "stale work is not complete")
-    H.assert_eq(inspection.artifact_set.state, "incomplete", "set follows exact version")
+    local inspection, err = module.inspect_packet(instance, view)
+    H.assert_nil(inspection, "stale supplied set cannot become authority")
+    H.assert_contains(err, "body derivation", "mismatch names authoritative reader")
 end)
 
-suite:check("CS04 plan corpse offers candidate but never writes stage", function()
+suite:check("CS03b caller subset cannot narrow body-derived artifacts", function()
+    local module = suite:require_module(
+        completion_scope,
+        completion_scope_err,
+        "runtime.completion_scope"
+    )
+    local instance = fixture.packet({
+        {path = "src/a.lua", content = "return 'a'\n"},
+        {path = "src/b.lua", content = "return 'b'\n"},
+    }, {label = "completion-scope-subset"})
+    local supplied = assert(artifact_set.derive(instance))
+    supplied.artifacts = {H.copy(supplied.artifacts[1])}
+    supplied.artifact_set_id = assert(artifact_set.identify(supplied))
+    local inspection, err = module.inspect_packet(
+        instance,
+        contract_view(instance, supplied)
+    )
+    H.assert_nil(inspection, "caller cannot omit a body-derived artifact")
+    H.assert_contains(err, "body derivation", "subset denial names authority")
+end)
+
+suite:check("CS04 exact seal advances Packet only to candidate_sealed", function()
+    local module = suite:require_module(
+        completion_scope,
+        completion_scope_err,
+        "runtime.completion_scope"
+    )
+    local instance, _, registry = completed_one("completion-scope-sealed")
+    local services = {repository_capabilities = registry}
+    local request = assert(candidate_seal.prepare(instance, services))
+    fixture.move_to(instance, "☶")
+    local sealed = assert(candidate_seal.execute(instance, request, services))
+    local inspection = assert(module.inspect_packet(instance))
+    H.assert_eq(inspection.highest_scope, "candidate_sealed",
+        "dedicated body event advances exactly one scope")
+    H.assert_eq(inspection.candidate.state, "sealed", "candidate is sealed")
+    H.assert_eq(inspection.candidate.candidate_seal_id,
+        sealed.seal.candidate_seal_id, "scope binds exact seal")
+    H.assert_eq(inspection.candidate.candidate_seal_event_ref,
+        sealed.seal_event_ref, "scope binds dedicated body event")
+    H.assert_eq(inspection.boundary_candidate.state, "none",
+        "seal alone invents no QA boundary")
+    H.assert_eq(inspection.stage.state, "unsupported",
+        "living Packet does not complete its stage")
+    H.assert_eq(inspection.root.software_state, "unsupported",
+        "living Packet does not accept software")
+end)
+
+suite:check("CS04p plan corpse offers candidate but never writes stage", function()
     local module = suite:require_module(
         completion_scope,
         completion_scope_err,
@@ -212,7 +244,7 @@ suite:check("CS07 returned inspection is detached", function()
     first.highest_scope = "root_delivery"
     first.work_items.done_refs[1] = "caller-forged"
     local second = assert(module.inspect_packet(instance))
-    H.assert_eq(second.highest_scope, "work_item", "caller cannot raise scope")
+    H.assert_eq(second.highest_scope, "artifact_set", "caller cannot raise scope")
     H.assert_true(second.work_items.done_refs[1] ~= "caller-forged",
         "nested evidence is detached")
 end)

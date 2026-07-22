@@ -7,14 +7,33 @@ crystall
 date: 2026-07-20
 source table: docs/01_table/yellowprints/completion_scope_candidate_seal_yellowprint.v0.md
 depends on: docs/02_crystall/blueprints/capability_safe_repository_hands.v0.md
-implementation authority: disabled-by-default candidate lifecycle and seal transaction
+implementation authority: umbrella completion/seal boundary only; detailed
+  derivation, lifecycle and transaction authority moved to 2026-07-22
+  specialized blueprints
 QA execution authority: forbidden
 root completion authority: forbidden
 F4 boundary: seal exposes exact immutable identity to future QA; rejected
   terminal projection is owned later by the verdict/manifest chain
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
 2026-07-21 cross-table documentary gate: satisfied
+2026-07-22 specialization gate:
+  docs/00_chaos/candidate_seal_table_cross_audit_2026-07-22.md
 ```
+
+2026-07-22 supersession notice:
+
+```text
+artifact-set derivation detail -> artifact_set_derivation.v0.md
+private root/lifecycle detail  -> repository_candidate_lifecycle.v0.md
+inventory/closure/body append  -> candidate_seal_transaction.v0.md
+```
+
+Sections 3 through 11 below remain design archaeology and an umbrella map.
+Where their schemas, keys, API shapes or failure wording differ from the three
+specialized blueprints, the specialized blueprints are authoritative. In
+particular, the old single generation-keyed lifecycle, `active_dispatches`
+counter, private `candidate_seal_id`, provider-only no-effect proof and generic
+inventory boundary are superseded.
 
 ## 0. Crystallized Claim
 
@@ -47,8 +66,10 @@ use window:
 ```
 
 No file authority exists between final inventory and committed closure. Failure
-after step 2 either returns to `active` only when the provider proves no closure
-occurred, or quarantines the lifecycle. Ambiguous authority state never reopens.
+after step 2 returns to `materializing` only when the registry proves both no
+closure commit and no in-flight dispatch while the provider independently
+proves root continuity and a stable postcondition. Otherwise the root is
+quarantined. Ambiguous authority state never reopens.
 
 ## 2. Target Surface
 

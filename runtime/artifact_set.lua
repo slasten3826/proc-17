@@ -1,6 +1,7 @@
 local digest = require("core.digest")
 local json = require("core.json")
 local repository_intent = require("runtime.repository_intent")
+local repository_formation = require("runtime.repository_formation")
 local work_completion = require("runtime.work_completion")
 
 local artifact_set = {
@@ -19,8 +20,13 @@ local contract_keys = {
     packet_id = true,
     lineage_id = true,
     generation = true,
+    process_contract_id = true,
+    context = true,
     stage_id = true,
     repository_id = true,
+    birth_ref = true,
+    formation_event_ref = true,
+    choice_event_ref = true,
     artifacts = true,
     source_refs = true,
     event_truth_status = true,
@@ -30,8 +36,10 @@ local contract_keys = {
 local artifact_keys = {
     work_unit_id = true,
     work_unit_version = true,
+    unit_created_event_ref = true,
     relative_path = true,
     expected_kind = true,
+    provenance_refs = true,
 }
 
 local function copy_value(value, seen)
@@ -127,6 +135,16 @@ local function artifact_less(left, right)
     return left.work_unit_id < right.work_unit_id
 end
 
+local function diagnostic(code, refs)
+    return {
+        kind = "artifact_set_diagnostic",
+        protocol_version = "runtime.artifact_set_diagnostic.v0",
+        code = code,
+        source_refs = sorted_unique(refs),
+        event_truth_status = "runtime_confirmed",
+    }
+end
+
 local function normalize_contract(value, require_identity)
     local keys_ok, keys_err = exact_keys(value, contract_keys, "artifact set contract")
     if not keys_ok then
@@ -135,10 +153,33 @@ local function normalize_contract(value, require_identity)
     if value.protocol_version ~= artifact_set.protocol_version then
         return nil, "unsupported artifact set protocol"
     end
-    for _, name in ipairs({"packet_id", "lineage_id", "stage_id", "repository_id"}) do
+    for _, name in ipairs({
+        "packet_id",
+        "lineage_id",
+        "process_contract_id",
+        "context",
+        "stage_id",
+        "repository_id",
+        "birth_ref",
+        "formation_event_ref",
+    }) do
         local _, value_err = non_empty(value[name], "artifact set " .. name)
         if value_err then
             return nil, value_err
+        end
+    end
+    if value.process_contract_id ~= "build.only.v0"
+        and value.process_contract_id ~= "software.create.v0" then
+        return nil, "artifact set process contract is not build-compatible"
+    end
+    if value.context ~= "software_task.v0" then
+        return nil, "artifact set context is unsupported"
+    end
+    if value.choice_event_ref ~= nil then
+        local _, choice_err = non_empty(value.choice_event_ref,
+            "artifact set choice_event_ref")
+        if choice_err then
+            return nil, choice_err
         end
     end
     local _, generation_err = positive_integer(value.generation, "artifact set generation")
@@ -202,6 +243,21 @@ local function normalize_contract(value, require_identity)
         if input.expected_kind ~= "regular_file" then
             return nil, "artifact expected_kind must be regular_file"
         end
+        local _, created_err = non_empty(input.unit_created_event_ref,
+            "artifact unit_created_event_ref")
+        if created_err then
+            return nil, created_err
+        end
+        local provenance_refs, provenance_err = strict_refs(
+            input.provenance_refs,
+            "artifact provenance_refs"
+        )
+        if not provenance_refs then
+            return nil, provenance_err
+        end
+        if #provenance_refs == 0 then
+            return nil, "artifact provenance_refs cannot be empty"
+        end
         if seen_ids[input.work_unit_id] then
             return nil, "duplicate artifact work identity"
         end
@@ -213,8 +269,10 @@ local function normalize_contract(value, require_identity)
         artifacts[index] = {
             work_unit_id = input.work_unit_id,
             work_unit_version = input.work_unit_version,
+            unit_created_event_ref = input.unit_created_event_ref,
             relative_path = path,
             expected_kind = "regular_file",
+            provenance_refs = provenance_refs,
         }
     end
     for key in pairs(value.artifacts) do
@@ -234,8 +292,13 @@ local function normalize_contract(value, require_identity)
         packet_id = value.packet_id,
         lineage_id = value.lineage_id,
         generation = value.generation,
+        process_contract_id = value.process_contract_id,
+        context = value.context,
         stage_id = value.stage_id,
         repository_id = value.repository_id,
+        birth_ref = value.birth_ref,
+        formation_event_ref = value.formation_event_ref,
+        choice_event_ref = value.choice_event_ref,
         artifacts = artifacts,
         source_refs = refs,
         event_truth_status = "runtime_confirmed",
@@ -250,6 +313,131 @@ local function normalize_contract(value, require_identity)
         return nil, "artifact set identity mismatch"
     end
     return normalized
+end
+
+local function birth_contract(instance)
+    if type(instance) ~= "table" or type(instance.id) ~= "string"
+        or type(instance.trace) ~= "table" then
+        return nil, "artifact set derivation requires Packet"
+    end
+    if instance.status == "dead" or instance.status == "manifested" then
+        return nil, "artifact set derivation requires living Packet"
+    end
+    local event = instance.trace[1]
+    local payload = event and event.payload or nil
+    if not event or event.type ~= "birth" or event.operator ~= "▽"
+        or event.truth_status ~= "runtime_confirmed"
+        or type(payload) ~= "table"
+        or payload.packet_id ~= instance.id
+        or payload.lineage_id ~= instance.lineage_id
+        or payload.generation ~= instance.generation
+        or payload.work_mode ~= "build"
+        or payload.process_contract_id ~= instance.process_contract_id
+        or payload.context ~= instance.work_context
+        or payload.stage_id ~= instance.stage_id
+        or payload.repository_id ~= instance.repository_id then
+        return nil, "Packet birth/work contract invariant failed"
+    end
+    if instance.regime and instance.regime.work
+        and instance.regime.work.mode ~= "build" then
+        return nil, "artifact set is available only in build mode"
+    end
+    if instance.process_contract_id ~= "build.only.v0"
+        and instance.process_contract_id ~= "software.create.v0" then
+        return nil, "Packet process contract is not build-compatible"
+    end
+    if instance.work_context ~= "software_task.v0" then
+        return nil, "Packet work context is unsupported"
+    end
+    if type(instance.stage_id) ~= "string" or instance.stage_id == "" then
+        return nil, "Packet stage identity is absent"
+    end
+    if type(instance.repository_id) ~= "string" or instance.repository_id == "" then
+        return nil, diagnostic("repository_identity_absent", {event.id})
+    end
+    return {
+        event_ref = event.id,
+        process_contract_id = instance.process_contract_id,
+        context = instance.work_context,
+        stage_id = instance.stage_id,
+        repository_id = instance.repository_id,
+    }
+end
+
+function artifact_set.derive(instance)
+    local birth, birth_err = birth_contract(instance)
+    if not birth then
+        return nil, birth_err
+    end
+    local formation, formation_err = repository_formation.current_set(instance, {
+        max_units = artifact_set.bounds.max_artifacts,
+    })
+    if not formation then
+        return nil, formation_err
+    end
+
+    local artifacts = {}
+    local source_refs = {birth.event_ref, formation.formation_event_ref}
+    if formation.choice_event_ref then
+        source_refs[#source_refs + 1] = formation.choice_event_ref
+    end
+    for _, ref in ipairs(formation.source_refs or {}) do
+        source_refs[#source_refs + 1] = ref
+    end
+    for _, basis in ipairs(formation.units) do
+        local unit = instance.field.units[basis.unit_id]
+        if type(unit) ~= "table" or unit.version ~= basis.unit_version
+            or type(unit.carrier) ~= "table"
+            or unit.carrier.kind ~= "repository.create_text_file.v0"
+            or type(unit.carrier.value) ~= "table" then
+            return nil, "repository artifact carrier invariant failed"
+        end
+        local path, path_err = repository_intent.validate_relative_path(
+            unit.carrier.value.path
+        )
+        if not path then
+            return nil, path_err
+        end
+        artifacts[#artifacts + 1] = {
+            work_unit_id = unit.id,
+            work_unit_version = unit.version,
+            unit_created_event_ref = basis.unit_created_event_ref,
+            relative_path = path,
+            expected_kind = "regular_file",
+            provenance_refs = copy_value(basis.provenance_refs),
+        }
+        source_refs[#source_refs + 1] = basis.unit_created_event_ref
+        for _, ref in ipairs(basis.provenance_refs) do
+            source_refs[#source_refs + 1] = ref
+        end
+    end
+
+    local contract, contract_err = normalize_contract({
+        protocol_version = artifact_set.protocol_version,
+        artifact_set_id = nil,
+        packet_id = instance.id,
+        lineage_id = instance.lineage_id,
+        generation = instance.generation,
+        process_contract_id = birth.process_contract_id,
+        context = birth.context,
+        stage_id = birth.stage_id,
+        repository_id = birth.repository_id,
+        birth_ref = birth.event_ref,
+        formation_event_ref = formation.formation_event_ref,
+        choice_event_ref = formation.choice_event_ref,
+        artifacts = artifacts,
+        source_refs = sorted_unique(source_refs),
+        event_truth_status = "runtime_confirmed",
+        content_truth_status = formation.content_truth_status,
+    }, false)
+    if not contract then
+        return nil, "derived artifact set failed normalization: " .. tostring(contract_err)
+    end
+    local validated, validated_err = artifact_set.validate(contract)
+    if not validated then
+        return nil, "derived artifact set failed validation: " .. tostring(validated_err)
+    end
+    return copy_value(validated)
 end
 
 function artifact_set.identify(value)
@@ -320,6 +508,48 @@ local function inspection_identity(value)
     return "artifact-set-inspection:" .. identity
 end
 
+local function trace_event(instance, event_id)
+    for _, event in ipairs(instance and instance.trace or {}) do
+        if event.id == event_id then
+            return event
+        end
+    end
+    return nil
+end
+
+local function verify_named_contract_evidence(instance, normalized)
+    local birth = trace_event(instance, normalized.birth_ref)
+    local birth_payload = birth and birth.payload or nil
+    if not birth or birth.type ~= "birth" or birth.operator ~= "▽"
+        or birth.truth_status ~= "runtime_confirmed"
+        or type(birth_payload) ~= "table"
+        or birth_payload.packet_id ~= normalized.packet_id
+        or birth_payload.lineage_id ~= normalized.lineage_id
+        or birth_payload.generation ~= normalized.generation
+        or birth_payload.process_contract_id ~= normalized.process_contract_id
+        or birth_payload.context ~= normalized.context
+        or birth_payload.stage_id ~= normalized.stage_id
+        or birth_payload.repository_id ~= normalized.repository_id then
+        return nil, "artifact set birth ref is stale or mismatched"
+    end
+    local formation = trace_event(instance, normalized.formation_event_ref)
+    if not formation or formation.type ~= "structure_formation"
+        or formation.operator ~= "☵"
+        or formation.truth_status ~= "runtime_confirmed" then
+        return nil, "artifact set formation ref is stale or mismatched"
+    end
+    if normalized.choice_event_ref ~= nil then
+        local choice = trace_event(instance, normalized.choice_event_ref)
+        if not choice or choice.type ~= "choice" or choice.operator ~= "☳"
+            or choice.truth_status ~= "runtime_confirmed"
+            or type(choice.payload) ~= "table"
+            or choice.payload.choice_set_ref ~= normalized.formation_event_ref then
+            return nil, "artifact set choice ref is stale or mismatched"
+        end
+    end
+    return true
+end
+
 function artifact_set.inspect(instance, contract)
     local normalized, contract_err = artifact_set.validate(contract)
     if not normalized then
@@ -331,9 +561,15 @@ function artifact_set.inspect(instance, contract)
     if normalized.packet_id ~= instance.id
         or normalized.lineage_id ~= instance.lineage_id
         or normalized.generation ~= instance.generation
+        or normalized.process_contract_id ~= instance.process_contract_id
+        or normalized.context ~= instance.work_context
         or normalized.stage_id ~= instance.stage_id
         or normalized.repository_id ~= instance.repository_id then
         return nil, "artifact set identity is foreign to Packet"
+    end
+    local evidence_ok, evidence_err = verify_named_contract_evidence(instance, normalized)
+    if not evidence_ok then
+        return nil, evidence_err
     end
 
     local current_units, units_err = current_repository_units(instance)
@@ -372,28 +608,52 @@ function artifact_set.inspect(instance, contract)
             }
             if unit.version ~= declared.work_unit_version then
                 state = "stale"
+            elseif unit.created_event_id ~= declared.unit_created_event_ref then
+                state = "conflict"
+                conflicting_refs[#conflicting_refs + 1] = unit.created_event_id
+                    or ("field-unit:" .. unit.id)
             elseif type(unit.carrier.value) ~= "table"
                 or unit.carrier.value.path ~= declared.relative_path then
                 state = "conflict"
                 conflicting_refs[#conflicting_refs + 1] = unit.created_event_id
                     or ("field-unit:" .. unit.id)
             else
-                local complete, completion_event = work_completion.is_complete(
+                local basis, basis_err = repository_formation.for_unit(
                     instance,
-                    declared.work_unit_id,
-                    declared.work_unit_version
+                    unit.id,
+                    unit.version
                 )
-                if complete then
-                    state = "complete"
-                    completion_ref = completion_event.id
-                    verification_ref = completion_event.payload.verification_ref
-                    completion_refs[#completion_refs + 1] = completion_ref
-                    verification_refs[#verification_refs + 1] = verification_ref
-                    source_refs[#source_refs + 1] = completion_ref
-                    source_refs[#source_refs + 1] = verification_ref
-                    done_count = done_count + 1
+                if not basis then
+                    state = "conflict"
+                    if type(basis_err) == "table" then
+                        for _, ref in ipairs(basis_err.source_refs or {}) do
+                            conflicting_refs[#conflicting_refs + 1] = ref
+                        end
+                    end
+                elseif basis.formation_event_ref ~= normalized.formation_event_ref
+                    or basis.choice_event_ref ~= normalized.choice_event_ref
+                    or json.encode(basis.provenance_refs)
+                        ~= json.encode(declared.provenance_refs) then
+                    state = "conflict"
+                    conflicting_refs[#conflicting_refs + 1] = basis.formation_event_ref
                 else
-                    state = "incomplete"
+                    local complete, completion_event = work_completion.is_complete(
+                        instance,
+                        declared.work_unit_id,
+                        declared.work_unit_version
+                    )
+                    if complete then
+                        state = "complete"
+                        completion_ref = completion_event.id
+                        verification_ref = completion_event.payload.verification_ref
+                        completion_refs[#completion_refs + 1] = completion_ref
+                        verification_refs[#verification_refs + 1] = verification_ref
+                        source_refs[#source_refs + 1] = completion_ref
+                        source_refs[#source_refs + 1] = verification_ref
+                        done_count = done_count + 1
+                    else
+                        state = "incomplete"
+                    end
                 end
             end
         end

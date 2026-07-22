@@ -11,6 +11,9 @@ implementation authority: one absent regular text file in one granted repository
 router authority change: forbidden
 arbitrary shell: forbidden
 overwrite/delete/mkdir/rename/patch: forbidden
+amended 2026-07-22: root authority, sticky first-use generation claim and
+  provider in-flight truth are owned by repository_candidate_lifecycle.v0.md;
+  old cross-generation G5 applies only while a root remains unclaimed
 ```
 
 ## 0. Crystallized Claim
@@ -235,14 +238,25 @@ operation
 active grant revision
 ```
 
-Generation is bound into each action, but the session grant is re-resolved for
-every generation. No private authority crosses corpse or carrier.
+Generation is bound into each action. Before the first effect, an unclaimed
+root may be provisionally resolved for a generation. The first `begin_effect`
+atomically claims that root for the acting lineage/generation/repository; every
+later resolve must name that exact owner. Packet death, clean provider failure,
+revocation and grant replacement do not release the claim. No private authority
+crosses corpse or carrier, and a descendant requires a fresh root.
 
 When `repository_hands.enabled` is absent or false, repository readers do not
 run and create no diagnostics, trace events or route candidates. This is the
 hand-disabled ablation law.
 
 ## 5. Capability Registry Contract
+
+2026-07-22 amendment: this section remains authoritative for the original
+grant/effect surface. Its root ownership, generation resolution, lifecycle and
+in-flight details are superseded and extended by
+`repository_candidate_lifecycle.v0.md`. `effect_counts` records consumed
+authority; it is not root-ownership truth and it does not prove a provider call
+is currently in flight.
 
 Module API:
 
@@ -342,14 +356,15 @@ A caller may carry a `semantic_grant_id` claim for diagnostics. Resolution
 ignores its value completely: only private registry state can create a match.
 Knowing or forging a grant name therefore changes no authority decision.
 
-`begin_effect` re-resolves the action, atomically checks and consumes one
-`max_effects_per_generation` dispatch slot, and returns an opaque transaction
+`begin_effect` re-resolves the action and, on the root's first effect,
+atomically creates the sticky generation claim while consuming one
+`max_effects_per_generation` action slot. It then returns an opaque transaction
 lease containing the private provider handle. The lease permits exactly one
 create call and one read-back of the same action target; it cannot widen the
-path or be reused. It runs after the attempt event and immediately before
-provider invocation. A consumed dispatch slot is never refunded, including
-when the provider fails before opening a temporary file. The count is private
-authority state; its named reader is the next `begin_effect` check.
+path or be reused. Provider entry/exit is tracked separately in the root's
+private in-flight map. A consumed action slot is never refunded, including when
+the provider fails before opening a temporary file; a failed first effect also
+never releases the root claim.
 
 ## 6. Native Provider API
 
@@ -1137,7 +1152,8 @@ until the corresponding implementation is green:
 
 ```text
 tests/test_repository_capability.lua
-  G0-G12, private/public aliasing, generation re-resolution
+  G0-G12, private/public aliasing, pre-claim generation resolution and
+  post-claim descendant denial
 
 tests/test_repository_intent.lua
   P1-P8, A0-A10, strict field/formation identity

@@ -37,6 +37,7 @@ local capability_keys = {
     repository_id = true,
     provider_id = true,
     root_fingerprint = true,
+    root_authority_id = true,
     policy_digest = true,
 }
 
@@ -393,6 +394,7 @@ function repository_action.validate(instance, action)
         "repository_id",
         "provider_id",
         "root_fingerprint",
+        "root_authority_id",
         "policy_digest",
     }) do
         local _, value_err = non_empty(action.capability[name], "capability " .. name)
@@ -554,6 +556,7 @@ function repository_action.authorize(instance, intent, registry, context)
             repository_id = match.repository_id,
             provider_id = match.provider_id,
             root_fingerprint = match.root_fingerprint,
+            root_authority_id = match.root_authority_id,
             policy_digest = match.policy_digest,
         },
         operation = intent.operation,
@@ -607,6 +610,7 @@ function repository_action.materialize(instance, action, registry)
         or match.revision ~= action.capability.revision
         or match.provider_id ~= action.capability.provider_id
         or match.root_fingerprint ~= action.capability.root_fingerprint
+        or match.root_authority_id ~= action.capability.root_authority_id
         or match.policy_digest ~= action.capability.policy_digest then
         return nil, "repository action grant revision or identity mismatch"
     end

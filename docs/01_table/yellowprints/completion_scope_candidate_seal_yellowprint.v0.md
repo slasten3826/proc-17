@@ -15,6 +15,10 @@ amended 2026-07-21: F1 generation key, F2 seal order, F3 context identity,
   terminal manifest projection
 audit source: docs/00_chaos/fable_preimplementation_crystall_audit_raw_2026-07-21.md
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
+amended 2026-07-22: step 8.4 detailed declaration, root-lifecycle and seal
+  transaction physics moved into three specialized TABLE contracts; this file
+  retains completion-scope, QA and root-composition authority
+specialized TABLE gate: cross-table audit required before CRYSTALL amendment
 ```
 
 Date:
@@ -35,6 +39,9 @@ stage_transition_generation_recovery_yellowprint.v0.md
 documentation_profiles_economy_yellowprint.v0.md
 documentation_layer_snapshots_truth_yellowprint.v0.md
 documentation_corpus_assembly_reentry_yellowprint.v0.md
+artifact_set_derivation_yellowprint.v0.md
+repository_candidate_lifecycle_yellowprint.v0.md
+candidate_seal_transaction_yellowprint.v0.md
 ```
 
 Current lower-level authority:
@@ -137,7 +144,7 @@ while the build stage and root task remain unfinished.
 | Fact | Writer | Truth source | Named readers |
 |---|---|---|---|
 | work-item completion | ☱ body event | exact effect/verification/validation chain | body progress, artifact-set inspector |
-| artifact-set declaration | stage/root process contract + field formation | contract status preserved | artifact-set inspector, seal planner |
+| artifact-set declaration | pure body derivation over birth + one exact current formation/choice | contract status preserved | artifact-set inspector, seal planner |
 | artifact-set completion | pure scope inspector | body-owned work completions | seal readiness, layer inspector |
 | capability closure | trusted repository registry/provider | runtime effect | seal verifier, QA grant resolver |
 | candidate seal | dedicated body writer after trusted closure receipt | runtime-confirmed act | QA, completion, lineage, corpus |
@@ -275,6 +282,15 @@ subject.
 
 ## 5. Declared Artifact Set
 
+Step 8.4 amendment:
+
+```text
+artifact_set_derivation_yellowprint.v0.md owns the normative derivation gate,
+formation/choice provenance and target schema amendments. The abbreviated
+shape below remains the completion-scope view and must not be used to authorize
+a caller-supplied member list.
+```
+
 An artifact set is not "whatever files happen to exist when budget ends".
 
 The current generation needs one bounded declaration:
@@ -320,6 +336,10 @@ no stale work-unit version can satisfy the set
 ```
 
 ## 6. Candidate Materialization State
+
+`repository_candidate_lifecycle_yellowprint.v0.md` owns root claim, lifecycle
+birth, pre-claim G5 compatibility and terminal root-lock mechanics. The state
+names below are completion-facing projections, not a second mutable lifecycle.
 
 | State | Allowed source-tree authority | Exit condition |
 |---|---|---|
@@ -412,7 +432,9 @@ Rules:
 
 ```text
 seal request failure before seal_pending -> typed no-effect failure; lifecycle remains active
-failure after seal_pending -> active only with exact provider no-effect proof, otherwise quarantine
+failure after seal_pending -> active only when registry proves no commit/no
+  in-flight dispatch and provider independently proves root continuity;
+  otherwise quarantine
 closure succeeds but receipt is malformed -> loud harness/world invariant failure; never reopen ambiguously
 closure receipt accepted but body cannot append trusted evidence -> loud runtime failure; sealed remains sealed
 repeat exact seal -> idempotent observation of same seal, never a new authority transition
@@ -422,6 +444,11 @@ seal with changed root/artifact -> rejected
 No source-write authority exists between the final inventory and committed
 closure. This ordering supersedes the pre-crystall inventory-first sketch and
 matches `docs/02_crystall/blueprints/candidate_seal.v0.md` §1.
+
+The normative transaction schemas, exact-tree inventory, idempotence and
+failure matrix now live in
+`candidate_seal_transaction_yellowprint.v0.md`. The existing CRYSTALL remains
+unchanged until the specialized TABLE cross-audit is accepted.
 
 The inventory must be bounded and must reject symlinks, special files, path
 escapes and undeclared source artifacts. Fresh-root allocation plus create-only

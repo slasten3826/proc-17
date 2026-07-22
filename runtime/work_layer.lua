@@ -208,6 +208,14 @@ end
 
 local function derive_build(scope, value)
     local set_state = scope.artifact_set.state
+    if scope.candidate.state == "sealed" then
+        value.glyph = "⊞"
+        value.state = "checking"
+        value.reason = "candidate_sealed_qa_missing"
+        value.missing_requirements[#value.missing_requirements + 1] =
+            "qa_verdict_for:" .. scope.candidate.candidate_seal_id
+        return true
+    end
     if set_state == "complete" then
         value.glyph = "⋯"
         value.state = "forming"

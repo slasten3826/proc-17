@@ -7,6 +7,9 @@ crystall
 date: 2026-07-20
 source table: docs/01_table/yellowprints/nested_work_layer_derivation_yellowprint.v0.md
 depends on: docs/02_crystall/blueprints/completion_scope.v0.md
+seal dependencies:
+  docs/02_crystall/blueprints/artifact_set_derivation.v0.md
+  docs/02_crystall/blueprints/candidate_seal_transaction.v0.md
 implementation authority: pure projection and massless shadow observer
 pressure authority: forbidden
 manifest authority: forbidden
@@ -16,6 +19,8 @@ F4 amendment: build ◈ assembles a final rejected verdict; build ▲ requires t
   verdict and no standalone failure crystal
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
 2026-07-21 cross-table documentary gate: satisfied
+amended 2026-07-22: artifact-set and candidate-seal reasons consume the new
+  derived set and dedicated immutable seal event; they remain pure projections
 ```
 
 ## 0. Crystallized Claim
@@ -65,6 +70,8 @@ runtime/plan_completion.lua
 runtime/structure_inspection.lua
 runtime/object_coverage.lua
 runtime/repository_result.lua
+runtime/artifact_set.lua
+runtime/candidate_seal.lua
 core/digest.lua
 core/json.lua
 ```

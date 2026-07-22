@@ -1,4 +1,5 @@
 local digest = require("core.digest")
+local repository_formation = require("runtime.repository_formation")
 
 local repository_intent = {
     protocol_version = "repository.action_intent.v0",
@@ -180,38 +181,6 @@ local function coverage_ref(unit)
     }, ":")
 end
 
-local function formation_for(instance, unit)
-    local matches = {}
-    for _, event in ipairs(instance.trace or {}) do
-        local payload = event.payload
-        if event.type == "structure_formation"
-            and event.packet_id == instance.id
-            and event.generation == instance.generation
-            and type(payload) == "table"
-            and payload.protocol_version == "field.structure_formation.v0"
-            and type(payload.formed_unit_ids) == "table"
-            and type(payload.formed_unit_versions) == "table" then
-            local formed_version = payload.formed_unit_versions[unit.id]
-            local names_unit = false
-            for _, formed_id in ipairs(payload.formed_unit_ids) do
-                if formed_id == unit.id then
-                    names_unit = true
-                    break
-                end
-            end
-            if names_unit and type(formed_version) == "number" and formed_version >= 1
-                and formed_version == math.floor(formed_version)
-                and formed_version <= unit.version then
-                matches[#matches + 1] = event
-            end
-        end
-    end
-    if #matches ~= 1 then
-        return nil, "repository field unit must have one exact structure formation"
-    end
-    return matches[1]
-end
-
 local function current_unit(instance, id)
     if type(instance) ~= "table" or type(instance.field) ~= "table"
         or type(instance.field.units) ~= "table" then
@@ -305,8 +274,12 @@ local function identity_projection(intent)
 end
 
 local function build(instance, unit)
-    local formation, formation_err = formation_for(instance, unit)
-    if not formation then
+    local formation_basis, formation_err = repository_formation.for_unit(
+        instance,
+        unit.id,
+        unit.version
+    )
+    if not formation_basis then
         return nil, formation_err
     end
     local material, material_err = material_for(unit)
@@ -315,7 +288,7 @@ local function build(instance, unit)
     end
     local scope_refs = {coverage_ref(unit)}
     local provenance_refs = unique_refs({
-        formation.id,
+        formation_basis.formation_event_ref,
         unit.created_event_id,
         table.unpack(unit.source_refs or {}),
     })
@@ -329,7 +302,7 @@ local function build(instance, unit)
         operation = "create_text_file",
         source_unit_id = unit.id,
         source_unit_version = unit.version,
-        source_formation_event_ref = formation.id,
+        source_formation_event_ref = formation_basis.formation_event_ref,
         relative_path = material.relative_path,
         content_ref = {
             unit_id = unit.id,

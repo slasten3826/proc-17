@@ -36,6 +36,8 @@
 #define PROC17_MAX_COMPONENTS 64U
 #define PROC17_MAX_CONTENT_BYTES 1048576U
 #define PROC17_MAX_READ_BYTES (PROC17_MAX_CONTENT_BYTES + 1U)
+#define PROC17_MAX_INVENTORY_ENTRIES 4096U
+#define PROC17_MAX_INVENTORY_TOTAL_BYTES 67108864U
 #define PROC17_FILE_MODE 0600
 #define PROC17_TEMP_PREFIX ".proc17-tmp-"
 #define PROC17_RANDOM_BYTES 16U
@@ -94,6 +96,40 @@ struct proc17_read_result {
     size_t bytes;
     lua_Integer time_ms;
     struct proc17_identity root_identity;
+};
+
+enum proc17_inventory_kind {
+    PROC17_INVENTORY_DIRECTORY = 0,
+    PROC17_INVENTORY_REGULAR,
+    PROC17_INVENTORY_SYMLINK,
+    PROC17_INVENTORY_SPECIAL,
+};
+
+struct proc17_inventory_bounds {
+    size_t max_entries;
+    size_t max_depth;
+    size_t max_path_bytes;
+    size_t max_component_bytes;
+    size_t max_file_bytes;
+    size_t max_total_bytes;
+};
+
+struct proc17_inventory_entry {
+    char *relative_path;
+    enum proc17_inventory_kind kind;
+    struct stat identity_before;
+    struct stat identity_after;
+    char *content;
+    size_t bytes;
+};
+
+struct proc17_inventory_snapshot {
+    struct proc17_inventory_entry *entries;
+    size_t count;
+    size_t capacity;
+    size_t total_bytes;
+    int bound_exceeded;
+    int unstable;
 };
 
 static const char *handle_project_base(
@@ -1250,6 +1286,370 @@ static int same_file_version(const struct stat *left, const struct stat *right)
         && same_timespec(&left->st_ctim, &right->st_ctim);
 }
 
+static void free_inventory_snapshot(struct proc17_inventory_snapshot *snapshot)
+{
+    size_t index;
+
+    if (snapshot == NULL) {
+        return;
+    }
+    for (index = 0; index < snapshot->count; index++) {
+        free(snapshot->entries[index].relative_path);
+        free(snapshot->entries[index].content);
+    }
+    free(snapshot->entries);
+    memset(snapshot, 0, sizeof(*snapshot));
+}
+
+static int inventory_entry_compare(const void *left_value, const void *right_value)
+{
+    const struct proc17_inventory_entry *left =
+        (const struct proc17_inventory_entry *)left_value;
+    const struct proc17_inventory_entry *right =
+        (const struct proc17_inventory_entry *)right_value;
+
+    return strcmp(left->relative_path, right->relative_path);
+}
+
+static int reserve_inventory_entry(
+    struct proc17_inventory_snapshot *snapshot,
+    const struct proc17_inventory_bounds *bounds)
+{
+    size_t capacity;
+    struct proc17_inventory_entry *grown;
+
+    if (snapshot->count >= bounds->max_entries) {
+        snapshot->bound_exceeded = 1;
+        return 1;
+    }
+    if (snapshot->count < snapshot->capacity) {
+        return 0;
+    }
+    capacity = snapshot->capacity == 0 ? 16U : snapshot->capacity * 2U;
+    if (capacity > bounds->max_entries) {
+        capacity = bounds->max_entries;
+    }
+    if (capacity <= snapshot->capacity
+        || capacity > SIZE_MAX / sizeof(*snapshot->entries)) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    grown = (struct proc17_inventory_entry *)realloc(snapshot->entries,
+        capacity * sizeof(*snapshot->entries));
+    if (grown == NULL) {
+        return -1;
+    }
+    memset(grown + snapshot->capacity, 0,
+        (capacity - snapshot->capacity) * sizeof(*snapshot->entries));
+    snapshot->entries = grown;
+    snapshot->capacity = capacity;
+    return 0;
+}
+
+static enum proc17_inventory_kind inventory_kind(mode_t mode)
+{
+    if (S_ISDIR(mode)) {
+        return PROC17_INVENTORY_DIRECTORY;
+    }
+    if (S_ISREG(mode)) {
+        return PROC17_INVENTORY_REGULAR;
+    }
+    if (S_ISLNK(mode)) {
+        return PROC17_INVENTORY_SYMLINK;
+    }
+    return PROC17_INVENTORY_SPECIAL;
+}
+
+static int read_inventory_file(
+    int directory_fd,
+    const char *name,
+    const struct stat *classified,
+    struct proc17_inventory_entry *entry)
+{
+    struct stat before_status;
+    struct stat after_status;
+    unsigned int retries = 0;
+    size_t offset = 0;
+    char extra;
+    int descriptor;
+
+    descriptor = openat2_with_flags(directory_fd, name,
+        O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC,
+        RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS
+            | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV);
+    if (descriptor < 0) {
+        if (errno == ENOENT || errno == ELOOP || errno == ENOTDIR) {
+            errno = ESTALE;
+            return 1;
+        }
+        return -1;
+    }
+    if (fstat(descriptor, &before_status) != 0) {
+        int saved = errno;
+        close(descriptor);
+        errno = saved;
+        return -1;
+    }
+    if (!S_ISREG(before_status.st_mode)
+        || !same_file_identity(classified, &before_status)) {
+        close(descriptor);
+        errno = ESTALE;
+        return 1;
+    }
+    entry->identity_before = before_status;
+    entry->content = (char *)malloc(entry->bytes == 0 ? 1U : entry->bytes);
+    if (entry->content == NULL) {
+        close(descriptor);
+        return -1;
+    }
+    while (offset < entry->bytes) {
+        ssize_t observed = read(descriptor, entry->content + offset,
+            entry->bytes - offset);
+        if (observed < 0 && errno == EINTR) {
+            retries++;
+            if (retries <= PROC17_MAX_READ_EINTR_RETRIES) {
+                continue;
+            }
+        }
+        if (observed <= 0 || (size_t)observed > entry->bytes - offset) {
+            int saved = observed < 0 ? errno : ESTALE;
+            close(descriptor);
+            errno = saved;
+            return observed < 0 ? -1 : 1;
+        }
+        offset += (size_t)observed;
+    }
+    while (1) {
+        ssize_t observed = read(descriptor, &extra, 1U);
+        if (observed < 0 && errno == EINTR) {
+            retries++;
+            if (retries <= PROC17_MAX_READ_EINTR_RETRIES) {
+                continue;
+            }
+        }
+        if (observed < 0) {
+            int saved = errno;
+            close(descriptor);
+            errno = saved;
+            return -1;
+        }
+        if (observed != 0) {
+            close(descriptor);
+            errno = ESTALE;
+            return 1;
+        }
+        break;
+    }
+    if (fstat(descriptor, &after_status) != 0) {
+        int saved = errno;
+        close(descriptor);
+        errno = saved;
+        return -1;
+    }
+    if (close(descriptor) != 0) {
+        return -1;
+    }
+    if (!same_file_version(&before_status, &after_status)) {
+        errno = ESTALE;
+        return 1;
+    }
+    entry->identity_after = after_status;
+    return 0;
+}
+
+static int collect_inventory_directory(
+    int directory_fd,
+    const char *prefix,
+    size_t depth,
+    const struct proc17_inventory_bounds *bounds,
+    int capture_content,
+    struct proc17_inventory_snapshot *snapshot)
+{
+    int scan_fd = dup(directory_fd);
+    DIR *stream;
+    struct dirent *item = NULL;
+    int result = 0;
+
+    if (scan_fd < 0) {
+        return -1;
+    }
+    stream = fdopendir(scan_fd);
+    if (stream == NULL) {
+        close(scan_fd);
+        return -1;
+    }
+    errno = 0;
+    while (!snapshot->bound_exceeded && !snapshot->unstable
+        && (item = readdir(stream)) != NULL) {
+        size_t name_length;
+        size_t prefix_length;
+        size_t path_length;
+        char *path;
+        struct stat status;
+        struct proc17_inventory_entry *entry;
+        enum proc17_inventory_kind kind;
+        int reserved;
+
+        if (strcmp(item->d_name, ".") == 0
+            || strcmp(item->d_name, "..") == 0) {
+            errno = 0;
+            continue;
+        }
+        name_length = strlen(item->d_name);
+        prefix_length = strlen(prefix);
+        path_length = prefix_length == 0 ? name_length
+            : prefix_length + 1U + name_length;
+        if (name_length == 0 || name_length > bounds->max_component_bytes
+            || path_length > bounds->max_path_bytes
+            || depth + 1U > bounds->max_depth) {
+            snapshot->bound_exceeded = 1;
+            break;
+        }
+        path = (char *)malloc(path_length + 1U);
+        if (path == NULL) {
+            result = -1;
+            break;
+        }
+        if (prefix_length == 0) {
+            memcpy(path, item->d_name, name_length + 1U);
+        } else {
+            memcpy(path, prefix, prefix_length);
+            path[prefix_length] = '/';
+            memcpy(path + prefix_length + 1U, item->d_name, name_length + 1U);
+        }
+        if (fstatat(directory_fd, item->d_name, &status,
+                AT_SYMLINK_NOFOLLOW) != 0) {
+            int saved = errno;
+            free(path);
+            if (saved == ENOENT) {
+                snapshot->unstable = 1;
+                errno = ESTALE;
+                break;
+            }
+            errno = saved;
+            result = -1;
+            break;
+        }
+        kind = inventory_kind(status.st_mode);
+        if (kind == PROC17_INVENTORY_REGULAR) {
+            if (status.st_size < 0
+                || (uintmax_t)status.st_size > (uintmax_t)bounds->max_file_bytes
+                || (uintmax_t)status.st_size
+                    > (uintmax_t)(bounds->max_total_bytes - snapshot->total_bytes)) {
+                free(path);
+                snapshot->bound_exceeded = 1;
+                break;
+            }
+        }
+        reserved = reserve_inventory_entry(snapshot, bounds);
+        if (reserved != 0) {
+            free(path);
+            if (reserved < 0) {
+                result = -1;
+            }
+            break;
+        }
+        entry = &snapshot->entries[snapshot->count++];
+        entry->relative_path = path;
+        entry->kind = kind;
+        entry->identity_before = status;
+        entry->identity_after = status;
+        if (kind == PROC17_INVENTORY_REGULAR) {
+            entry->bytes = (size_t)status.st_size;
+            snapshot->total_bytes += entry->bytes;
+            if (capture_content) {
+                int read_result = read_inventory_file(directory_fd,
+                    item->d_name, &status, entry);
+                if (read_result < 0) {
+                    result = -1;
+                    break;
+                }
+                if (read_result > 0) {
+                    snapshot->unstable = 1;
+                    break;
+                }
+            }
+        } else if (kind == PROC17_INVENTORY_DIRECTORY) {
+            int child_fd = openat2_with_flags(directory_fd, item->d_name,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
+                RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS
+                    | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_XDEV);
+            struct stat opened_status;
+            int child_result;
+            int close_result;
+
+            if (child_fd < 0) {
+                if (errno == ENOENT || errno == ELOOP || errno == ENOTDIR) {
+                    snapshot->unstable = 1;
+                    errno = ESTALE;
+                    break;
+                }
+                result = -1;
+                break;
+            }
+            if (fstat(child_fd, &opened_status) != 0
+                || !same_file_identity(&status, &opened_status)) {
+                int saved = errno != 0 ? errno : ESTALE;
+                close(child_fd);
+                snapshot->unstable = 1;
+                errno = saved;
+                break;
+            }
+            entry->identity_after = opened_status;
+            child_result = collect_inventory_directory(child_fd, path,
+                depth + 1U, bounds, capture_content, snapshot);
+            close_result = close(child_fd);
+            if (child_result != 0 || close_result != 0) {
+                result = -1;
+                break;
+            }
+        }
+        errno = 0;
+    }
+    if (item == NULL && errno != 0 && !snapshot->unstable) {
+        result = -1;
+    }
+    {
+        int saved = errno;
+        if (closedir(stream) != 0 && result == 0) {
+            return -1;
+        }
+        errno = saved;
+    }
+    return result;
+}
+
+static void sort_inventory_snapshot(struct proc17_inventory_snapshot *snapshot)
+{
+    qsort(snapshot->entries, snapshot->count, sizeof(*snapshot->entries),
+        inventory_entry_compare);
+}
+
+static int compare_inventory_snapshots(
+    struct proc17_inventory_snapshot *first,
+    const struct proc17_inventory_snapshot *second)
+{
+    size_t index;
+
+    if (first->count != second->count
+        || first->bound_exceeded != second->bound_exceeded
+        || first->total_bytes != second->total_bytes) {
+        return 0;
+    }
+    for (index = 0; index < first->count; index++) {
+        struct proc17_inventory_entry *left = &first->entries[index];
+        const struct proc17_inventory_entry *right = &second->entries[index];
+        if (strcmp(left->relative_path, right->relative_path) != 0
+            || left->kind != right->kind
+            || !same_file_version(&left->identity_after,
+                &right->identity_before)) {
+            return 0;
+        }
+        left->identity_after = right->identity_before;
+    }
+    return 1;
+}
+
 static const char *read_path_error_code(int error_number)
 {
     switch (error_number) {
@@ -1755,6 +2155,19 @@ static void push_identity(lua_State *L, const struct proc17_identity *identity)
     set_integer(L, "inode", (lua_Integer)(uintmax_t)identity->inode);
 }
 
+static int stat_identity_representable(const struct stat *status)
+{
+    return (uintmax_t)status->st_dev <= (uintmax_t)LUA_MAXINTEGER
+        && (uintmax_t)status->st_ino <= (uintmax_t)LUA_MAXINTEGER;
+}
+
+static void push_stat_identity(lua_State *L, const struct stat *status)
+{
+    lua_createtable(L, 0, 2);
+    set_integer(L, "device", (lua_Integer)(uintmax_t)status->st_dev);
+    set_integer(L, "inode", (lua_Integer)(uintmax_t)status->st_ino);
+}
+
 static int close_handle_descriptors(struct proc17_repository_handle *handle)
 {
     int result;
@@ -2017,6 +2430,257 @@ static int read_text_file(lua_State *L)
     lua_setfield(L, -2, "cost");
     free(result.content);
     return 1;
+}
+
+static int inventory_tree(lua_State *L)
+{
+    struct proc17_repository_handle *handle = check_handle(L, 1);
+    struct proc17_inventory_bounds bounds;
+    struct proc17_inventory_snapshot first;
+    struct proc17_inventory_snapshot second;
+    struct proc17_identity project_before;
+    struct proc17_identity root_before;
+    struct proc17_identity project_after;
+    struct proc17_identity root_after;
+    const char *open_stage = NULL;
+    const char *failure_stage = "inventory_tree";
+    const char *failure_code = "io_failure";
+    uint64_t started = monotonic_milliseconds();
+    int project_fd = -1;
+    int repository_fd = -1;
+    int scan_fd = -1;
+    int after_project_fd = -1;
+    int after_repository_fd = -1;
+    int saved_error = 0;
+    int stable = 1;
+    size_t index;
+
+    memset(&first, 0, sizeof(first));
+    memset(&second, 0, sizeof(second));
+    if (handle->closed) {
+        return push_error(L, "contract", "handle_closed",
+            "inventory_handle", 0, 0);
+    }
+    if (lua_gettop(L) != 7) {
+        return push_error(L, "contract", "invalid_request",
+            "validate_inventory_request", EINVAL, 0);
+    }
+    for (index = 2; index <= 7; index++) {
+        if (!lua_isinteger(L, (int)index) || lua_tointeger(L, (int)index) < 1) {
+            return push_error(L, "contract", "invalid_request",
+                "validate_inventory_request", EINVAL, 0);
+        }
+    }
+    bounds.max_entries = (size_t)lua_tointeger(L, 2);
+    bounds.max_depth = (size_t)lua_tointeger(L, 3);
+    bounds.max_path_bytes = (size_t)lua_tointeger(L, 4);
+    bounds.max_component_bytes = (size_t)lua_tointeger(L, 5);
+    bounds.max_file_bytes = (size_t)lua_tointeger(L, 6);
+    bounds.max_total_bytes = (size_t)lua_tointeger(L, 7);
+    if (bounds.max_entries > PROC17_MAX_INVENTORY_ENTRIES
+        || bounds.max_depth > PROC17_MAX_COMPONENTS
+        || bounds.max_path_bytes > PROC17_MAX_RELATIVE_PATH_BYTES
+        || bounds.max_component_bytes > PROC17_MAX_COMPONENT_BYTES
+        || bounds.max_file_bytes > PROC17_MAX_CONTENT_BYTES
+        || bounds.max_total_bytes > PROC17_MAX_INVENTORY_TOTAL_BYTES) {
+        return push_error(L, "contract", "invalid_request",
+            "validate_inventory_request", EINVAL, 0);
+    }
+
+    if (open_identity_pair(handle_project_base(handle),
+            handle_repository_path(handle), &project_fd, &repository_fd,
+            &project_before, &root_before, &open_stage) != 0) {
+        saved_error = errno;
+        failure_stage = open_stage;
+        failure_code = (saved_error == ENOSYS || saved_error == EINVAL
+            || saved_error == ENOTSUP) ? "provider_unavailable" : "root_changed";
+        goto fail;
+    }
+    if (!identity_equal(&project_before, &handle->project_base_identity)
+        || !identity_equal(&root_before, &handle->repository_identity)) {
+        saved_error = ESTALE;
+        failure_stage = "compare_root_identity";
+        failure_code = "root_changed";
+        goto fail;
+    }
+    scan_fd = openat(repository_fd, ".",
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (scan_fd < 0) {
+        saved_error = errno;
+        failure_stage = "open_inventory_root";
+        failure_code = (saved_error == EACCES || saved_error == EPERM)
+            ? "permission_denied" : "io_failure";
+        goto fail;
+    }
+    if (collect_inventory_directory(scan_fd, "", 0U, &bounds, 1, &first) != 0) {
+        saved_error = errno != 0 ? errno : EIO;
+        failure_stage = "enumerate_inventory_tree";
+        failure_code = (saved_error == EACCES || saved_error == EPERM)
+            ? "permission_denied" : "io_failure";
+        goto fail;
+    }
+    if (first.unstable) {
+        saved_error = ESTALE;
+        failure_stage = "verify_inventory_stability";
+        failure_code = "inventory_unstable";
+        goto fail;
+    }
+    sort_inventory_snapshot(&first);
+    if (!first.bound_exceeded) {
+        int second_fd = openat(repository_fd, ".",
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (second_fd < 0) {
+            saved_error = errno;
+            failure_stage = "open_inventory_root";
+            failure_code = "io_failure";
+            goto fail;
+        }
+        if (collect_inventory_directory(second_fd, "", 0U,
+                &bounds, 0, &second) != 0) {
+            saved_error = errno != 0 ? errno : EIO;
+            close(second_fd);
+            failure_stage = "reobserve_inventory_tree";
+            failure_code = "io_failure";
+            goto fail;
+        }
+        if (close(second_fd) != 0) {
+            saved_error = errno;
+            failure_stage = "close_inventory_descriptors";
+            failure_code = "io_failure";
+            goto fail;
+        }
+        sort_inventory_snapshot(&second);
+        if (second.unstable || !compare_inventory_snapshots(&first, &second)) {
+            stable = 0;
+        }
+    }
+    if (close(scan_fd) != 0) {
+        saved_error = errno;
+        scan_fd = -1;
+        failure_stage = "close_inventory_descriptors";
+        failure_code = "io_failure";
+        goto fail;
+    }
+    scan_fd = -1;
+    {
+        int close_error = close_pair(&project_fd, &repository_fd);
+        if (close_error != 0) {
+            saved_error = close_error;
+            failure_stage = "close_inventory_descriptors";
+            failure_code = "io_failure";
+            goto fail;
+        }
+    }
+    if (open_identity_pair(handle_project_base(handle),
+            handle_repository_path(handle), &after_project_fd,
+            &after_repository_fd, &project_after, &root_after,
+            &open_stage) != 0) {
+        saved_error = errno;
+        failure_stage = "revalidate_inventory_root";
+        failure_code = "root_changed";
+        goto fail;
+    }
+    if (!identity_equal(&project_after, &handle->project_base_identity)
+        || !identity_equal(&root_after, &handle->repository_identity)) {
+        saved_error = ESTALE;
+        failure_stage = "revalidate_inventory_root";
+        failure_code = "root_changed";
+        goto fail;
+    }
+    {
+        int close_error = close_pair(&after_project_fd, &after_repository_fd);
+        if (close_error != 0) {
+            saved_error = close_error;
+            failure_stage = "close_inventory_descriptors";
+            failure_code = "io_failure";
+            goto fail;
+        }
+    }
+
+    lua_createtable(L, 0, 11);
+    set_string(L, "protocol_version", "repository.provider_inventory_result.v0");
+    set_string(L, "operation", "inventory_tree");
+    set_string(L, "outcome", first.bound_exceeded
+        ? "bound_exceeded" : "observed");
+    push_identity(L, &root_before);
+    lua_setfield(L, -2, "root_before");
+    push_identity(L, &root_after);
+    lua_setfield(L, -2, "root_after");
+    set_boolean(L, "stable", stable);
+    lua_createtable(L, (int)first.count, 0);
+    for (index = 0; index < first.count; index++) {
+        const struct proc17_inventory_entry *entry = &first.entries[index];
+        const char *kind;
+
+        if (!stat_identity_representable(&entry->identity_before)
+            || !stat_identity_representable(&entry->identity_after)) {
+            lua_pop(L, 2);
+            saved_error = EOVERFLOW;
+            failure_stage = "project_inventory_identity";
+            failure_code = "identity_unrepresentable";
+            goto fail;
+        }
+        switch (entry->kind) {
+        case PROC17_INVENTORY_DIRECTORY:
+            kind = "directory";
+            break;
+        case PROC17_INVENTORY_REGULAR:
+            kind = "regular_file";
+            break;
+        case PROC17_INVENTORY_SYMLINK:
+            kind = "symlink";
+            break;
+        default:
+            kind = "special";
+            break;
+        }
+        lua_createtable(L, 0, entry->kind == PROC17_INVENTORY_REGULAR ? 7 : 5);
+        set_string(L, "relative_path", entry->relative_path);
+        set_string(L, "kind", kind);
+        push_stat_identity(L, &entry->identity_before);
+        lua_setfield(L, -2, "identity_before");
+        push_stat_identity(L, &entry->identity_after);
+        lua_setfield(L, -2, "identity_after");
+        if (entry->kind == PROC17_INVENTORY_REGULAR) {
+            set_integer(L, "bytes", (lua_Integer)entry->bytes);
+            lua_pushlstring(L, entry->content, entry->bytes);
+            lua_setfield(L, -2, "content");
+        }
+        lua_rawseti(L, -2, (lua_Integer)index + 1);
+    }
+    lua_setfield(L, -2, "entries");
+    lua_createtable(L, 0, 8);
+    set_integer(L, "max_entries", (lua_Integer)bounds.max_entries);
+    set_integer(L, "max_depth", (lua_Integer)bounds.max_depth);
+    set_integer(L, "max_path_bytes", (lua_Integer)bounds.max_path_bytes);
+    set_integer(L, "max_component_bytes",
+        (lua_Integer)bounds.max_component_bytes);
+    set_integer(L, "max_file_bytes", (lua_Integer)bounds.max_file_bytes);
+    set_integer(L, "max_total_bytes", (lua_Integer)bounds.max_total_bytes);
+    set_integer(L, "observed_entries", (lua_Integer)first.count);
+    set_integer(L, "observed_total_bytes", (lua_Integer)first.total_bytes);
+    lua_setfield(L, -2, "bounds_observed");
+    set_boolean(L, "mutation_primitive_entered", 0);
+    set_boolean(L, "published", 0);
+    push_cost(L, 1, 0, elapsed_milliseconds(started));
+    lua_setfield(L, -2, "cost");
+    free_inventory_snapshot(&first);
+    free_inventory_snapshot(&second);
+    return 1;
+
+fail:
+    if (scan_fd >= 0) {
+        close(scan_fd);
+    }
+    (void)close_pair(&project_fd, &repository_fd);
+    (void)close_pair(&after_project_fd, &after_repository_fd);
+    free_inventory_snapshot(&first);
+    free_inventory_snapshot(&second);
+    return push_error(L,
+        strcmp(failure_code, "identity_unrepresentable") == 0
+            ? "contract" : "world",
+        failure_code, failure_stage,
+        saved_error != 0 ? saved_error : EIO, 1);
 }
 
 static int close_repository(lua_State *L)
@@ -2644,6 +3308,8 @@ int luaopen_proc17_repository_fs(lua_State *L)
     lua_setfield(L, -2, "create_text_file");
     lua_pushcfunction(L, read_text_file);
     lua_setfield(L, -2, "read_text_file");
+    lua_pushcfunction(L, inventory_tree);
+    lua_setfield(L, -2, "inventory_tree");
     lua_pushcfunction(L, close_repository);
     lua_setfield(L, -2, "close");
     return 1;

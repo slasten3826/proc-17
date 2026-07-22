@@ -8,7 +8,8 @@ date: 2026-07-20
 source table: docs/01_table/yellowprints/completion_scope_candidate_seal_yellowprint.v0.md
 implementation authority: pure scope readers and shadow observations only
 root manifest authority replacement: forbidden
-candidate sealing authority: separate candidate_seal.v0 crystall
+candidate sealing authority: separate artifact_set_derivation.v0,
+  repository_candidate_lifecycle.v0 and candidate_seal_transaction.v0 crystall
 QA execution authority: deferred
 amended 2026-07-21: F1 generation_state, F3 context identity, F5 stage status
   and F6 canonical ids/boundary vocabulary; F4 removes the standalone failure
@@ -16,6 +17,8 @@ amended 2026-07-21: F1 generation_state, F3 context identity, F5 stage status
 audit source: docs/00_chaos/fable_preimplementation_crystall_audit_raw_2026-07-21.md
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
 2026-07-21 cross-table documentary gate: satisfied
+amended 2026-07-22: artifact-set scope must be re-derived from body formation;
+  candidate-sealed scope reads the dedicated immutable body event
 ```
 
 ## 0. Crystallized Claim
@@ -107,7 +110,8 @@ runtime/plan_completion.lua
 runtime/corpse.lua
 runtime/lineage.lua
 runtime/lineage_budget.lua      negative dependency only: scope must ignore it
-runtime/artifact_set.lua        supplied by candidate_seal.v0
+runtime/artifact_set.lua        supplied by artifact_set_derivation.v0
+runtime/candidate_seal.lua      supplied by candidate_seal_transaction.v0
 core/digest.lua
 core/json.lua
 ```
@@ -210,8 +214,9 @@ The inspector applies this order and stops at the highest exact scope:
 2. bind one exact process contract/context/stage/generation
 3. reject cross-generation and conflicting refs
 4. derive work-item progress from named completion events
-5. derive declared artifact-set completion
-6. verify candidate seal when present
+5. re-derive the authoritative artifact set from current body formation and
+   inspect its exact completion; a caller-supplied assertion cannot advance it
+6. verify the dedicated immutable candidate-seal body event when present
 7. derive local QA state bound to that exact seal
 8. derive one Packet/corpse boundary candidate when supported
 9. for lineage subject only, verify stage assessment
