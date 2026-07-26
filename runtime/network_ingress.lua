@@ -46,6 +46,13 @@ function network_ingress.prepare(lineage, carrier, options)
         or carrier.source_packet_id ~= lineage.current_packet_id then
         return nil, "carrier is not selected by current lineage boundary"
     end
+    local metadata = {
+        work_mode = lineage.work_mode,
+        process_contract_id = carrier.payload.process_contract_id,
+        context = carrier.payload.context,
+        stage_id = carrier.payload.stage_id,
+        qa_contract_id = carrier.payload.qa_contract_id,
+    }
     return {
         kind = "network_packet_ingress",
         protocol_version = network_ingress.protocol_version,
@@ -59,7 +66,11 @@ function network_ingress.prepare(lineage, carrier, options)
             carrier_id = carrier.carrier_id,
             substrate_session_id = carrier.substrate_session_id,
             work_mode = lineage.work_mode,
-            metadata = {work_mode = lineage.work_mode},
+            process_contract_id = carrier.payload.process_contract_id,
+            context = carrier.payload.context,
+            stage_id = carrier.payload.stage_id,
+            qa_contract = copy_value(carrier.payload.qa_contract),
+            metadata = metadata,
         },
         source_refs = {carrier.carrier_id, carrier.source_corpse_id},
         event_truth_status = "runtime_confirmed",

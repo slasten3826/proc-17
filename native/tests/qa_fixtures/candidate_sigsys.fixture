@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-sigsys
+assert(os.execute == nil, "candidate policy surface admits a forbidden syscall path")
+assert(io.popen == nil, "candidate policy surface admits process creation")
+return true

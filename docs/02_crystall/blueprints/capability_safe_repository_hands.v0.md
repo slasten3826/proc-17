@@ -14,6 +14,8 @@ overwrite/delete/mkdir/rename/patch: forbidden
 amended 2026-07-22: root authority, sticky first-use generation claim and
   provider in-flight truth are owned by repository_candidate_lifecycle.v0.md;
   old cross-generation G5 applies only while a root remains unclaimed
+amended 2026-07-23: a terminal sealed root may issue one private read-only QA
+  source lease; it never reopens or aliases source-write authority
 ```
 
 ## 0. Crystallized Claim
@@ -1606,3 +1608,44 @@ read-back, LOGIC acceptance, ☱ completion and △ delivery before freezing a
 No provider or host service is reachable from MANIFEST. No operation, default
 router authority or output width beyond one verified artifact changed. This
 closes roadmap 7.10 and the selected first-hand crystall.
+
+## 29. QA Sealed-Source Bridge Amendment
+
+Source:
+
+```text
+docs/02_crystall/blueprints/qa_execution_capability.v0.md
+docs/02_crystall/blueprints/qa_native_supervisor.v0.md
+```
+
+The second hand does not mint a repository grant and does not add an operation
+to the first hand. The existing private repository registry may reserve one
+opaque read-only source lease only when:
+
+```text
+root lifecycle is terminal sealed
+candidate closure and body seal agree
+session/lineage/generation/repository/root/seal identities all agree
+the lease is bound to one QA transaction
+```
+
+The lease permits only trusted internal revalidation, exact inventory and one
+descriptor handoff to the fixed QA launcher. It cannot call
+`create_text_file`, cannot return a path/fd/userdata publicly and cannot change
+the root lifecycle. Consumption or failure is sticky.
+
+The internal repository userdata gains a versioned shared native prefix so the
+QA launcher can duplicate the already-open exact root descriptor. The public
+repository provider ABI, grant projections and Packet evidence remain
+unchanged.
+
+Permanent controls:
+
+```text
+QA-R01 sealed source lease cannot exist before terminal seal
+QA-R02 source lease cannot resolve a foreign generation/seal/transaction
+QA-R03 source lease exposes no write operation or public root handle
+QA-R04 source lease consumption/failure does not reopen first-hand grants
+QA-R05 QA launcher duplicate matches exact device/inode/mount identity
+QA-R06 first-hand batteries remain byte-for-behavior green after userdata ABI refactor
+```

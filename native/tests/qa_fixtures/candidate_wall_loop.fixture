@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-wall-loop
+while true do
+    pcall(io.read, 0)
+end

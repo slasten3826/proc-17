@@ -11,15 +11,24 @@ depends on:
   docs/02_crystall/blueprints/lineage_completion_continuation_separation.v0.md
   docs/02_crystall/blueprints/completion_scope.v0.md
   docs/02_crystall/blueprints/documentation_profiles_economy.v0.md
+  docs/02_crystall/blueprints/qa_contract_profile.v0.md
+  docs/02_crystall/blueprints/qa_execution_capability.v0.md
+  docs/02_crystall/blueprints/qa_check_verdict.v0.md
 implementation authority: shadow stage projection, then opt-in linear process v1
 default lineage authority change: forbidden until promotion record
-QA implementation: deferred
+QA implementation: owned by the separate QA crystall cluster and gated by its
+  hostile/native evidence
 amended 2026-07-21: F5 removes writerless stage-level rejected state;
   F6 canonical stage identity and applicability vocabulary; F4 recovery carries
   the rejected-generation terminal manifest projection, not a failure crystal
 audit source: docs/00_chaos/fable_preimplementation_crystall_audit_raw_2026-07-21.md
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
 2026-07-21 cross-table documentary gate: satisfied
+amended 2026-07-23: one same-life QA execution writes a ☶ check/failure and a
+  separate symmetric ☱ final verdict; infrastructure failure is not a rejected
+  generation
+QA crystall gate:
+  docs/00_chaos/qa_crystall_cross_audit_2026-07-23.md
 ```
 
 ## 0. Crystallized Claim
@@ -492,12 +501,20 @@ For v0 design, candidate materialization, seal and bounded QA belong to one
 build Packet life:
 
 ```text
-create -> seal -> source writes gone -> read-only QA -> verdict -> △
+create -> seal -> source writes gone -> read-only QA
+  -> ☶ accepted/rejected check
+  -> ☱ accepted/rejected final verdict
+  -> △
 ```
 
-Same-life QA is not same-life acceptance authority. Accepted QA produces
-`software_acceptance_ready`; only the later terminalized corpse and lineage
-assessment produce `software_accepted`.
+Same-life QA is not same-life acceptance authority. A check observation alone
+produces build `◈`. Only the matching final verdict produces a Packet-local
+boundary candidate; only the later terminalized corpse and lineage assessment
+produce `software_accepted` or authorize rejected-generation recovery.
+
+A typed QA infrastructure failure writes no candidate check or verdict. It
+enters the existing `effect_failure` mortality path. V0 does not retry or resume
+QA against that sealed root.
 
 If a sealed Packet dies before QA verdict, v0 recovery builds a fresh candidate
 in a fresh repository. It does not resume QA against the ancestor root.
@@ -609,6 +626,7 @@ own `grave_pressure` status instead of changing the envelope token.
 | corpse already continued | lineage invariant | second child denied |
 | malformed trusted Lua/provider record | world invariant | loud runner failure |
 | QA rejects current candidate | generation task evidence | rejected generation recorded; QA alone does not change grave kind |
+| QA infrastructure execution failure | external world effect | Packet effect_failure death; no accepted/rejected generation verdict |
 
 `qa_rejected` is a generation outcome, not a stage status. In v0 the stage
 remains active while recovery is committed or becomes suspended when no child
@@ -647,11 +665,13 @@ NW03 child birth occurs through L1/FLOW
 NW04 child has calm/field/loss reset and lineage economics preserved
 NW05 private provider/grant objects never enter Packet/carrier
 
-QA01 accepted QA before corpse is only non-terminal boundary candidate
-QA02 exact corpse terminalizes candidate
-QA03 lineage alone writes software_accepted
-QA04 rejected generation recovery starts fresh build ⋯
-QA05 recovery consumes the exact terminal manifest projection, never trace-tail presence alone
+QA01 accepted/rejected check before final verdict is build ◈, not a boundary
+QA02 final accepted/rejected verdict before corpse is only a non-terminal boundary candidate
+QA03 exact corpse terminalizes candidate
+QA04 lineage alone writes software_accepted or commits recovery
+QA05 rejected generation recovery starts fresh build ⋯
+QA06 recovery consumes the exact terminal manifest projection, never trace-tail presence alone
+QA07 infrastructure execution failure creates no candidate verdict/recovery authority
 
 AP01 carrier.v0 admits only reentry_proposal
 AP02 lineage.carrier.v1 admits only inherited_proposal at envelope level
@@ -673,8 +693,8 @@ All terminal and continuation controls use grown lives.
 5. grow plan-only parity lives
 6. implement carrier v1 and plan -> build with fake allocator
 7. implement hostile fresh repository allocation
-8. grow rejected build -> fresh build generation after seal/QA exist
-9. grow accepted build -> software acceptance
+8. grow accepted/rejected check -> verdict matched lives after seal/QA exist
+9. grow rejected build -> fresh build generation and accepted build -> software acceptance
 10. record separate default-authority promotion
 ```
 
@@ -692,7 +712,7 @@ G5 NETWORK ingress derives target identity without authority leakage
 G6 fresh repository hostile controls green
 G7 plan -> build grown life completes under explicit v1
 G8 rejected generation -> fresh build life green
-G9 accepted QA -> corpse -> lineage acceptance green
+G9 final accepted QA verdict -> corpse -> lineage acceptance green
 G10 invariant failures stay loud and outside Packet mortality
 ```
 
@@ -702,7 +722,6 @@ G10 invariant failures stay loud and outside Packet mortality
 parallel/branching stage graphs
 multiple accepted build candidates
 QA child Packet
-`qa-check.v0` schema and final QA-verdict writer
 resume QA against old sealed root
 legacy in-place repair
 repository cleanup/compost implementation

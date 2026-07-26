@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-stderr-flood
+while true do
+    io.stderr:write(string.rep("e", 8192))
+end

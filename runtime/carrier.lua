@@ -1,5 +1,6 @@
 local digest = require("core.digest")
 local json = require("core.json")
+local qa_schema = require("core.qa_schema")
 
 local carrier = {
     protocol_version = "carrier.v0",
@@ -52,6 +53,11 @@ function carrier.build_recovery(lineage, corpse, assessment, options)
         residue = copy_value(corpse.residue or {}),
         remaining_work = copy_value(assessment.remaining_work or {}),
         source_generation = corpse.generation,
+        process_contract_id = corpse.process_contract_id,
+        context = corpse.context,
+        stage_id = corpse.stage_id,
+        qa_contract_id = corpse.qa_contract_id,
+        qa_contract = copy_value(corpse.qa_contract),
     }
     local encoded_ok, encoded = pcall(json.encode, payload)
     if not encoded_ok then
@@ -122,6 +128,25 @@ function carrier.verify(record, context)
         or type(record.payload_bytes) ~= "number"
         or record.applicability_truth_status ~= "reentry_proposal" then
         return nil, "invalid recovery carrier"
+    end
+    local payload = record.payload
+    if (payload.qa_contract_id == nil) ~= (payload.qa_contract == nil) then
+        return nil, "invalid recovery carrier QA contract"
+    end
+    if payload.qa_contract ~= nil then
+        local normalized, normalized_err = qa_schema.normalize_contract(payload.qa_contract)
+        if not normalized then
+            return nil, "invalid recovery carrier QA contract: "
+                .. tostring(normalized_err)
+        end
+        if not qa_schema.same(payload.qa_contract, normalized)
+            or payload.qa_contract_id ~= normalized.qa_contract_id
+            or normalized.lineage_id ~= record.lineage_id
+            or normalized.process_contract_id ~= payload.process_contract_id
+            or normalized.context ~= payload.context
+            or normalized.stage_id ~= payload.stage_id then
+            return nil, "invalid recovery carrier QA contract"
+        end
     end
     local encoded_ok, encoded = pcall(json.encode, record.payload)
     if not encoded_ok or record.payload_bytes ~= #encoded then

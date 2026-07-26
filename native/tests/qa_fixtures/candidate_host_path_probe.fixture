@@ -1,0 +1,7 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-host-path-probe
+for _, path in ipairs({"/home", "/proc", "/sys", "/dev", "../sibling"}) do
+    local file = io.open(path, "rb")
+    assert(file == nil, "host path visible: " .. path)
+end
+return true

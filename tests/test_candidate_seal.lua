@@ -101,6 +101,12 @@ suite:check("ST11/ST22/ST23/ST28 exact tree closes authority once", function()
     H.assert_false(result.idempotent, "first closure is not replay")
     H.assert_eq(#events(grown.instance, "candidate_seal"), 1, "one body seal event")
     H.assert_eq(result.seal.request_id, request.request_id, "event binds request")
+    H.assert_eq(json.encode(result.inventory.inventory_bounds),
+        json.encode(request.inventory_bounds), "inventory commits exact bounds")
+    H.assert_eq(json.encode(result.closure.inventory_bounds),
+        json.encode(request.inventory_bounds), "closure commits exact bounds")
+    H.assert_eq(json.encode(result.seal.inventory_bounds),
+        json.encode(request.inventory_bounds), "seal commits exact bounds")
     H.assert_eq(result.inventory.entries[1].kind, "directory",
         "normalized inventory retains directory")
     H.assert_nil(result.inventory.entries[2].content, "normalized inventory drops bytes")

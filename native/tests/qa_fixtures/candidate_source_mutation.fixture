@@ -1,0 +1,10 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-source-mutation
+local created = io.open("qa-source-create.tmp", "wb")
+assert(created == nil, "source create unexpectedly succeeded")
+local overwrite = io.open(arg[0], "wb")
+assert(overwrite == nil, "source overwrite unexpectedly succeeded")
+assert(os.rename(arg[0], "qa-source-renamed.tmp") == nil,
+    "source rename unexpectedly succeeded")
+assert(os.remove(arg[0]) == nil, "source unlink unexpectedly succeeded")
+return true

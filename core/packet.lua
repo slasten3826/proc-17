@@ -1,3 +1,4 @@
+local qa_schema = require("core.qa_schema")
 local topology = require("core.topology")
 
 local packet = {}
@@ -259,6 +260,41 @@ local function init_work_contract(identity, work_mode, options, metadata)
         stage_id = stage_id,
         repository_id = repository_id,
     }
+end
+
+local function init_qa_contract(identity, work_mode, work_contract, options, metadata)
+    local supplied = options.qa_contract
+    local mirrored_id = metadata.qa_contract_id
+    if work_mode == "plan" then
+        if supplied ~= nil or mirrored_id ~= nil then
+            error("plan Packet cannot carry QA contract authority")
+        end
+        return nil
+    end
+    if supplied == nil then
+        if mirrored_id ~= nil then
+            error("packet QA contract id cannot replace the full birth contract")
+        end
+        return nil
+    end
+    local normalized, normalized_err = qa_schema.normalize_contract(supplied)
+    if not normalized then
+        error("packet QA contract is invalid: " .. tostring(normalized_err))
+    end
+    if not qa_schema.same(supplied, normalized) then
+        error("packet accepts only an already normalized QA contract")
+    end
+    if normalized.lineage_id ~= identity.lineage_id
+        or normalized.process_contract_id ~= work_contract.process_contract_id
+        or normalized.context ~= work_contract.context
+        or normalized.stage_id ~= work_contract.stage_id then
+        error("packet QA contract diverged from birth coordinates")
+    end
+    if mirrored_id ~= nil and mirrored_id ~= normalized.qa_contract_id then
+        error("packet QA contract conflicts with metadata mirror")
+    end
+    metadata.qa_contract_id = normalized.qa_contract_id
+    return deep_copy(normalized)
 end
 
 local function init_revisions()
@@ -613,6 +649,13 @@ function packet.new(prompt, options)
     local packet_id = options.id or next_id("packet")
     local identity = init_identity(packet_id, options)
     local work_contract = init_work_contract(identity, work_mode, options, metadata)
+    local qa_contract = init_qa_contract(
+        identity,
+        work_mode,
+        work_contract,
+        options,
+        metadata
+    )
     local areas = init_areas(prompt, options)
     local ingress = init_ingress(options)
     local instance = {
@@ -641,6 +684,8 @@ function packet.new(prompt, options)
         work_context = work_contract.context,
         stage_id = work_contract.stage_id,
         repository_id = work_contract.repository_id,
+        qa_contract_id = qa_contract and qa_contract.qa_contract_id or nil,
+        qa_contract = deep_copy(qa_contract),
         tension = areas.tension,
         runtime = areas.runtime,
         trace = {},
@@ -673,6 +718,8 @@ function packet.new(prompt, options)
             context = instance.work_context,
             stage_id = instance.stage_id,
             repository_id = instance.repository_id,
+            qa_contract_id = instance.qa_contract_id,
+            qa_contract = deep_copy(instance.qa_contract),
             ingress_protocol = instance.ingress.protocol_version,
             integration_protocol = instance.ingress.integration_protocol,
             flow_mark = instance.ingress.flow_mark,

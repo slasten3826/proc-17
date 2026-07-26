@@ -19,6 +19,14 @@ fresh repository allocator authority: forbidden
 router promotion: forbidden
 amended 2026-07-22: immutable seal-record finality is separated from pure
   current artifact alignment
+amended 2026-07-23: the seal is the sole source contract for a private
+  read-only QA lease; QA never weakens seal finality
+amended 2026-07-26: normalized inventory bounds are identity-bearing evidence
+  in inventory, closure and body seal
+amendment gate:
+  docs/00_chaos/qa_first_candidate_table_cross_audit_2026-07-26.md
+amendment crystall audit:
+  docs/00_chaos/qa_first_candidate_crystall_cross_audit_2026-07-26.md
 ```
 
 ## 0. Crystallized Claim
@@ -274,6 +282,7 @@ schema-valid `observed` result becomes:
   inventory_id = "repository-seal-inventory:<sha256>",
   request_id = string,
   root_fingerprint = string,
+  inventory_bounds = repository_inventory_bounds,
   root_continuity = "proven",
   entries = {
     {
@@ -291,6 +300,23 @@ schema-valid `observed` result becomes:
   event_truth_status = "runtime_confirmed",
 }
 ```
+
+The pure inventory identity seed is exactly:
+
+```lua
+{
+  request_id = request.request_id,
+  root_fingerprint = request.root_fingerprint,
+  inventory_bounds = normalized_inventory_bounds,
+  entries = normalized_entries,
+  observed_entry_count = integer,
+  observed_total_bytes = integer,
+}
+```
+
+`inventory_digest` hashes this seed. `inventory_id` hashes the complete
+normalized inventory with `inventory_id=nil`. A bounds change therefore
+changes both identities even when every observed entry is byte-identical.
 
 Trusted Lua checks byte counts and computes all SHA-256 values with
 `core.digest`; native code does not introduce a second hash implementation.
@@ -449,6 +475,7 @@ Closure receipt:
   lifecycle_revision_after = integer,
   inventory_id = string,
   inventory_digest = string,
+  inventory_bounds = repository_inventory_bounds,
   state = "sealed",
   source_refs = string[],
   event_truth_status = "runtime_confirmed",
@@ -475,6 +502,7 @@ Candidate-seal payload:
   request_id = string,
   inventory_id = string,
   inventory_digest = string,
+  inventory_bounds = repository_inventory_bounds,
   authority_closure_ref = string,
   artifacts = {
     {
@@ -501,12 +529,50 @@ request identity is current and re-derived
 closure receipt schema and digest are exact
 private closure projection is sealed and agrees with receipt
 request, inventory and closure refs all agree
+request.inventory_bounds == inventory.inventory_bounds
+inventory.inventory_bounds == closure.inventory_bounds
+closure.inventory_bounds == candidate_seal.inventory_bounds
 no contradictory candidate-seal event exists
 ```
 
 Only then may it call the private repository-event append path. The registry
 stores closure/request/inventory identity, not `candidate_seal_id`; the latter
 belongs to the body event after append.
+
+### 10.1 Inventory Bounds Commitment Amendment
+
+Exact implementation changes required before step D:
+
+```text
+runtime/candidate_seal.lua
+  normalize bounds once
+  pass the same detached record to the provider
+  include it in inventory_digest and inventory_id
+  include it in closure commit input and candidate-seal payload
+
+runtime/repository_capability.lua
+  validate closure commit inventory_bounds as an exact plain record
+  require equality with the bounds consumed by the seal lease
+  store a detached copy in repository.candidate_closure_receipt.v0
+  retain that copy in the private root closure projection
+
+body candidate-seal writer
+  compare request, normalized inventory and private closure bounds
+  append one detached copy to repository.candidate_seal.v0
+```
+
+No caller-supplied bounds table is accepted after request normalization. Every
+stored copy is deep-detached; mutating a returned inventory, receipt or body
+event cannot alter another surface.
+
+Required negative control:
+
+```text
+same root + same entries + same bytes + different normalized bounds
+  -> different inventory_digest and inventory_id
+  -> closure/body cross-join rejected
+  -> no idempotent seal replay
+```
 
 ## 11. Idempotence And Split-Brain Detection
 
@@ -606,6 +672,8 @@ inventory
   exact flat/nested tree, every extra/missing/kind mismatch
   symlink no-follow and race, special files, root/file replacement
   deterministic order, all hard bounds, no raw bytes in public state
+  ST21a same entries under different bounds have different inventory identity
+  and cannot cross-join closure/body evidence
 
 commit
   one exact event, exact repeat, changed request, contradictory receipt
@@ -646,7 +714,7 @@ The native implementation is not accepted on fake-provider tests alone.
 ## 15. Explicit Deferrals
 
 ```text
-QA read-only capability/check/verdict execution
+QA execution outside the dedicated QA crystall and hostile/native gates
 fresh repository allocator
 automatic quarantine recovery
 persistent crash recovery of private sealed state
@@ -680,3 +748,30 @@ The candidate exists only when the body proves what is present and the registry
 proves that its own hand can no longer rewrite it. Neither proof may speak for
 the other, and disagreement is never repaired by reopening the world.
 ```
+
+## 18. QA Read-Only Handoff Amendment
+
+The immutable candidate seal is the only artifact/world declaration accepted
+by `qa_request.prepare`. The QA transaction must:
+
+```text
+verify the historical seal record independently of mutable current evidence
+require current artifact alignment = aligned before request, dispatch and body write
+reuse the seal inventory bounds and exact artifact comparator
+take exact pre/post inventories around native execution
+require pre inventory == seal == post inventory
+preserve sealed lifecycle state on every QA result
+```
+
+Post-seal body divergence remains the existing typed alignment conflict and
+prevents QA. Source drift observed by the trusted provider after dispatch is an
+infrastructure execution failure, not a new seal and not candidate rejection.
+
+The seal event does not contain a QA handle. The private repository registry
+derives one source lease from the matching closure only for the exact QA
+transaction. No QA result may amend `expected_files`, inventory identity or the
+terminal closure receipt.
+
+The later QA source resolver reads `inventory_bounds` from the exact private
+closure and requires equality with the immutable body seal before constructing
+`repository.qa_source_binding.v1`. It never substitutes current defaults.

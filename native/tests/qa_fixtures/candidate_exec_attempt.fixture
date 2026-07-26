@@ -1,0 +1,4 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-exec-attempt
+assert(os.execute == nil, "exec API unexpectedly available")
+return true

@@ -1,0 +1,4 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: trusted-malformed-result-frames
+fault_kind=malformed_result_frames
+variants=short,oversized,wrong_magic,wrong_version,unknown_kind,digest_mismatch,trailing

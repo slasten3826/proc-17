@@ -7,6 +7,7 @@ local fixture = require("tests.support.repository_hands")
 local logic = require("organs.logic")
 local capabilities = require("runtime.repository_capability")
 local candidate_seal = require("runtime.candidate_seal")
+local repository_inventory = require("runtime.repository_inventory")
 local repository_action = require("runtime.repository_action")
 local repository_intent = require("runtime.repository_intent")
 local work_completion = require("runtime.work_completion")
@@ -481,6 +482,31 @@ suite:check("ST25 changed request cannot replay a sealed root", function()
         "changed replay enters no provider")
     H.assert_eq(#grown.instance.trace, trace_before,
         "changed replay appends no body fact")
+end)
+
+suite:check("ST21a inventory bounds are part of every evidence identity", function()
+    local grown = completed("candidate-hostile-bounds-identity")
+    local request = assert(candidate_seal.prepare(grown.instance, grown.services))
+    local first_bounds = fixture.copy(candidate_seal.default_inventory_bounds)
+    local second_bounds = fixture.copy(first_bounds)
+    second_bounds.max_entries = second_bounds.max_entries + 1
+    local coordinates = {
+        request_id = "candidate-seal-request:bounds-identity",
+        root_fingerprint = request.root_fingerprint,
+        inventory_bounds = first_bounds,
+        root_continuity = "proven",
+    }
+    local first = assert(repository_inventory.normalize_provider_result(
+        exact_inventory(first_bounds, grown.state), coordinates))
+    coordinates.inventory_bounds = second_bounds
+    local second = assert(repository_inventory.normalize_provider_result(
+        exact_inventory(second_bounds, grown.state), coordinates))
+
+    H.assert_true(first.inventory.inventory_digest
+        ~= second.inventory.inventory_digest,
+        "same entries under different bounds have different digests")
+    H.assert_true(first.inventory.inventory_id ~= second.inventory.inventory_id,
+        "same entries under different bounds have different identities")
 end)
 
 suite:check("ST26 closure receipt must match private sealed state", function()

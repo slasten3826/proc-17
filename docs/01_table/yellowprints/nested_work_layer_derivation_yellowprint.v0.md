@@ -16,6 +16,11 @@ audit source: docs/00_chaos/fable_preimplementation_crystall_audit_raw_2026-07-2
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
 amended 2026-07-22: a sealed candidate with diverged current artifact evidence
   remains sealed and projects a fresh-generation need, never materialization
+amended 2026-07-23: accepted and rejected QA checks both pass through build
+  `◈` verdict assembly; QA infrastructure failure remains `⊞` and cannot be
+  rendered as candidate rejection
+QA amendment TABLE gate: satisfied by
+  docs/00_chaos/qa_table_cross_audit_2026-07-23.md
 ```
 
 Date:
@@ -36,6 +41,9 @@ stage_transition_generation_recovery_yellowprint.v0.md
 documentation_layer_snapshots_truth_yellowprint.v0.md
 documentation_profiles_economy_yellowprint.v0.md
 documentation_corpus_assembly_reentry_yellowprint.v0.md
+qa_contract_profile_yellowprint.v0.md
+qa_execution_capability_yellowprint.v0.md
+qa_check_verdict_yellowprint.v0.md
 ```
 
 Archaeology:
@@ -121,7 +129,7 @@ Exact candidate envelope:
       "forming"
     | "checking"
     | "crystallized"
-    | "crystallizing_failure"
+    | "crystallizing_verdict"
     | "boundary"
     | "unsupported",
 
@@ -288,18 +296,21 @@ Precedence is again evaluated from the strongest proved boundary downward.
 | Priority | Required evidence | Glyph | State | Scope | Boundary candidate | Reason | Missing requirement |
 |---:|---|---|---|---|---|---|---|
 | B0 | current candidate sealed + current repository-artifact alignment diverged | `⊞` | `checking` | `candidate_sealed` | `none` | `candidate_sealed_body_conflict` | fresh-generation PLAN bound to the exact seal/conflict refs |
-| B1 | current sealed candidate + exact accepted required QA + Packet-local software acceptance prerequisites satisfied | `▲` | `boundary` | `candidate_sealed` | `software_acceptance_ready` | `software_acceptance_candidate_ready` | Packet terminal manifest/corpse, then lineage software assessment and any required documentation |
+| B1 | current sealed candidate + exact final accepted QA verdict + Packet-local software acceptance prerequisites satisfied | `▲` | `boundary` | `candidate_sealed` | `software_acceptance_ready` | `software_acceptance_candidate_ready` | Packet terminal manifest/corpse, then lineage software assessment and any required documentation |
 | B2 | one final rejected QA verdict bound to the current seal, QA contract and rejected check refs | `▲` | `boundary` | `candidate_sealed` | `rejected_generation_recovery_ready` | `rejected_generation_recovery_ready` | △ embeds the rejected-generation terminal projection, then corpse and lineage recovery assessment |
-| B3 | one or more current required QA checks rejected; final current verdict absent | `◈` | `crystallizing_verdict` | `candidate_sealed` | `none` | `qa_rejection_verdict_pending` | one final immutable rejected QA verdict |
-| B4 | current candidate sealed; no current QA check/verdict evidence | `⊞` | `checking` | `candidate_sealed` | `none` | `candidate_sealed_qa_missing` | accepted or rejected QA evidence |
-| B5 | declared artifact set fully evidenced, candidate seal absent | `⋯` | `forming` | `artifact_set` | `none` | `artifact_set_complete_seal_missing` | candidate seal |
-| B6 | fresh generation active; declared artifact set incomplete | `⋯` | `forming` | `none` or `work_item` | `none` | `candidate_materialization_incomplete` | bounded create-only materialization |
+| B3A | current required QA check accepted; final current verdict absent | `◈` | `crystallizing_verdict` | `candidate_sealed` | `none` | `qa_acceptance_verdict_pending` | one final immutable accepted QA verdict |
+| B3R | current required QA check rejected; final current verdict absent | `◈` | `crystallizing_verdict` | `candidate_sealed` | `none` | `qa_rejection_verdict_pending` | one final immutable rejected QA verdict |
+| B4 | current QA execution infrastructure failure; no check/verdict | `⊞` | `checking` | `candidate_sealed` | `none` | `qa_infrastructure_incomplete` | typed effect-failure terminalization; never a candidate verdict |
+| B5 | current candidate sealed; no current QA check/failure/verdict evidence | `⊞` | `checking` | `candidate_sealed` | `none` | `candidate_sealed_qa_missing` | one bounded QA execution |
+| B6 | declared artifact set fully evidenced, candidate seal absent | `⋯` | `forming` | `artifact_set` | `none` | `artifact_set_complete_seal_missing` | candidate seal |
+| B7 | fresh generation active; declared artifact set incomplete | `⋯` | `forming` | `none` or `work_item` | `none` | `candidate_materialization_incomplete` | bounded create-only materialization |
 
 Important consequences:
 
 ```text
 artifact completion does not imply build ⊞ until the whole declared set is known
 candidate seal does not imply accepted QA
+accepted check evidence does not imply a final verdict or acceptance
 rejected check evidence does not imply a final verdict or permission to patch
 final rejected verdict does not imply root completion
 build ▲ may be a software-acceptance candidate boundary or a paid rebirth boundary
@@ -311,7 +322,7 @@ For B1/B2 the living projection has `boundary_terminalized=false`. The lawful
 `boundary_terminalized=true`; only that historical form is admissible to the
 lineage completion/recovery reader.
 
-The current one-file build life is expected to project as B5 or B4 depending
+The current one-file build life is expected to project as B6 or B5 depending
 on whether a candidate-seal observer exists. It must not project as B1 merely
 because `repository.result.v0` says `complete`.
 
@@ -379,7 +390,9 @@ Candidate mappings, not yet authority:
 | `artifact_set_complete_seal_missing` | candidate seal need | ☱ or a dedicated body action |
 | `candidate_sealed_qa_missing` | QA evidence need | ☶ through a lawful QA capability |
 | `candidate_sealed_body_conflict` | immutable candidate/current body disagreement | future PLAN/stage-lineage boundary; never repository materialization |
-| `qa_rejection_verdict_pending` | final rejected-verdict assembly need | future dedicated QA verdict writer after exact ☶/☱ evidence |
+| `qa_acceptance_verdict_pending` | final accepted-verdict assembly need | ☱ deterministic QA verdict writer after exact ☶ evidence |
+| `qa_rejection_verdict_pending` | final rejected-verdict assembly need | ☱ deterministic QA verdict writer after exact ☶ evidence |
+| `qa_infrastructure_incomplete` | external testing-world failure | existing effect-failure terminal path; no QA verdict |
 | `rejected_generation_recovery_ready` | terminal/rebirth accounting need | △ / lineage runner boundary |
 
 This table intentionally does not assign weights or guaranteed next operators.
@@ -435,6 +448,7 @@ storage surface.
 | all declared files exist | candidate not sealed or independently verified | build `⋯` |
 | candidate sealed | QA missing | build `⊞` |
 | tests described in prose | no runtime QA evidence | build `⊞` |
+| accepted check without final verdict | check observation is not deterministic candidate verdict | build `◈` |
 | rejected check plus a suggested patch | no final body verdict and no fresh birth | build `◈` |
 | rejected candidate has residue | residue is neither a final QA verdict nor a terminal candidate | build `◈` until the verdict boundary is proved; never accepted root |
 | documentation corpus exported | software acceptance not implied | retain underlying software layer |
@@ -481,8 +495,10 @@ by `lineage_completion_continuation_separation_yellowprint.v0.md`.
 | L11 | complete set unsealed | exact current seal | `⋯ -> ⊞` |
 | L12 | sealed, QA absent | one exact rejected required check, final verdict absent | `⊞ -> ◈` |
 | L13 | rejected check evidence, final verdict absent | exact final rejected verdict over the same seal/check set | `◈ -> ▲` recovery boundary |
-| L14 | sealed, QA absent | exact accepted required QA | `⊞ -> ▲` software-acceptance candidate boundary |
+| L14 | sealed, QA absent | exact accepted required check, final verdict absent | `⊞ -> ◈` acceptance-verdict boundary |
+| L14a | accepted check evidence, final verdict absent | exact final accepted verdict over the same seal/check set | `◈ -> ▲` software-acceptance candidate boundary |
 | L15 | accepted QA for candidate A | same QA attached to candidate B | B remains `⊞` |
+| L15a | sealed QA infrastructure failure | candidate-rejected check forged from failure | forgery rejected; projection stays infrastructure-incomplete until effect death |
 
 ### Scope and generation controls
 
@@ -507,8 +523,9 @@ truncated or stale plan candidate
 single-file current build life
 multi-file partial materialization life
 sealed candidate with no QA
-accepted QA life
+accepted check before verdict and final accepted-verdict life
 rejected required check before final verdict
+QA infrastructure-failure life with no candidate verdict
 final rejected verdict before and after △/corpse
 budget death before sealing
 budget death during QA

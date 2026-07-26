@@ -14,6 +14,11 @@ amended 2026-07-21: F5 removes writerless stage-level rejected state;
   the rejected-generation terminal manifest projection, not a failure crystal
 audit source: docs/00_chaos/fable_preimplementation_crystall_audit_raw_2026-07-21.md
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
+amended 2026-07-23: same-life QA uses separate ☶ check/failure evidence and
+  symmetric ☱ final-verdict assembly; infrastructure failure is not a rejected
+  generation and reaches the existing effect-failure terminal path
+QA amendment TABLE gate: satisfied by
+  docs/00_chaos/qa_table_cross_audit_2026-07-23.md
 ```
 
 Date:
@@ -33,6 +38,9 @@ nested_work_layer_derivation_yellowprint.v0.md
 completion_scope_candidate_seal_yellowprint.v0.md
 documentation_profiles_economy_yellowprint.v0.md
 documentation_corpus_assembly_reentry_yellowprint.v0.md
+qa_contract_profile_yellowprint.v0.md
+qa_execution_capability_yellowprint.v0.md
+qa_check_verdict_yellowprint.v0.md
 ```
 
 Current lineage authority:
@@ -63,6 +71,8 @@ root request
   -> bounded QA
 
      accepted
+       -> accepted required QA check
+       -> final accepted QA verdict
        -> Packet terminal software-acceptance candidate
        -> Packet death/corpse
        -> lineage software assessment
@@ -71,6 +81,7 @@ root request
        -> final delivery
 
      rejected
+       -> rejected required QA check
        -> final rejected QA verdict
        -> △ rejected-generation terminal projection
        -> Packet death/corpse
@@ -658,10 +669,17 @@ the candidate. This is intentionally expensive but preserves the generation law.
 
 The QA-child alternative remains a future experiment, not an invisible fallback.
 
-Same-life QA is not same-life acceptance authority. The living build Packet may
-record an exact accepted verdict and derive a software-acceptance candidate, but
-only the lineage reader may turn the later corpse-bound evidence into stage
+Same-life QA is not same-life acceptance authority. ☶ may record one exact
+accepted or rejected check, then ☱ may assemble the matching final verdict.
+The living build Packet may derive a boundary candidate only after that verdict;
+only the lineage reader may turn later corpse-bound evidence into stage
 completion and `software_accepted`.
+
+A typed QA infrastructure execution failure is neither an accepted nor a
+rejected generation result. The exact failure record enters the existing
+operator `effect_failure` path, the Packet dies without a QA verdict, and the
+lineage remains blocked unless a later explicit world/policy mechanism permits
+another generation. V0 does not retry the sealed root.
 
 ## 16. Stage Transition State Machine
 
@@ -711,7 +729,8 @@ fresh repository + build Packet generation born
 ```text
 stage(build)=active
 candidate sealed
-QA accepted
+required QA check evidence accepts
+one final accepted QA verdict is assembled
 Packet manifests a software-acceptance candidate and dies
 corpse registered
 lineage verifies stage/candidate/seal/QA/terminal refs
@@ -728,9 +747,11 @@ lineage completes or enters required corpus/export boundary
 | plan formation | plan `⋯/⊞/◈` | exact plan manifest | plan `▲` historical |
 | plan -> build | plan `▲` | corpse + stage carrier + NETWORK@▽ | build `⋯` |
 | build candidate sealed | build `⊞` | no death yet | same Packet remains build `⊞` |
+| required QA check accepts, final verdict absent | build `◈` | accepted-verdict crystallization still active | no descendant yet |
 | required QA check rejects, final verdict absent | build `◈` | rejected-verdict crystallization still active | no descendant yet |
 | final rejected QA verdict present | build `▲` | △ terminal projection + corpse + lineage recovery assessment | next generation build `⋯` |
-| QA accepted | build `▲` software-acceptance candidate | terminal candidate + corpse + lineage software assessment | no coding descendant |
+| final accepted QA verdict present | build `▲` software-acceptance candidate | terminal candidate + corpse + lineage software assessment | no coding descendant |
+| QA infrastructure execution failure | build `⊞` before terminalization | existing effect-failure death; no candidate verdict | no automatic descendant |
 
 The next generation never inherits the old glyph as mutable state. It derives
 its own layer from fresh evidence.
@@ -882,6 +903,7 @@ No stage status or carrier is written without a named consumer.
 | source corpse already continued | lineage invariant | second child denied |
 | malformed Lua/provider response | harness/world invariant | loud runner failure |
 | QA rejects current candidate | generation task evidence | lineage records rejected generation; grave kind is unchanged by QA alone |
+| QA execution infrastructure failure after dispatch | typed external effect failure | Packet dies effect_failure; no accepted/rejected generation verdict |
 
 `qa_rejected` is generation evidence. It never writes a rejected stage by
 itself. The lineage recovery reader may keep the stage active, suspend it when
@@ -889,8 +911,11 @@ continuation is unavailable, or complete a later accepted generation.
 Grave/karma may preserve independent mortality residue, but it cannot approve,
 deny or classify this recovery decision.
 
-World failures are not prettified as Packet mortality. Task failures are not
-allowed to crash the host merely because they are inconvenient.
+Pre-birth/allocation world failures do not forge a Packet death. A world failure
+inside an already committed external body effect may create the existing typed
+`effect_failure` mortality record. Trusted schema/identity contradictions still
+fail the harness loudly. Task failures are not allowed to crash the host merely
+because they are inconvenient.
 
 ## 23. Permanent Control Matrix
 
@@ -945,6 +970,10 @@ allowed to crash the host merely because they are inconvenient.
 | S25 | same Packet after seal | source create authority unavailable; QA read authority may be available |
 | S26 | Packet dies sealed but untested | recovery rebuilds fresh candidate; no inherited QA authority |
 | S27 | QA rejected | no in-place retry or source mutation |
+| S27a | accepted check before final verdict | no software-acceptance candidate; build `◈` |
+| S27b | rejected check before final verdict | no rejected-generation terminal candidate; build `◈` |
+| S27c | QA infrastructure execution failure | no QA verdict; typed effect-failure terminal path |
+| S27d | malformed trusted QA report | loud harness failure, no Packet outcome |
 
 ### Ledger and projections
 
@@ -971,6 +1000,8 @@ B3  build dies before seal -> fresh generation
 B4  build dies after seal before QA -> fresh generation
 B5  build required QA check rejected before final verdict
 B6  build generation intrinsically blocked
+B7  build required QA check accepted before final verdict
+B8  build QA infrastructure failure -> effect_failure, no QA verdict
 D1  accepted software + docs off
 D2  accepted software + required structured corpus
 D3  required corpus export partial/exhausted

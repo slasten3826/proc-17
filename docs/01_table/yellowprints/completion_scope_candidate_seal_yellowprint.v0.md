@@ -20,7 +20,11 @@ amended 2026-07-22: step 8.4 detailed declaration, root-lifecycle and seal
   retains completion-scope, QA and root-composition authority
 amended 2026-07-22: immutable seal existence and mutable artifact alignment are
   separate; post-seal drift cannot project `unsealed` or materialization
-specialized TABLE gate: cross-table audit required before CRYSTALL amendment
+amended 2026-07-23: QA check observation, infrastructure failure and final
+  verdict are separate body facts; accepted and rejected checks both require
+  deterministic verdict assembly before a Packet-local boundary candidate
+specialized QA TABLE gate: satisfied 2026-07-23 by
+  docs/00_chaos/qa_table_cross_audit_2026-07-23.md
 ```
 
 Date:
@@ -44,6 +48,9 @@ documentation_corpus_assembly_reentry_yellowprint.v0.md
 artifact_set_derivation_yellowprint.v0.md
 repository_candidate_lifecycle_yellowprint.v0.md
 candidate_seal_transaction_yellowprint.v0.md
+qa_contract_profile_yellowprint.v0.md
+qa_execution_capability_yellowprint.v0.md
+qa_check_verdict_yellowprint.v0.md
 ```
 
 Current lower-level authority:
@@ -216,13 +223,16 @@ Candidate envelope:
   },
 
   candidate = {
-    state = "unsealed" | "sealed" | "qa_rejection_observed"
+    state = "unsealed" | "sealed" | "qa_acceptance_observed"
+      | "qa_rejection_observed" | "qa_infrastructure_incomplete"
       | "qa_accepted" | "qa_rejected" | "unsupported",
     candidate_seal_id = "candidate-seal:..." | nil,
     candidate_seal_event_ref = "trace:..." | nil,
     artifact_alignment = "not_applicable" | "aligned" | "diverged"
       | "unsupported",
     alignment_ref = "candidate-seal-alignment:..." | nil,
+    qa_check_refs = {"qa-check:..."},
+    qa_execution_failure_ref = "qa-execution-failure:..." | nil,
     qa_verdict_ref = "qa-verdict:..." | nil,
   },
 
@@ -357,10 +367,12 @@ names below are completion-facing projections, not a second mutable lifecycle.
 |---|---|---|
 | `forming` | create each declared absent path once | exact current artifact set complete |
 | `seal_pending` | no new action may be committed while seal transaction resolves | closure receipt accepted or typed failure |
-| `sealed` | no source writes | QA verdict or terminal death |
-| `qa_accepted` | no source writes | accepted stage/root accounting |
-| `qa_rejection_observed` | no source writes | one final immutable QA verdict |
-| `qa_rejected` | no source writes | rejected-generation terminal manifest, death and possible fresh generation |
+| `sealed` | no source writes | QA check/failure evidence or terminal death |
+| `qa_acceptance_observed` | no source writes | one final immutable accepted QA verdict |
+| `qa_accepted` | no source writes | △ terminal manifest/corpse, then lineage acceptance accounting |
+| `qa_rejection_observed` | no source writes | one final immutable rejected QA verdict |
+| `qa_infrastructure_incomplete` | no source writes | existing effect-failure terminalization; no candidate verdict |
+| `qa_rejected` | no source writes | △ rejected-generation terminal manifest, death and possible fresh generation |
 | `terminal` | no mutation of Packet or candidate | lineage reads corpse/seal/verdict |
 
 There is no state named:
@@ -510,9 +522,9 @@ Required causal chain:
 current candidate seal
   -> declared bounded QA contract
   -> authorized QA attempt
-  -> runtime receipt (exit/timeout/bounded output/digests/cost)
-  -> exact validation
-  -> immutable accepted or rejected verdict
+  -> private runtime receipt + trusted provider report/error
+  -> ☶ body qa.check OR qa.execution_failure
+  -> ☱ deterministic immutable accepted or rejected verdict
 ```
 
 Candidate verdict shape:
@@ -521,16 +533,24 @@ Candidate verdict shape:
 {
   protocol_version = "qa.candidate_verdict.v0",
   verdict_id = "qa-verdict:<digest>",
+  packet_id = "packet:...",
   lineage_id = "lineage:...",
   generation = 2,
   stage_id = "stage:<lineage_id>:2:build",
+  repository_id = "repo:...",
   candidate_seal_id = "candidate-seal:...",
+  candidate_seal_event_ref = "trace:...",
+  artifact_alignment_id = "candidate-seal-alignment:...",
   qa_contract_id = "qa-contract:...",
+  profile_id = "qa.profile.lua54_test_suite.v0",
+  environment_id = "qa-environment:...",
   verdict = "accepted" | "rejected",
-  required_checks = 9,
-  accepted_checks = 9,
-  rejected_checks = 0,
+  required_checks = 1,
+  accepted_checks = 0 | 1,
+  rejected_checks = 0 | 1,
+  check_ids = {"qa-check-id:..."},
   check_refs = {"qa-check:..."},
+  request_refs = {"qa-check-request:..."},
   runtime_cost = {},
   source_refs = {},
   event_truth_status = "runtime_confirmed",
@@ -542,8 +562,9 @@ The substrate may propose a QA contract. The host/process contract decides
 whether that proposal becomes an authorized bounded contract. The substrate
 cannot mint execution permission or its own accepted verdict.
 
-The exact QA hand and threat model are deferred. This table defines what its
-result must prove.
+The exact hand, profile, private capability, check/failure writer and verdict
+assembler are defined by the three specialized 2026-07-23 QA TABLE contracts.
+This table remains the completion reader of their body-owned results.
 
 ## 11. QA Verdict Semantics
 
@@ -552,11 +573,13 @@ result must prove.
 | no seal | QA unavailable | candidate still forming |
 | seal + diverged current artifact alignment | `sealed` | QA acceptance blocked; fresh-generation plan required |
 | seal, no QA receipt | `sealed` | build checking; root unfinished |
-| all required checks accepted | `qa_accepted` | software acceptance candidate |
+| current required check accepted, final verdict absent | `qa_acceptance_observed` | final accepted-verdict assembly required |
 | any current required check rejected, final verdict absent | `qa_rejection_observed` | final rejected-verdict assembly required |
+| QA execution infrastructure failure | `qa_infrastructure_incomplete` | no candidate verdict; existing effect-failure terminal path |
+| final accepted verdict bound to current seal/check | `qa_accepted` | software acceptance candidate |
 | final rejected verdict bound to current seal/checks | `qa_rejected` | rejected-generation terminal candidate |
-| optional check rejected only | contract-defined; no implicit acceptance | exact policy reader decides |
-| timeout | rejected or typed incomplete according to declared contract | never accepted by prose |
+| contained timeout with proved cleanup | `qa_rejection_observed` until final verdict | mechanical candidate rejection |
+| timeout with unproved supervision/cleanup | `qa_infrastructure_incomplete` | no candidate verdict |
 | malformed provider response | invariant/harness failure | not Packet rejection and not acceptance |
 | QA refs target another seal | invalid evidence | no state change |
 
@@ -640,10 +663,12 @@ Build stage outcomes:
 |---|---|---|---|
 | candidate not sealed | active | unfinished | same Packet while affordable, or recovery after honest death |
 | sealed, QA pending | active/checking | unfinished | same Packet first hypothesis |
-| QA accepted, Packet still living | active / acceptance candidate | unfinished | Packet terminal manifest/corpse |
+| accepted check, final verdict absent | active/crystallizing verdict | unfinished | deterministic accepted-verdict assembly |
+| final accepted verdict, Packet still living | active / acceptance candidate | unfinished | Packet terminal manifest/corpse |
 | QA accepted + exact corpse + lineage assessment | complete | accepted | documentation/final delivery boundary |
 | rejected check evidence, final verdict absent | active/crystallizing verdict | unfinished current generation | no transition yet |
 | final rejected verdict, Packet still living | active / rejected terminal candidate | rejected current generation | Packet terminal manifest/corpse |
+| QA infrastructure failure | terminal effect failure after body evidence | unfinished/blocked | no QA verdict and no automatic same-root retry |
 | rejected-generation manifest + corpse + lineage generation assessment | rejected generation complete as history | root unfinished | build-generation recovery |
 | budget/loss death before verdict | terminal incomplete | unfinished | intrinsic recovery assessment |
 
@@ -712,7 +737,7 @@ software acceptance
 | candidate sealed | sealed-candidate report | no | no |
 | exact plan result, Packet still living | plan-stage candidate | no | no |
 | exact plan corpse + lineage stage assessment | all exact refs | yes | only for `plan.only.v0` after lineage root assessment |
-| build QA accepted, Packet still living | software-acceptance candidate | no | no |
+| final accepted build QA verdict, Packet still living | software-acceptance candidate | no | no |
 | accepted build corpse + lineage software assessment | all exact refs | yes | yes if docs are not required |
 | final build QA rejection, Packet still living | rejected-generation terminal candidate | no | no |
 | rejected build corpse + lineage generation assessment | all exact refs | rejected boundary | no |
@@ -754,7 +779,7 @@ lineage economics.
 | materialization capability closed | runtime_confirmed |
 | candidate seal event appended | runtime_confirmed |
 | artifact semantics are correct | semantic_proposal until tested by declared evidence; may remain mixed |
-| QA command/check executed | runtime_confirmed |
+| exact contained QA process/check executed | runtime_confirmed |
 | check interpretation | runtime_confirmed for mechanical predicate; semantic_proposal/mixed for model interpretation |
 | QA verdict under exact contract | runtime_confirmed |
 | rejected-generation terminal projection | runtime_confirmed assembly over preserved seal/verdict/check statuses |
@@ -779,6 +804,8 @@ transporting it.
 | post-seal repository-artifact body drift | typed alignment conflict | candidate remains sealed; QA acceptance and rematerialization blocked; fresh-generation plan required |
 | QA required but capability absent | typed missing capability | root unfinished |
 | QA check rejects | task evidence | final verdict assembly; no acceptance |
+| QA check accepts, final verdict absent | task evidence | final verdict assembly; no acceptance yet |
+| QA execution infrastructure failure | typed external effect failure | execution-failure evidence, Packet effect-failure death, no QA verdict |
 | malformed QA provider response | harness/world invariant failure | runner fails loudly |
 | conflicting current verdicts | body invariant failure | no completion |
 | documentation export unavailable when required | typed stage/root incompletion | software acceptance preserved; final delivery pending |
@@ -795,9 +822,11 @@ not turn an invariant error into a beautiful Packet death.
 | seal request | body action planner | trusted capability registry/provider |
 | closure receipt | trusted provider/registry | seal verifier only |
 | candidate seal | dedicated body writer | QA resolver, scope inspector, lineage, corpus |
-| QA attempt/receipt | future QA hand | validator and budget accounting |
-| QA check record | future bounded QA hand + body verifier | final QA verdict assembler |
-| QA verdict | dedicated QA body writer | scope inspector, △ terminal manifest assembler, lineage |
+| QA request | body request derivation | private capability/grant resolver |
+| private QA receipt/report | trusted registry/provider | ☶ body evidence writer only |
+| QA check record | ☶ body verifier | ☱ final QA verdict assembler |
+| QA execution failure | ☶ body failure writer | operator registry/tree runner effect-failure path |
+| QA verdict | ☱ deterministic QA body writer | scope inspector, △ terminal manifest assembler, lineage |
 | rejected-generation terminal projection | △ manifest assembler | corpse, completion reader, recovery carrier, corpus |
 | software acceptance | lineage root completion reader | docs assembler, delivery assembler |
 | documentation receipt | corpus exporter | final root completion |
@@ -841,11 +870,14 @@ There is no storage surface in this table without a named reader.
 |---|---|---|
 | C17 | no seal | no QA capability/action |
 | C18 | QA verdict references another seal | ignored/rejected |
-| C19 | all required checks exact accepted | software acceptance candidate |
+| C19 | required check accepted, final verdict absent | acceptance observed; build `◈`; no terminal candidate |
+| C19a | final accepted verdict binds exact seal/check | software acceptance candidate; build `▲` |
 | C20 | one required check rejected, final verdict absent | rejection observed; build `◈`; no terminal candidate |
 | C20a | final rejected verdict binds exact seal and every required check | rejected candidate; build `▲` terminal candidate |
-| C21 | timeout hidden by substrate summary | mechanical timeout remains non-accepted |
-| C22 | QA modifies source tree | capability/invariant failure; no accepted verdict |
+| C20b | QA infrastructure execution failure | no verdict; typed effect-failure path |
+| C21 | contained timeout hidden by substrate summary | mechanical rejected check remains non-accepted |
+| C22 | candidate source-write attempt denied and source stays exact | rejected sandbox-policy check; no accepted verdict |
+| C22a | source inventory actually drifts during QA | infrastructure failure; no candidate verdict |
 | C23 | malformed provider output | loud harness failure, not Packet death |
 
 ### Scope controls
@@ -855,7 +887,7 @@ There is no storage surface in this table without a named reader.
 | C24 | current one-file repository result | work-item/artifact-set only; not root |
 | C25 | plan result + corpse + lineage assessment under `plan.only.v0` | stage and root complete |
 | C26 | same exact terminal plan evidence under `software.create.v0` | stage complete, root unfinished |
-| C27 | accepted QA without Packet corpse/lineage assessment | software-acceptance candidate only; no stage/root completion |
+| C27 | final accepted QA verdict without Packet corpse/lineage assessment | software-acceptance candidate only; no stage/root completion |
 | C28 | accepted build corpse + lineage assessment, docs off | software accepted; root delivery may complete |
 | C29 | accepted build corpse + lineage assessment, required docs pending | software accepted, root delivery incomplete |
 | C29a | accepted build corpse + lineage assessment + required docs receipt | root delivery complete |
@@ -865,7 +897,7 @@ There is no storage surface in this table without a named reader.
 
 | ID | Control | Expected |
 |---|---|---|
-| C31 | accepted QA from generation N attached to N+1 | no acceptance |
+| C31 | accepted QA verdict from generation N attached to N+1 | no acceptance |
 | C32 | rejected N, fresh N+1 | N seal remains historical; N+1 begins unsealed |
 | C33 | fresh N+1 shares old repository identity | invariant failure |
 | C34 | descendant semantic diagnosis proposes exact patch to N | no mutation authority over N |

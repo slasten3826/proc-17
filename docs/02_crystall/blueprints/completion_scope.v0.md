@@ -10,7 +10,8 @@ implementation authority: pure scope readers and shadow observations only
 root manifest authority replacement: forbidden
 candidate sealing authority: separate artifact_set_derivation.v0,
   repository_candidate_lifecycle.v0 and candidate_seal_transaction.v0 crystall
-QA execution authority: deferred
+QA execution authority: owned by the separate QA crystall cluster and still
+  gated by hostile/native implementation evidence
 amended 2026-07-21: F1 generation_state, F3 context identity, F5 stage status
   and F6 canonical ids/boundary vocabulary; F4 removes the standalone failure
   crystal and binds rejected evidence through the terminal Packet manifest
@@ -21,6 +22,11 @@ amended 2026-07-22: artifact-set scope must be re-derived from body formation;
   candidate-sealed scope reads the dedicated immutable body event
 amended 2026-07-22: a valid historical seal is read before mutable artifact
   evidence; current alignment is a separate pure projection
+amended 2026-07-23: accepted/rejected checks are observations, both require a
+  deterministic final verdict; QA infrastructure failure is a separate
+  non-verdict candidate state
+QA crystall gate:
+  docs/00_chaos/qa_crystall_cross_audit_2026-07-23.md
 ```
 
 ## 0. Crystallized Claim
@@ -114,6 +120,8 @@ runtime/lineage.lua
 runtime/lineage_budget.lua      negative dependency only: scope must ignore it
 runtime/artifact_set.lua        supplied by artifact_set_derivation.v0
 runtime/candidate_seal.lua      supplied by candidate_seal_transaction.v0
+runtime/qa_evidence.lua         supplied by qa_check_verdict.v0
+runtime/qa_verdict.lua          supplied by qa_check_verdict.v0
 core/digest.lua
 core/json.lua
 ```
@@ -163,13 +171,16 @@ whose named writers do not exist yet. It may not infer them from nearby data.
   },
 
   candidate = {
-    state = "unsealed" | "sealed" | "qa_rejection_observed"
+    state = "unsealed" | "sealed" | "qa_acceptance_observed"
+      | "qa_rejection_observed" | "qa_infrastructure_incomplete"
       | "qa_accepted" | "qa_rejected" | "unsupported",
     candidate_seal_id = string | nil,
     candidate_seal_event_ref = string | nil,
     artifact_alignment = "not_applicable" | "aligned" | "diverged"
       | "unsupported",
     alignment_ref = string | nil,
+    qa_check_refs = string[],
+    qa_execution_failure_ref = string | nil,
     qa_verdict_ref = string | nil,
   },
 
@@ -330,7 +341,7 @@ would support writing one. Assessment and committed ledger fact remain distinct.
 | artifact set | materialization report | nothing larger |
 | candidate seal | sealed-candidate report | nothing larger |
 | plan result | plan-stage terminal candidate | stage after corpse assessment |
-| accepted QA | software-acceptance terminal candidate | software acceptance after corpse assessment |
+| final accepted QA verdict | software-acceptance terminal candidate | software acceptance after corpse assessment |
 | final rejected QA verdict | rejected-generation terminal candidate; △ embeds bounded rejection projection | rejected history/recovery decision |
 | required docs receipt | no dead Packet mutation | root delivery from lineage |
 
@@ -369,6 +380,8 @@ lineage applicability decision         runtime_confirmed act over preserved inpu
 | expected evidence absent/stale | lower honest scope |
 | cross-generation QA/seal | rejected evidence, no advancement |
 | conflicting current verdicts | loud body/lineage invariant failure |
+| accepted/rejected check without final verdict | observation state only; no boundary candidate |
+| QA execution infrastructure failure | `qa_infrastructure_incomplete`; no candidate verdict |
 | valid seal plus changed/missing current artifact evidence | preserve `candidate_sealed`; typed `diverged` alignment and conflict disposition |
 | malformed trusted record | loud harness/runtime failure |
 | substrate says complete | zero authority delta |
@@ -382,15 +395,15 @@ CS01 one complete work item is not root completion
 CS02 all current declared work items derive artifact_set only
 CS03 stale work-item version cannot satisfy the set
 CS04 exact seal advances Packet scope to candidate_sealed
-CS05 accepted QA without corpse yields only terminalized=false local candidate
-CS06 accepted QA + corpse still cannot make Packet/corpse software_accepted
+CS05 final accepted QA verdict without corpse yields only terminalized=false local candidate
+CS06 accepted QA verdict + corpse still cannot make Packet/corpse software_accepted
 CS07 verified lineage assessment may derive software_accepted
 CS08 required docs pending preserves software_accepted and blocks root_delivery
 CS09 exact required docs receipt permits lineage root_delivery
 CS10 plan result under software.create completes stage, not root
 CS11 same plan result under plan.only may complete root through lineage
 CS12 same corpse under funded/exhausted wallet has identical intrinsic scope
-CS13 old-generation accepted QA cannot advance current generation
+CS13 old-generation accepted QA verdict cannot advance current generation
 CS14 conflicting trusted verdicts fail loudly
 CS15 observer enabled/disabled leaves route, budget, loss and effects identical
 CS16 same semantic context under plan.only and software.create retains distinct process-contract identity and root scope
@@ -400,6 +413,9 @@ CS19 rejected evidence older than trace_tail remains available through the full 
 CS20 valid seal remains candidate_sealed after relevant body drift
 CS21 post-seal drift derives diverged alignment and never requests materialization
 CS22 unrelated body motion preserves aligned seal evidence
+CS23 accepted check evidence without a final verdict is not a terminal candidate
+CS24 QA infrastructure failure cannot become a rejected check or verdict
+CS25 accepted/rejected check and final-verdict paths have symmetric phase count
 ```
 
 Tests must grow real Packet/corpse evidence through current helpers. Synthetic
@@ -432,7 +448,8 @@ disagreement with legacy manifest is counted, not repaired
 3. candidate-seal projection as unsupported until seal writer exists
 4. plan Packet/corpse boundary candidate
 5. shadow observer and exact ablation
-6. accepted/rejected build candidates after seal/QA contracts exist
+6. accepted/rejected check observations and final build candidates after the QA
+   evidence/verdict contracts exist
 7. lineage stage/software/root readers
 8. grown matched corpus and false-green audit
 9. separate authority-promotion decision
@@ -455,9 +472,8 @@ G8 post-seal body drift cannot erase the historical seal or advance QA
 ## 14. Explicit Deferrals
 
 ```text
-candidate seal implementation
-QA command execution and sandbox
-`qa-check.v0` record schema and final verdict writer
+candidate seal implementation outside its dedicated crystall
+QA native execution until its hostile/native gates pass
 root manifest authority replacement
 automatic recovery routing from missing requirements
 persistent lineage resume

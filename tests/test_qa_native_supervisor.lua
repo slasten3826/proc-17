@@ -1,0 +1,213 @@
+package.path = "./?.lua;./?/init.lua;" .. package.path
+
+local H = require("tests.support.red_contract")
+local catalog = require("tests.support.qa_control_catalog").native
+local fixtures = require("tests.support.qa_hostile_fixtures")
+local provider_ready, _, provider_build_code = os.execute(
+    "make -C native qa-provider-shell"
+)
+local provider, provider_err
+if provider_ready == true
+    and (provider_build_code == nil or provider_build_code == 0) then
+    provider, provider_err = H.optional_require("runtime.qa_provider")
+else
+    provider_err = "exact QA provider cold-build failed"
+end
+local suite = H.new("qa-native-supervisor")
+
+local function read(path)
+    local file, err = io.open(path, "rb")
+    if not file then
+        return nil, err
+    end
+    local bytes = file:read("*a")
+    file:close()
+    return bytes
+end
+
+local function command_ok(command)
+    local ok, _, code = os.execute(command)
+    return ok == true and (code == nil or code == 0)
+end
+
+local function require_source(path)
+    local source, err = read(path)
+    H.assert_true(source ~= nil, path .. " required: " .. tostring(err))
+    return source
+end
+
+local function require_provider()
+    provider = suite:require_module(provider, provider_err, "runtime.qa_provider")
+    H.assert_true(type(provider.availability) == "function", "provider availability")
+    H.assert_true(type(provider.probe) == "function", "provider probe")
+    H.assert_true(type(provider.run) == "function", "provider run")
+    return provider
+end
+
+local function native_witness(id, paths, target)
+    for _, path in ipairs(paths or {}) do
+        require_source(path)
+    end
+    H.assert_true(type(target) == "string" and target ~= "",
+        id .. " native test target required")
+    H.assert_true(command_ok("make -C native " .. target),
+        id .. " exact native hostile witness remains red")
+end
+
+local probes = {}
+
+probes.QN01 = function()
+    H.assert_eq(#fixtures.items, 26, "closed hostile fixture count")
+    for _, item in ipairs(fixtures.items) do
+        local bytes = assert(fixtures.read(item))
+        H.assert_eq(bytes:sub(1, #fixtures.marker), fixtures.marker,
+            "inert marker: " .. item.id)
+    end
+end
+
+probes.QN02 = function()
+    H.assert_true(command_ok("make -C native qa-wire-contract-syntax"),
+        "exact wire header constants must satisfy the compile-only contract")
+end
+
+probes.QN03 = function()
+    native_witness("QN03", {
+        "native/proc17_qa_wire.h",
+        "native/tests/test_proc17_qa_wire.c",
+    }, "qa-wire-test")
+end
+
+probes.QN04 = function()
+    local header = require_source("native/proc17_repository_handle_abi.h")
+    H.assert_contains(header, "PROC17_REPOSITORY_HANDLE_MAGIC", "handle magic")
+    H.assert_contains(header, "PROC17_REPOSITORY_HANDLE_ABI", "handle ABI")
+    H.assert_contains(require_source("native/proc17_repository_fs.c"),
+        "proc17_repository_handle_abi.h", "first hand owns shared prefix")
+    H.assert_contains(require_source("native/proc17_qa_launcher.c"),
+        "proc17_repository_handle_abi.h", "launcher borrows shared prefix")
+    native_witness("QN04", {"native/tests/test_proc17_qa_launcher.c"},
+        "qa-shared-abi-test")
+end
+
+probes.QN05 = function()
+    local source = require_source("native/proc17_qa_launcher.c")
+    for _, exact in ipairs({
+        "luaopen_proc17_qa_launcher",
+        "qa.native_launcher.v0",
+        "proc17.qa.launcher.lua54.v0",
+        "linux.qa_supervisor.lua54.v0",
+        "run_lua54_test_suite",
+    }) do
+        H.assert_contains(source, exact, "closed launcher ABI field")
+    end
+    native_witness("QN05", {"native/tests/test_proc17_qa_launcher.c"},
+        "qa-launcher-contract-test")
+end
+
+probes.QN06 = function()
+    H.assert_true(command_ok("make -C native qa-static-closure-test"),
+        "supervisor must be an exact static PIE with no dynamic closure")
+end
+
+probes.QN07 = function()
+    native_witness("QN07", {"native/proc17_qa_launcher.c"},
+        "qa-launcher-identity-test")
+end
+
+probes.QN08 = function()
+    local source = require_source("native/proc17_qa_launcher.c")
+    H.assert_contains(source, "execveat", "memory erasure boundary")
+    native_witness("QN08", {"native/tests/test_proc17_qa_launcher.c"},
+        "qa-launcher-exec-test")
+end
+
+probes.QN09 = function()
+    native_witness("QN09", {
+        "native/proc17_qa_launcher.c",
+        "native/tests/test_proc17_qa_launcher.c",
+    }, "qa-launcher-fd-test")
+end
+
+probes.QN10 = function()
+    local source = require_source("native/proc17_qa_supervisor.c")
+    for _, flag in ipairs({
+        "CLONE_NEWUSER", "CLONE_NEWNS", "CLONE_NEWPID",
+        "CLONE_NEWNET", "CLONE_NEWIPC", "CLONE_NEWUTS",
+    }) do
+        H.assert_contains(source, flag, "namespace flag")
+    end
+    native_witness("QN10", {"native/tests/test_proc17_qa_supervisor.c"},
+        "qa-supervisor-namespace-test")
+end
+
+probes.QN11 = function()
+    local source = require_source("native/proc17_qa_supervisor.c")
+    H.assert_contains(source, "MOUNT_ATTR_RDONLY", "read-only source")
+    H.assert_contains(source, "MOUNT_ATTR_NOEXEC", "non-executable source")
+    native_witness("QN11", {"native/tests/test_proc17_qa_supervisor.c"},
+        "qa-supervisor-mount-test")
+end
+
+probes.QN12 = function()
+    local source = require_source("native/proc17_qa_supervisor.c")
+    for _, exact in ipairs({"clearenv", "luaL_newstate", "package.cpath"}) do
+        H.assert_contains(source, exact, "fresh Lua closure")
+    end
+    native_witness("QN12", {"native/tests/test_proc17_qa_supervisor.c"},
+        "qa-supervisor-lua-test")
+end
+
+probes.QN13 = function()
+    require_source("native/proc17_qa_policy.h")
+    native_witness("QN13", {"native/tests/test_proc17_qa_supervisor.c"},
+        "qa-supervisor-seccomp-test")
+end
+
+probes.QN14 = function()
+    native_witness("QN14", {
+        "native/proc17_qa_policy.h",
+        "native/tests/test_proc17_qa_supervisor.c",
+    }, "qa-supervisor-limits-test")
+end
+
+probes.QN15 = function()
+    H.assert_true(command_ok("make -C native qa-host-contract-syntax"),
+        "host ABI compile probe")
+    local module = require_provider()
+    local environment, err = module.probe()
+    H.assert_true(environment ~= nil,
+        "exercised production environment probe required: " .. tostring(err))
+end
+
+local hostile_targets = {
+    QN16 = "qa-supervisor-basic-fixtures-test",
+    QN17 = "qa-supervisor-hostile-fixtures-test",
+    QN18 = "qa-supervisor-trusted-fault-test",
+    QN19 = "qa-supervisor-cleanup-ambiguity-test",
+    QN20 = "qa-supervisor-leak-loop-test",
+}
+
+for id, target in pairs(hostile_targets) do
+    probes[id] = function()
+        require_provider()
+        native_witness(id, {
+            "native/tests/test_proc17_qa_supervisor.c",
+            "native/tests/test_proc17_qa_launcher.c",
+        }, target)
+    end
+end
+
+for _, control in ipairs(catalog) do
+    local id, description = control[1], control[2]
+    assert(type(probes[id]) == "function", "missing QA native probe " .. id)
+    if not _G.PROC17_QA_RED_BATTERY
+        and (id == "QN17" or id == "QN18" or id == "QN19" or id == "QN20") then
+        suite:skip(id .. " " .. description,
+            "explicitly deferred after QN16-only promotion")
+    else
+        suite:check(id .. " " .. description, probes[id])
+    end
+end
+
+suite:finish()
+print("test_qa_native_supervisor ok")

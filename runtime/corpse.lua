@@ -1,4 +1,5 @@
 local digest = require("core.digest")
+local qa_schema = require("core.qa_schema")
 
 local corpse = {
     protocol_version = "corpse.v0",
@@ -95,6 +96,8 @@ function corpse.capture(instance, options)
         context = instance.work_context,
         stage_id = instance.stage_id,
         repository_id = instance.repository_id,
+        qa_contract_id = instance.qa_contract_id,
+        qa_contract = copy_value(instance.qa_contract),
         parent_packet_id = instance.parent_id,
         parent_corpse_id = instance.parent_corpse_id,
         ingress_carrier_id = instance.carrier_id,
@@ -143,6 +146,23 @@ function corpse.verify(record)
         or type(record.final_budget) ~= "table"
         or record.truth_status ~= "runtime_confirmed" then
         return nil, "invalid corpse record"
+    end
+    if (record.qa_contract_id == nil) ~= (record.qa_contract == nil) then
+        return nil, "invalid corpse QA contract projection"
+    end
+    if record.qa_contract ~= nil then
+        local normalized, normalized_err = qa_schema.normalize_contract(record.qa_contract)
+        if not normalized then
+            return nil, "invalid corpse QA contract: " .. tostring(normalized_err)
+        end
+        if not qa_schema.same(record.qa_contract, normalized)
+            or record.qa_contract_id ~= normalized.qa_contract_id
+            or normalized.lineage_id ~= record.lineage_id
+            or normalized.process_contract_id ~= record.process_contract_id
+            or normalized.context ~= record.context
+            or normalized.stage_id ~= record.stage_id then
+            return nil, "invalid corpse QA contract projection"
+        end
     end
     local actual, actual_err = digest.record(identity_projection(record))
     if not actual then

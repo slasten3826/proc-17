@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-native-module-attempt
+assert(package.cpath == "", "native module search path unexpectedly available")
+assert(package.loadlib == nil, "native module loader unexpectedly available")
+return true

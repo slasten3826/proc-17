@@ -54,6 +54,15 @@ function harness.new(name)
             #self.failures,
             #self.skips
         ))
+        if _G.PROC17_QA_RED_BATTERY
+            and type(_G.PROC17_QA_RED_COUNTS) == "table" then
+            _G.PROC17_QA_RED_COUNTS.green =
+                _G.PROC17_QA_RED_COUNTS.green + self.passes
+            _G.PROC17_QA_RED_COUNTS.red =
+                _G.PROC17_QA_RED_COUNTS.red + #self.failures
+            _G.PROC17_QA_RED_COUNTS.skip =
+                _G.PROC17_QA_RED_COUNTS.skip + #self.skips
+        end
         if #self.failures > 0 then
             error(table.concat(self.failures, "\n"), 0)
         end

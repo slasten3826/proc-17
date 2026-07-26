@@ -1,0 +1,6 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-allocator-exhaustion
+local blocks = {}
+while true do
+    blocks[#blocks + 1] = string.rep("x", 1024 * 1024)
+end

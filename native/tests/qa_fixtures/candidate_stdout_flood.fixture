@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-stdout-flood
+while true do
+    io.stdout:write(string.rep("o", 8192))
+end

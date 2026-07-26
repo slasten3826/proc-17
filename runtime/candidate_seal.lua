@@ -3,18 +3,11 @@ local capabilities = require("runtime.repository_capability")
 local digest = require("core.digest")
 local json = require("core.json")
 local packet_core = require("core.packet")
+local repository_inventory = require("runtime.repository_inventory")
 local repository_intent = require("runtime.repository_intent")
 local substrate_contract = require("substrates.contract")
 
-local default_inventory_bounds = {
-    protocol_version = "repository.inventory_bounds.v0",
-    max_entries = 256,
-    max_depth = 64,
-    max_path_bytes = 1024,
-    max_component_bytes = 255,
-    max_file_bytes = 1048576,
-    max_total_bytes = 8388608,
-}
+local default_inventory_bounds = repository_inventory.default_bounds
 
 local validation_inventory_ceiling = {
     protocol_version = "repository.inventory_bounds.v0",
@@ -28,7 +21,7 @@ local validation_inventory_ceiling = {
 
 local candidate_seal = {
     request_protocol = "repository.candidate_seal_request.v0",
-    inventory_protocol = "repository.seal_inventory.v0",
+    inventory_protocol = repository_inventory.protocol,
     seal_protocol = "repository.candidate_seal.v0",
     alignment_protocol = "repository.candidate_seal_alignment.v0",
     result_protocol = "repository.candidate_seal_result.v0",
@@ -65,27 +58,6 @@ local bounds_keys = {
     max_path_bytes = true, max_component_bytes = true,
     max_file_bytes = true, max_total_bytes = true,
 }
-local provider_inventory_keys = {
-    protocol_version = true, operation = true, outcome = true,
-    root_before = true, root_after = true, stable = true, entries = true,
-    bounds_observed = true, mutation_primitive_entered = true,
-    published = true, cost = true,
-}
-local provider_entry_keys = {
-    relative_path = true, kind = true, identity_before = true,
-    identity_after = true, bytes = true, content = true,
-}
-local provider_entry_required = {
-    relative_path = true, kind = true, identity_before = true,
-    identity_after = true,
-}
-local observed_bounds_keys = {
-    max_entries = true, max_depth = true, max_path_bytes = true,
-    max_component_bytes = true, max_file_bytes = true,
-    max_total_bytes = true, observed_entries = true,
-    observed_total_bytes = true,
-}
-local identity_keys = {device = true, inode = true}
 local cost_keys = {tool_calls = true, file_writes = true, time_ms = true}
 local provider_error_keys = {
     protocol_version = true, class = true, code = true, stage = true,
@@ -99,6 +71,7 @@ local provider_error_required = {
 local inventory_keys = {
     protocol_version = true, inventory_id = true, request_id = true,
     root_fingerprint = true, root_continuity = true, entries = true,
+    inventory_bounds = true,
     observed_entry_count = true, observed_total_bytes = true,
     inventory_digest = true, source_refs = true, event_truth_status = true,
 }
@@ -112,7 +85,8 @@ local seal_keys = {
     context = true, stage_id = true, repository_id = true,
     root_authority_id = true, lifecycle_id = true, root_fingerprint = true,
     artifact_set_id = true, request_id = true, inventory_id = true,
-    inventory_digest = true, authority_closure_ref = true, artifacts = true,
+    inventory_digest = true, inventory_bounds = true,
+    authority_closure_ref = true, artifacts = true,
     source_refs = true, event_truth_status = true, content_truth_status = true,
 }
 local seal_artifact_keys = {
@@ -237,29 +211,7 @@ local function trace_event(instance, id)
 end
 
 local function normalize_bounds(value)
-    value = value or default_inventory_bounds
-    local ok, err = exact_keys(value, bounds_keys, bounds_keys,
-        "candidate inventory bounds")
-    if not ok then
-        return nil, err
-    end
-    if value.protocol_version ~= "repository.inventory_bounds.v0" then
-        return nil, "unsupported candidate inventory bounds"
-    end
-    for _, key in ipairs({
-        "max_entries", "max_depth", "max_path_bytes", "max_component_bytes",
-        "max_file_bytes", "max_total_bytes",
-    }) do
-        if not positive_integer(value[key]) then
-            return nil, "candidate inventory bound is invalid: " .. key
-        end
-    end
-    if value.max_entries > 4096 or value.max_depth > 64
-        or value.max_path_bytes > 1024 or value.max_component_bytes > 255
-        or value.max_file_bytes > 1048576 or value.max_total_bytes > 67108864 then
-        return nil, "candidate inventory bounds exceed trusted ceiling"
-    end
-    return copy_value(value)
+    return repository_inventory.normalize_bounds(value)
 end
 
 local function expected_directories(files)
@@ -614,239 +566,6 @@ function candidate_seal.validate_request(instance, value)
     return true
 end
 
-local function validate_identity(value, name)
-    local ok, err = exact_keys(value, identity_keys, identity_keys, name)
-    if not ok then
-        return nil, err
-    end
-    if not non_negative_integer(value.device)
-        or not non_negative_integer(value.inode) then
-        return nil, name .. " is invalid"
-    end
-    return true
-end
-
-local function identity_ref(value)
-    local value_digest, value_err = digest.record(value)
-    if not value_digest then
-        return nil, value_err
-    end
-    return "filesystem-identity:" .. value_digest
-end
-
-local function path_depth_and_component(path)
-    local depth, component_max = 0, 0
-    for component in path:gmatch("[^/]+") do
-        depth = depth + 1
-        component_max = math.max(component_max, #component)
-    end
-    return depth, component_max
-end
-
-local function normalize_provider_inventory(registry, lease, request, raw)
-    local raw_ok, raw_err = exact_keys(raw, provider_inventory_keys,
-        provider_inventory_keys, "repository provider inventory")
-    if not raw_ok then
-        return nil, raw_err, "malformed"
-    end
-    if raw.protocol_version ~= "repository.provider_inventory_result.v0"
-        or raw.operation ~= "inventory_tree"
-        or (raw.outcome ~= "observed" and raw.outcome ~= "bound_exceeded")
-        or type(raw.stable) ~= "boolean"
-        or raw.mutation_primitive_entered ~= false
-        or raw.published ~= false then
-        return nil, "repository provider inventory envelope is contradictory",
-            "malformed"
-    end
-    local before_ok, before_err = validate_identity(raw.root_before,
-        "inventory root_before")
-    if not before_ok then
-        return nil, before_err, "malformed"
-    end
-    local after_ok, after_err = validate_identity(raw.root_after,
-        "inventory root_after")
-    if not after_ok then
-        return nil, after_err, "malformed"
-    end
-    local root_match, root_match_err = capabilities.candidate_inventory_root_matches(
-        registry, lease, raw.root_before, raw.root_after)
-    if root_match == nil then
-        return nil, root_match_err, "malformed"
-    end
-    if root_match ~= true then
-        return nil, "repository provider inventory contradicts trusted root",
-            "identity"
-    end
-    local cost_ok, cost_err = exact_keys(raw.cost, cost_keys, cost_keys,
-        "repository inventory cost")
-    if not cost_ok then
-        return nil, cost_err, "malformed"
-    end
-    if raw.cost.tool_calls ~= 1 or raw.cost.file_writes ~= 0
-        or not non_negative_number(raw.cost.time_ms) then
-        return nil, "repository inventory economics are impossible", "malformed"
-    end
-    local observed_ok, observed_err = exact_keys(raw.bounds_observed,
-        observed_bounds_keys, observed_bounds_keys, "repository observed bounds")
-    if not observed_ok then
-        return nil, observed_err, "malformed"
-    end
-    for key in pairs(bounds_keys) do
-        if key ~= "protocol_version"
-            and raw.bounds_observed[key] ~= request.inventory_bounds[key] then
-            return nil, "repository provider changed inventory bound: " .. key,
-                "malformed"
-        end
-    end
-    if not non_negative_integer(raw.bounds_observed.observed_entries)
-        or not non_negative_integer(raw.bounds_observed.observed_total_bytes) then
-        return nil, "repository observed bounds contain invalid counts", "malformed"
-    end
-    local array_ok, array_err = strict_array(raw.entries,
-        "repository provider inventory entries")
-    if not array_ok then
-        return nil, array_err, "malformed"
-    end
-
-    local entries, seen = {}, {}
-    local total_bytes = 0
-    local previous_path
-    local stable = raw.stable and same(raw.root_before, raw.root_after)
-    for index, entry in ipairs(raw.entries) do
-        local entry_ok, entry_err = exact_keys(entry, provider_entry_keys,
-            provider_entry_required, "repository provider inventory entry")
-        if not entry_ok then
-            return nil, entry_err, "malformed"
-        end
-        local path, path_err = repository_intent.validate_relative_path(
-            entry.relative_path)
-        if not path then
-            return nil, path_err, "malformed"
-        end
-        if seen[path] or (previous_path and path <= previous_path) then
-            return nil, "repository provider inventory order is not canonical",
-                "malformed"
-        end
-        seen[path], previous_path = true, path
-        if entry.kind ~= "directory" and entry.kind ~= "regular_file"
-            and entry.kind ~= "symlink" and entry.kind ~= "special" then
-            return nil, "repository provider inventory kind is invalid", "malformed"
-        end
-        local first_ok, first_err = validate_identity(entry.identity_before,
-            "inventory entry identity_before")
-        if not first_ok then
-            return nil, first_err, "malformed"
-        end
-        local last_ok, last_err = validate_identity(entry.identity_after,
-            "inventory entry identity_after")
-        if not last_ok then
-            return nil, last_err, "malformed"
-        end
-        stable = stable and same(entry.identity_before, entry.identity_after)
-        local depth, component_max = path_depth_and_component(path)
-        if index > request.inventory_bounds.max_entries
-            or depth > request.inventory_bounds.max_depth
-            or #path > request.inventory_bounds.max_path_bytes
-            or component_max > request.inventory_bounds.max_component_bytes then
-            return nil, "repository provider exceeded path inventory bounds",
-                "malformed"
-        end
-        local bytes, sha256
-        if entry.kind == "regular_file" then
-            if not non_negative_integer(entry.bytes)
-                or type(entry.content) ~= "string"
-                or #entry.content ~= entry.bytes
-                or entry.bytes > request.inventory_bounds.max_file_bytes then
-                return nil, "repository provider returned invalid bounded file",
-                    "malformed"
-            end
-            total_bytes = total_bytes + entry.bytes
-            if total_bytes > request.inventory_bounds.max_total_bytes then
-                return nil, "repository provider exceeded aggregate byte bound",
-                    "malformed"
-            end
-            sha256 = digest.sha256(entry.content)
-            if not sha256 then
-                return nil, "repository file digest failed", "malformed"
-            end
-            bytes = entry.bytes
-        elseif entry.bytes ~= nil or entry.content ~= nil then
-            return nil, "repository non-file entry exposed content", "malformed"
-        end
-        local stable_ref, stable_ref_err = identity_ref({
-            before = entry.identity_before,
-            after = entry.identity_after,
-        })
-        if not stable_ref then
-            return nil, stable_ref_err, "malformed"
-        end
-        entries[#entries + 1] = {
-            relative_path = path,
-            kind = entry.kind,
-            bytes = bytes,
-            sha256 = sha256,
-            stable_identity_ref = stable_ref,
-        }
-    end
-    if raw.bounds_observed.observed_entries ~= #entries
-        or raw.bounds_observed.observed_total_bytes ~= total_bytes then
-        return nil, "repository provider observed bounds disagree with entries",
-            "malformed"
-    end
-    local before_ref = assert(identity_ref(raw.root_before))
-    local after_ref = assert(identity_ref(raw.root_after))
-    if not stable then
-        return {
-            status = "unstable",
-            root_before_ref = before_ref,
-            root_after_ref = after_ref,
-        }
-    end
-    if raw.outcome == "bound_exceeded" then
-        return {
-            status = "bound_exceeded",
-            root_before_ref = before_ref,
-            root_after_ref = after_ref,
-        }
-    end
-
-    local inventory_seed = {
-        request_id = request.request_id,
-        root_fingerprint = request.root_fingerprint,
-        entries = entries,
-        observed_entry_count = #entries,
-        observed_total_bytes = total_bytes,
-    }
-    local inventory_digest, inventory_digest_err = digest.record(inventory_seed)
-    if not inventory_digest then
-        return nil, inventory_digest_err, "malformed"
-    end
-    local inventory = {
-        protocol_version = candidate_seal.inventory_protocol,
-        inventory_id = nil,
-        request_id = request.request_id,
-        root_fingerprint = request.root_fingerprint,
-        root_continuity = "proven",
-        entries = entries,
-        observed_entry_count = #entries,
-        observed_total_bytes = total_bytes,
-        inventory_digest = inventory_digest,
-        source_refs = sorted_unique({request.request_id, before_ref, after_ref}),
-        event_truth_status = "runtime_confirmed",
-    }
-    local inventory_id, inventory_id_err = digest.record(inventory)
-    if not inventory_id then
-        return nil, inventory_id_err, "malformed"
-    end
-    inventory.inventory_id = "repository-seal-inventory:" .. inventory_id
-    return {
-        status = "observed",
-        inventory = inventory,
-        root_before_ref = before_ref,
-        root_after_ref = after_ref,
-    }
-end
-
 local function compare_inventory(request, inventory)
     local expected = {}
     for _, file in ipairs(request.expected_files) do
@@ -974,6 +693,7 @@ local function seal_from(request, inventory, closure)
         request_id = request.request_id,
         inventory_id = inventory.inventory_id,
         inventory_digest = inventory.inventory_digest,
+        inventory_bounds = copy_value(inventory.inventory_bounds),
         authority_closure_ref = closure.closure_id,
         artifacts = artifacts,
         source_refs = sorted_unique({
@@ -1051,6 +771,11 @@ local function normalize_seal(value, require_identity)
     end
     local normalized = copy_value(value)
     normalized.candidate_seal_id = nil
+    local bounds, bounds_err = normalize_bounds(value.inventory_bounds)
+    if not bounds then
+        return nil, bounds_err
+    end
+    normalized.inventory_bounds = bounds
     normalized.artifacts = artifacts
     normalized.source_refs = refs
     local seal_digest, digest_err = digest.record(normalized)
@@ -1368,9 +1093,42 @@ function candidate_seal.execute(instance, request, services)
         end
         return nil, typed, false
     end
+    if type(raw) ~= "table" or getmetatable(raw) ~= nil then
+        local raw_err = "candidate inventory result must be a plain table"
+        quarantine(registry, lease, {
+            code = "malformed_candidate_inventory_result",
+            phase = "inventory_tree",
+            detail = raw_err,
+        })
+        return nil, raw_err, true
+    end
 
+    local root_match, root_match_err = capabilities.candidate_inventory_root_matches(
+        registry, lease, raw.root_before, raw.root_after)
+    if root_match == nil then
+        quarantine(registry, lease, {
+            code = "malformed_candidate_inventory_result",
+            phase = "inventory_tree",
+            detail = root_match_err,
+        })
+        return nil, root_match_err, true
+    end
+    if root_match ~= true then
+        local root_err = "repository provider inventory contradicts trusted root"
+        quarantine(registry, lease, {
+            code = "candidate_inventory_root_contradiction",
+            phase = "inventory_tree",
+            detail = root_err,
+        })
+        return nil, root_err, true
+    end
     local observation, observation_err, observation_class =
-        normalize_provider_inventory(registry, lease, normalized, raw)
+        repository_inventory.normalize_provider_result(raw, {
+            request_id = normalized.request_id,
+            root_fingerprint = normalized.root_fingerprint,
+            inventory_bounds = normalized.inventory_bounds,
+            root_continuity = "proven",
+        })
     if not observation then
         quarantine(registry, lease, {
             code = observation_class == "identity"
@@ -1438,6 +1196,7 @@ function candidate_seal.execute(instance, request, services)
         transaction_id = transaction_id,
         inventory_id = observation.inventory.inventory_id,
         inventory_digest = observation.inventory.inventory_digest,
+        inventory_bounds = copy_value(observation.inventory.inventory_bounds),
         root_fingerprint = normalized.root_fingerprint,
         comparison = "exact",
         source_refs = sorted_unique({

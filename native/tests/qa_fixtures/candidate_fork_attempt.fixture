@@ -1,0 +1,4 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-fork-attempt
+assert(io.popen == nil, "process creation API unexpectedly available")
+return true

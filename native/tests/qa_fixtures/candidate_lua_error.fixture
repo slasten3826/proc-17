@@ -1,0 +1,4 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-lua-error
+local broken = nil
+return broken.field

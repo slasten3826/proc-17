@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-fd-escape
+local file = io.open("/proc/self/fd", "rb")
+assert(file == nil, "descriptor namespace unexpectedly visible")
+return true

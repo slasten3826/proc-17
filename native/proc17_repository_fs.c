@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <linux/fs.h>
 #include <linux/openat2.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -19,6 +20,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "proc17_repository_handle_abi.h"
+
 #ifdef PROC17_REPOSITORY_FS_TESTING
 #include "proc17_repository_fs_test.h"
 #endif
@@ -27,7 +30,7 @@
 #define PROC17_NATIVE_ABI "proc17.repository.fs.lua54.v0"
 #define PROC17_PROVIDER_ID "linux.openat2.renameat2.v0"
 #define PROC17_CONTRACT_ID "repository.provider.create_readback.v0"
-#define PROC17_HANDLE_METATABLE "proc17.repository.handle.internal.v0"
+#define PROC17_HANDLE_METATABLE PROC17_REPOSITORY_HANDLE_METATABLE
 #define PROC17_HANDLE_TAG "repository.handle.v0"
 
 #define PROC17_MAX_PROJECT_BASE_BYTES 4096U
@@ -54,15 +57,14 @@ struct proc17_identity {
 };
 
 struct proc17_repository_handle {
-    int project_base_fd;
-    int repository_fd;
-    int closed;
+    struct proc17_repository_handle_prefix_v0 abi;
     size_t project_base_length;
     size_t repository_path_length;
-    struct proc17_identity project_base_identity;
-    struct proc17_identity repository_identity;
     char paths[];
 };
+
+_Static_assert(offsetof(struct proc17_repository_handle, abi) == 0,
+    "repository handle ABI prefix must be first");
 
 struct proc17_create_result {
     int succeeded;
@@ -603,13 +605,35 @@ static const char *open_error_code(int error_number)
     }
 }
 
-static int identity_equal(
-    const struct proc17_identity *left,
-    const struct proc17_identity *right)
+static int handle_project_identity_equal(
+    const struct proc17_repository_handle *handle,
+    const struct proc17_identity *identity)
 {
-    return left->device == right->device
-        && left->inode == right->inode
-        && left->mount_id == right->mount_id;
+    return handle->abi.project_device == (uint64_t)(uintmax_t)identity->device
+        && handle->abi.project_inode == (uint64_t)(uintmax_t)identity->inode
+        && handle->abi.project_mount_id == identity->mount_id;
+}
+
+static int handle_repository_identity_equal(
+    const struct proc17_repository_handle *handle,
+    const struct proc17_identity *identity)
+{
+    return handle->abi.repository_device == (uint64_t)(uintmax_t)identity->device
+        && handle->abi.repository_inode == (uint64_t)(uintmax_t)identity->inode
+        && handle->abi.repository_mount_id == identity->mount_id;
+}
+
+static void handle_store_identities(
+    struct proc17_repository_handle *handle,
+    const struct proc17_identity *project,
+    const struct proc17_identity *repository)
+{
+    handle->abi.project_device = (uint64_t)(uintmax_t)project->device;
+    handle->abi.project_inode = (uint64_t)(uintmax_t)project->inode;
+    handle->abi.project_mount_id = project->mount_id;
+    handle->abi.repository_device = (uint64_t)(uintmax_t)repository->device;
+    handle->abi.repository_inode = (uint64_t)(uintmax_t)repository->inode;
+    handle->abi.repository_mount_id = repository->mount_id;
 }
 
 static uint64_t monotonic_milliseconds(void)
@@ -989,8 +1013,8 @@ static int create_file_transaction(
             saved_error, 0, 0, started);
         return -1;
     }
-    if (!identity_equal(&project_base_identity, &handle->project_base_identity)
-        || !identity_equal(&repository_identity, &handle->repository_identity)) {
+    if (!handle_project_identity_equal(handle, &project_base_identity)
+        || !handle_repository_identity_equal(handle, &repository_identity)) {
         (void)close_pair(&project_base_fd, &repository_fd);
         set_create_failure(result, "world", "root_changed",
             "compare_root_identity", ESTALE, 0, 0, started);
@@ -1715,8 +1739,8 @@ static int reobserve_named_target(
         *failure_stage = open_stage;
         goto fail;
     }
-    if (!identity_equal(&project_base_identity, &handle->project_base_identity)
-        || !identity_equal(root_identity, &handle->repository_identity)) {
+    if (!handle_project_identity_equal(handle, &project_base_identity)
+        || !handle_repository_identity_equal(handle, root_identity)) {
         saved_error = ESTALE;
         *failure_code = "root_changed";
         *failure_stage = "compare_root_identity";
@@ -1897,8 +1921,8 @@ static int read_file_transaction(
         set_read_failure(result, failure_code, open_stage, saved_error, started);
         return -1;
     }
-    if (!identity_equal(&project_base_identity, &handle->project_base_identity)
-        || !identity_equal(&repository_identity, &handle->repository_identity)) {
+    if (!handle_project_identity_equal(handle, &project_base_identity)
+        || !handle_repository_identity_equal(handle, &repository_identity)) {
         (void)close_pair(&project_base_fd, &repository_fd);
         set_read_failure(result, "root_changed", "compare_root_identity",
             ESTALE, started);
@@ -2172,11 +2196,11 @@ static int close_handle_descriptors(struct proc17_repository_handle *handle)
 {
     int result;
 
-    if (handle->closed) {
+    if (handle->abi.closed) {
         return 0;
     }
-    result = close_pair(&handle->project_base_fd, &handle->repository_fd);
-    handle->closed = 1;
+    result = close_pair(&handle->abi.project_base_fd, &handle->abi.repository_fd);
+    handle->abi.closed = 1;
     return result;
 }
 
@@ -2193,7 +2217,7 @@ static int handle_tostring(lua_State *L)
     struct proc17_repository_handle *handle = check_handle(L, 1);
 
     lua_pushliteral(L, "repository.handle.v0<opaque:");
-    lua_pushstring(L, handle->closed ? "closed>" : "open>");
+    lua_pushstring(L, handle->abi.closed ? "closed>" : "open>");
     lua_concat(L, 2);
     return 1;
 }
@@ -2205,6 +2229,8 @@ static int open_repository(lua_State *L)
     const char *project_base = luaL_checklstring(L, 1, &project_base_length);
     const char *repository_path = luaL_checklstring(L, 2, &repository_path_length);
     struct proc17_repository_handle *handle;
+    struct proc17_identity project_base_identity;
+    struct proc17_identity repository_identity;
     const char *stage;
 
     if (!valid_project_base(project_base, project_base_length)
@@ -2216,8 +2242,11 @@ static int open_repository(lua_State *L)
     handle = (struct proc17_repository_handle *)lua_newuserdatauv(L,
         sizeof(*handle) + project_base_length + repository_path_length + 2, 0);
     memset(handle, 0, sizeof(*handle));
-    handle->project_base_fd = -1;
-    handle->repository_fd = -1;
+    handle->abi.abi_magic = PROC17_REPOSITORY_HANDLE_MAGIC;
+    handle->abi.abi_version = PROC17_REPOSITORY_HANDLE_ABI;
+    handle->abi.struct_bytes = (uint32_t)sizeof(handle->abi);
+    handle->abi.project_base_fd = -1;
+    handle->abi.repository_fd = -1;
     handle->project_base_length = project_base_length;
     handle->repository_path_length = repository_path_length;
     memcpy(handle->paths, project_base, project_base_length);
@@ -2229,8 +2258,8 @@ static int open_repository(lua_State *L)
     lua_setmetatable(L, -2);
 
     if (open_identity_pair(project_base, repository_path,
-            &handle->project_base_fd, &handle->repository_fd,
-            &handle->project_base_identity, &handle->repository_identity,
+            &handle->abi.project_base_fd, &handle->abi.repository_fd,
+            &project_base_identity, &repository_identity,
             &stage) != 0) {
         int saved = errno;
         const char *code = open_error_code(saved);
@@ -2238,17 +2267,18 @@ static int open_repository(lua_State *L)
         (void)close_handle_descriptors(handle);
         return push_error(L, "world", code, stage, saved, 1);
     }
-    if (!identity_representable(&handle->project_base_identity)
-        || !identity_representable(&handle->repository_identity)) {
+    if (!identity_representable(&project_base_identity)
+        || !identity_representable(&repository_identity)) {
         (void)close_handle_descriptors(handle);
         return push_error(L, "contract", "identity_unrepresentable",
             "project_root_identity", EOVERFLOW, 1);
     }
+    handle_store_identities(handle, &project_base_identity, &repository_identity);
 
     lua_createtable(L, 0, 4);
-    push_identity(L, &handle->project_base_identity);
+    push_identity(L, &project_base_identity);
     lua_setfield(L, -2, "project_base");
-    push_identity(L, &handle->repository_identity);
+    push_identity(L, &repository_identity);
     lua_setfield(L, -2, "root");
     lua_pushlstring(L, repository_path, repository_path_length);
     lua_setfield(L, -2, "repository_path");
@@ -2266,7 +2296,7 @@ static int revalidate(lua_State *L)
     int project_base_fd;
     int repository_fd;
 
-    if (handle->closed) {
+    if (handle->abi.closed) {
         return push_error(L, "contract", "handle_closed",
             "revalidate_handle", 0, 0);
     }
@@ -2278,12 +2308,8 @@ static int revalidate(lua_State *L)
             ? "provider_unavailable" : "root_changed";
         return push_error(L, "world", code, stage, saved, 1);
     }
-    if (project_base_identity.device != handle->project_base_identity.device
-        || project_base_identity.inode != handle->project_base_identity.inode
-        || project_base_identity.mount_id != handle->project_base_identity.mount_id
-        || repository_identity.device != handle->repository_identity.device
-        || repository_identity.inode != handle->repository_identity.inode
-        || repository_identity.mount_id != handle->repository_identity.mount_id) {
+    if (!handle_project_identity_equal(handle, &project_base_identity)
+        || !handle_repository_identity_equal(handle, &repository_identity)) {
         (void)close_pair(&project_base_fd, &repository_fd);
         return push_error(L, "world", "root_changed",
             "compare_root_identity", ESTALE, 1);
@@ -2319,7 +2345,7 @@ static int create_text_file(lua_State *L)
     lua_Integer requested_mode;
     struct proc17_create_result result;
 
-    if (handle->closed) {
+    if (handle->abi.closed) {
         return push_error(L, "contract", "handle_closed",
             "create_handle", 0, 0);
     }
@@ -2374,7 +2400,7 @@ static int read_text_file(lua_State *L)
     struct proc17_read_result result;
     const char *target_kind;
 
-    if (handle->closed) {
+    if (handle->abi.closed) {
         return push_error(L, "contract", "handle_closed",
             "read_handle", 0, 0);
     }
@@ -2457,7 +2483,7 @@ static int inventory_tree(lua_State *L)
 
     memset(&first, 0, sizeof(first));
     memset(&second, 0, sizeof(second));
-    if (handle->closed) {
+    if (handle->abi.closed) {
         return push_error(L, "contract", "handle_closed",
             "inventory_handle", 0, 0);
     }
@@ -2496,8 +2522,8 @@ static int inventory_tree(lua_State *L)
             || saved_error == ENOTSUP) ? "provider_unavailable" : "root_changed";
         goto fail;
     }
-    if (!identity_equal(&project_before, &handle->project_base_identity)
-        || !identity_equal(&root_before, &handle->repository_identity)) {
+    if (!handle_project_identity_equal(handle, &project_before)
+        || !handle_repository_identity_equal(handle, &root_before)) {
         saved_error = ESTALE;
         failure_stage = "compare_root_identity";
         failure_code = "root_changed";
@@ -2580,8 +2606,8 @@ static int inventory_tree(lua_State *L)
         failure_code = "root_changed";
         goto fail;
     }
-    if (!identity_equal(&project_after, &handle->project_base_identity)
-        || !identity_equal(&root_after, &handle->repository_identity)) {
+    if (!handle_project_identity_equal(handle, &project_after)
+        || !handle_repository_identity_equal(handle, &root_after)) {
         saved_error = ESTALE;
         failure_stage = "revalidate_inventory_root";
         failure_code = "root_changed";
@@ -3081,26 +3107,32 @@ static struct proc17_repository_handle *create_test_handle(
     size_t repository_path_length = strlen(repository_path);
     struct proc17_repository_handle *handle = calloc(1,
         sizeof(*handle) + project_base_length + repository_path_length + 2U);
+    struct proc17_identity project_base_identity;
+    struct proc17_identity repository_identity;
     const char *stage;
 
     if (handle == NULL) {
         return NULL;
     }
-    handle->project_base_fd = -1;
-    handle->repository_fd = -1;
+    handle->abi.abi_magic = PROC17_REPOSITORY_HANDLE_MAGIC;
+    handle->abi.abi_version = PROC17_REPOSITORY_HANDLE_ABI;
+    handle->abi.struct_bytes = (uint32_t)sizeof(handle->abi);
+    handle->abi.project_base_fd = -1;
+    handle->abi.repository_fd = -1;
     handle->project_base_length = project_base_length;
     handle->repository_path_length = repository_path_length;
     memcpy(handle->paths, project_base, project_base_length + 1U);
     memcpy(handle->paths + project_base_length + 1U,
         repository_path, repository_path_length + 1U);
     if (open_identity_pair(project_base, repository_path,
-            &handle->project_base_fd, &handle->repository_fd,
-            &handle->project_base_identity, &handle->repository_identity,
+            &handle->abi.project_base_fd, &handle->abi.repository_fd,
+            &project_base_identity, &repository_identity,
             &stage) != 0) {
         (void)stage;
         free(handle);
         return NULL;
     }
+    handle_store_identities(handle, &project_base_identity, &repository_identity);
     return handle;
 }
 

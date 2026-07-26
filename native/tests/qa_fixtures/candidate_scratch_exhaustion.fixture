@@ -1,0 +1,10 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-scratch-exhaustion
+local index = 0
+while true do
+    index = index + 1
+    local path = os.getenv("TMPDIR") .. "/entry-" .. tostring(index)
+    local file = assert(io.open(path, "wb"))
+    assert(file:write(string.rep("s", 1024 * 1024)))
+    assert(file:close())
+end

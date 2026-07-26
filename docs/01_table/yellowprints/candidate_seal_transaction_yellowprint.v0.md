@@ -17,6 +17,10 @@ crystallized as:
   docs/02_crystall/blueprints/candidate_seal_transaction.v0.md
 amended 2026-07-22: historical seal finality is separated from current
   repository-artifact alignment
+amended 2026-07-26: normalized inventory bounds are committed through
+  inventory, closure and body seal for exact QA reobservation
+amendment gate record:
+  docs/00_chaos/qa_first_candidate_table_cross_audit_2026-07-26.md
 ```
 
 Primary chaos source:
@@ -35,6 +39,8 @@ repository_candidate_lifecycle_yellowprint.v0.md
 completion_scope_candidate_seal_yellowprint.v0.md
 capability_safe_repository_hands_yellowprint.v0.md
 stage_transition_generation_recovery_yellowprint.v0.md
+qa_detached_source_staging_yellowprint.v0.md
+qa_provider_candidate_transaction_yellowprint.v0.md
 ```
 
 This table refines the transaction, failure and control surfaces in
@@ -62,6 +68,7 @@ S15 exact idempotence requires request, private closure and body event agreement
 S16 quarantine uses existing Packet effect_failure mortality
 S17 seal confirms identity/closure, not semantic software correctness
 S18 QA remains absent until a later read-only capability contract
+S19 normalized inventory bounds participate in inventory, closure and seal identity
 ```
 
 ## 1. Closed Physical Claim
@@ -203,6 +210,7 @@ The adapter validates the provider result and produces:
   inventory_id = "repository-seal-inventory:<sha256>",
   request_id = string,
   root_fingerprint = string,
+  inventory_bounds = bounded_contract,
   root_continuity = "proven",
   entries = {
     {
@@ -224,6 +232,11 @@ The adapter validates the provider result and produces:
 Canonical entry order is path byte order after the declared path policy. Raw
 content, handles, absolute paths and provider callbacks are absent.
 
+`inventory_bounds` is the exact normalized request contract used for the host
+observation. It participates in both `inventory_digest` and `inventory_id`.
+Equal entries observed under different bounds are not the same inventory
+evidence.
+
 ### 3.4 Closure receipt
 
 After exact comparison, the registry commits the private lifecycle and returns
@@ -242,6 +255,7 @@ a detached receipt:
   lifecycle_revision_after = integer,
   inventory_id = string,
   inventory_digest = string,
+  inventory_bounds = bounded_contract,
   state = "sealed",
   source_refs = string[],
   event_truth_status = "runtime_confirmed",
@@ -275,6 +289,7 @@ state when the body verifies it.
   request_id = string,
   inventory_id = string,
   inventory_digest = string,
+  inventory_bounds = bounded_contract,
   authority_closure_ref = string,
 
   artifacts = {
@@ -297,6 +312,32 @@ state when the body verifies it.
 
 `mixed` preserves that exact bytes/closure are runtime-confirmed while the
 software meaning of those bytes originated as semantic material.
+
+### 3.6 2026-07-26 bounds commitment amendment
+
+The original v0 implementation consumed `inventory_bounds` while sealing but
+did not preserve them in normalized inventory, closure or body seal. Future QA
+therefore could not prove that its pre/post reobservation used the same
+bounded contract.
+
+Before provider execution is promoted, one exact normalized bounds record is
+now carried through all three immutable evidence surfaces:
+
+```text
+seal request.inventory_bounds
+  == normalized inventory.inventory_bounds
+  == private closure.inventory_bounds
+  == body candidate seal.inventory_bounds
+  == QA source binding.inventory_bounds
+```
+
+The full bounded record, not only a caller-supplied digest, is retained so the
+repository provider can execute the later pre/post observations. Every
+containing identity commits to it. The private closure remains the authority
+writer; the body seal is its immutable public join, not a second mutable truth.
+
+This is a pre-D schema refinement of in-memory/unreleased v0 evidence. No
+persistent seal history is rewritten.
 
 ## 4. Exact-Tree Inventory Contract
 
@@ -593,6 +634,7 @@ No record is written without a named reader.
 | ST19 | file grows/replaced during read | quarantine |
 | ST20 | root replacement | quarantine |
 | ST21 | entry/depth/path/byte bound | typed bounded result; active only with dual proof |
+| ST21a | identical entries observed under different normalized bounds | different inventory identity; closure/seal cross-join denied |
 | ST22 | raw file bytes searched in public trace/receipt | absent |
 
 ### Commit/idempotence controls

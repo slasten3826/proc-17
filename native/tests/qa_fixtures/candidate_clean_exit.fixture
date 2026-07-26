@@ -1,0 +1,4 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-clean-exit
+assert(_VERSION == "Lua 5.4")
+return true

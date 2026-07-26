@@ -1,0 +1,4 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: trusted-postflight-source-drift
+fault_kind=postflight_source_drift
+source_stable=false

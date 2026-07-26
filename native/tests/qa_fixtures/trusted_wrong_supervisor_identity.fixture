@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: trusted-wrong-supervisor-identity
+fault_kind=wrong_supervisor_identity
+supervisor_abi=proc17.qa.supervisor.wrong
+supervisor_digest=sha256:0000000000000000000000000000000000000000000000000000000000000000

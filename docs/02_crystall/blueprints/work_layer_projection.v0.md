@@ -16,13 +16,19 @@ manifest authority: forbidden
 amended 2026-07-21: F3 process_contract_id separated from semantic context
 audit source: docs/00_chaos/fable_preimplementation_crystall_audit_raw_2026-07-21.md
 F4 amendment: build ◈ assembles a final rejected verdict; build ▲ requires that
-  verdict and no standalone failure crystal
+  verdict and no standalone failure crystal; the 2026-07-23 QA amendment extends
+  the same crystallization phase symmetrically to accepted check evidence
 F4 decision: docs/00_chaos/f4_rejected_generation_terminal_projection_notes_2026-07-21.md
 2026-07-21 cross-table documentary gate: satisfied
 amended 2026-07-22: artifact-set and candidate-seal reasons consume the new
   derived set and dedicated immutable seal event; they remain pure projections
 amended 2026-07-22: post-seal body alignment is explicit; divergence preserves
   candidate scope and blocks both materialization and QA advancement
+amended 2026-07-23: accepted and rejected QA checks both derive build `◈`
+  until ☱ writes the exact final verdict; infrastructure failure remains `⊞`
+  and cannot be rendered as candidate rejection
+QA crystall gate:
+  docs/00_chaos/qa_crystall_cross_audit_2026-07-23.md
 ```
 
 ## 0. Crystallized Claim
@@ -74,6 +80,8 @@ runtime/object_coverage.lua
 runtime/repository_result.lua
 runtime/artifact_set.lua
 runtime/candidate_seal.lua
+runtime/qa_evidence.lua
+runtime/qa_verdict.lua
 core/digest.lua
 core/json.lua
 ```
@@ -120,7 +128,7 @@ caller cannot inject a preselected glyph or a forged scope inspection.
 
   glyph = "⋯" | "⊞" | "◈" | "▲" | nil,
   state = "forming" | "checking" | "crystallized"
-    | "crystallizing_failure" | "boundary" | "unsupported",
+    | "crystallizing_verdict" | "boundary" | "unsupported",
   reason = string,
 
   completion_scope = "none" | "work_item" | "artifact_set"
@@ -199,12 +207,14 @@ Packet boundary candidate until lineage writes stage completion.
 | Priority | Evidence | Glyph | State | Scope | Candidate | Reason | Missing |
 |---:|---|---|---|---|---|---|---|
 | B0 | exact historical seal + diverged current artifact evidence | `⊞` | checking | candidate_sealed | none | `candidate_sealed_body_conflict` | `fresh_generation_plan_for:<candidate_seal_id>` |
-| B1 | exact seal + accepted required QA | `▲` | boundary | candidate_sealed | software_acceptance_ready | `software_acceptance_candidate_ready` | △/corpse, then lineage assessment and required docs |
+| B1 | exact seal + final accepted QA verdict | `▲` | boundary | candidate_sealed | software_acceptance_ready | `software_acceptance_candidate_ready` | △/corpse, then lineage assessment and required docs |
 | B2 | final rejected QA verdict bound to exact seal/contract/rejected checks | `▲` | boundary | candidate_sealed | rejected_generation_recovery_ready | `rejected_generation_recovery_ready` | △ rejected-generation projection/corpse, then lineage recovery decision |
-| B3 | exact rejected required check evidence, final verdict absent | `◈` | crystallizing_verdict | candidate_sealed | none | `qa_rejection_verdict_pending` | one final immutable rejected QA verdict |
-| B4 | exact seal, no current QA check/verdict evidence | `⊞` | checking | candidate_sealed | none | `candidate_sealed_qa_missing` | exact QA evidence/verdict |
-| B5 | exact artifact set complete, seal absent | `⋯` | forming | artifact_set | none | `artifact_set_complete_seal_missing` | candidate seal |
-| B6 | declared artifact set incomplete | `⋯` | forming | none/work_item | none | `candidate_materialization_incomplete` | bounded create-only materialization |
+| B3A | exact accepted required check evidence, final verdict absent | `◈` | crystallizing_verdict | candidate_sealed | none | `qa_acceptance_verdict_pending` | one final immutable accepted QA verdict |
+| B3R | exact rejected required check evidence, final verdict absent | `◈` | crystallizing_verdict | candidate_sealed | none | `qa_rejection_verdict_pending` | one final immutable rejected QA verdict |
+| B4 | exact QA infrastructure failure, no check/verdict | `⊞` | checking | candidate_sealed | none | `qa_infrastructure_incomplete` | existing effect-failure terminalization; no candidate verdict |
+| B5 | exact seal, no current QA check/failure/verdict evidence | `⊞` | checking | candidate_sealed | none | `candidate_sealed_qa_missing` | one bounded QA execution |
+| B6 | exact artifact set complete, seal absent | `⋯` | forming | artifact_set | none | `artifact_set_complete_seal_missing` | candidate seal |
+| B7 | declared artifact set incomplete | `⋯` | forming | none/work_item | none | `candidate_materialization_incomplete` | bounded create-only materialization |
 
 For living B1/B2, `boundary_terminalized=false`. After lawful △ and corpse
 capture, the same glyph/candidate re-derives with `boundary_terminalized=true`
@@ -336,7 +346,8 @@ WL10 incomplete/complete artifact set changes reason without QA claim
 WL11 complete set plus seal yields ⋯ -> ⊞
 WL12 rejected required check without final verdict yields ⊞ -> ◈
 WL13 exact final rejected verdict over the same seal/check set yields ◈ -> ▲ recovery candidate
-WL14 accepted QA yields ⊞ -> ▲ acceptance candidate
+WL14 accepted required check without final verdict yields ⊞ -> ◈
+WL14a exact final accepted verdict over the same seal/check set yields ◈ -> ▲ acceptance candidate
 WL15 living/corpse pair keeps glyph but false -> true terminalization
 WL16 QA for another seal cannot advance
 WL17 old generation acceptance cannot advance current generation
@@ -347,6 +358,8 @@ WL21 same semantic context under different process contracts retains distinct pr
 WL22 relevant post-seal body drift preserves candidate_sealed and yields B0
 WL23 B0 cannot fall through to candidate materialization or QA acceptance
 WL24 unrelated body motion preserves aligned candidate projection
+WL25 QA infrastructure failure remains ⊞ and cannot become rejection
+WL26 accepted/rejected paths each require check observation then final verdict
 ```
 
 Terminal and generation controls use grown lives, not hand-written corpse
@@ -363,8 +376,9 @@ one-file legacy current build result
 multi-file partial/complete artifact set
 sealed candidate without QA
 sealed candidate with relevant and unrelated post-seal body motion
-accepted QA before and after corpse
+accepted required check before final verdict, final verdict before/after corpse
 rejected required check before final verdict, final verdict before △, and after corpse
+QA infrastructure failure with no check/verdict
 budget death before seal and during future QA
 new generation after rejected ancestor
 documentation profile ablation
@@ -382,7 +396,8 @@ ablation and named readers.
 3. current one-file build baseline with honest low scope
 4. shadow observer and ablation
 5. artifact-set/seal readers as their contracts land
-6. accepted/rejected QA derivations after QA hand exists
+6. accepted/rejected check observations, infrastructure failure and final
+   verdict derivations after QA body evidence exists
 7. terminalized living/corpse matched pairs
 8. CLI/TUI and documentation read-only consumers
 9. separate decision on qualified-pressure bridge
@@ -410,8 +425,7 @@ remain separate authorities.
 pressure weights or routing from glyphs
 new topology edges
 candidate seal effect
-QA execution
-`qa-check.v0` and final QA-verdict writer
+QA native execution until its dedicated hostile/native gates pass
 stage transition
 root completion gating
 human narration

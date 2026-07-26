@@ -1,0 +1,4 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: trusted-wrong-launcher-abi
+fault_kind=wrong_launcher_abi
+launcher_abi=proc17.qa.launcher.wrong

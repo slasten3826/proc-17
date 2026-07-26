@@ -156,7 +156,8 @@ local candidate_closure_keys = {
     root_authority_id = true, lifecycle_id = true, root_fingerprint = true,
     grant_id = true, lifecycle_revision_before = true,
     lifecycle_revision_after = true, inventory_id = true,
-    inventory_digest = true, state = true, source_refs = true,
+    inventory_digest = true, inventory_bounds = true,
+    state = true, source_refs = true,
     event_truth_status = true,
 }
 local target_keys = {relative_path = true, kind = true}
@@ -342,6 +343,12 @@ local function validate_candidate_closure(value)
         if not non_empty_string(value[key]) then
             return nil, "invalid candidate closure receipt " .. key
         end
+    end
+    local repository_inventory = require("runtime.repository_inventory")
+    local bounds, bounds_err = repository_inventory.normalize_bounds(
+        value.inventory_bounds)
+    if not bounds then
+        return nil, bounds_err
     end
     local seed = copy_value(value)
     seed.closure_id = nil
@@ -893,6 +900,8 @@ function body.record_candidate_seal(instance, payload, registry, closure)
         or closure.root_fingerprint ~= payload.root_fingerprint
         or closure.inventory_id ~= payload.inventory_id
         or closure.inventory_digest ~= payload.inventory_digest
+        or not require("runtime.repository_inventory").same(
+            closure.inventory_bounds, payload.inventory_bounds)
         or closure.closure_id ~= payload.authority_closure_ref then
         return nil, "candidate seal contradicts closure receipt"
     end

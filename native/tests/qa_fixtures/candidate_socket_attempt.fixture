@@ -1,0 +1,5 @@
+-- PROC17_QA_HOSTILE_FIXTURE_V0: INERT DATA; DO NOT EXECUTE DIRECTLY
+-- fixture-id: candidate-socket-attempt
+local ok = pcall(require, "socket")
+assert(not ok, "socket module unexpectedly available")
+return true

@@ -353,6 +353,10 @@ function lineage_runner.run(task, substrate, options)
             options.packet_runner_options and options.packet_runner_options.packet_options,
             ingress.packet_options
         )
+        if ingress.packet_options.birth_kind == "recovery" then
+            packet_options.qa_contract = copy_value(ingress.packet_options.qa_contract)
+            packet_options.metadata = copy_value(ingress.packet_options.metadata or {})
+        end
         packet_options.session_id = session.session_id
         packet_options.budget = copy_value(local_budget)
         local runner_options = merge(options.packet_runner_options, {
