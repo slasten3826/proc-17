@@ -53,6 +53,7 @@ local tests = {
     "tests.test_candidate_seal_hostile",
     "tests.test_repository_route",
     "tests.test_repository_manifest",
+    "tests.test_cli",
     "tests.test_lineage_budget",
     "tests.test_lineage",
     "tests.test_lineage_birth_hook",

@@ -1,4 +1,4 @@
-# Current State - 2026-07-20
+# Current State - 2026-07-27
 
 Status: active packet-first body
 
@@ -359,7 +359,7 @@ multi-file work remain absent; exact one-artifact manifest delivery is present.
 Current local audit results:
 
 ```text
-lua tests/run.lua                    91 suites passed
+lua tests/run.lua                   107 suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -387,6 +387,11 @@ tests/test_repository_effect.lua     14/14 passed
 tests/test_repository_progress.lua    9/9 passed
 tests/test_repository_effect_linux.lua 3/3 real-provider lives passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
+tests/test_cli.lua                   passed plan/build/session/native-provider/hostile cases
+lua tests/red_qa_hand.lua            expected red: 40 green / 44 red
+live CLI plan                        complete, 1 DeepSeek call, 373 tokens
+live CLI build                       complete, 1 DeepSeek call, 408 tokens, one verified file
+live CLI overwrite attempt           effect_failure, original file unchanged
 lua tests/smoke_runtime_camera_treatment.lua passed
 lua tests/smoke_pressure_ablation.lua passed
 lua tests/smoke_deepseek_qualified_encode_choose.lua 2/2 strict forms passed
@@ -580,7 +585,10 @@ completion and repository manifestation inside the body.
    explicit Packet records and can manifest a build life, but its constants are
    unmeasured. The legacy observer and v2 evidence roles are isolated and
    measured; the promotion corpus is still open.
-9. **User surfaces are absent.** The machine CLI and Go TUI have designs only.
+9. **The first user surface is machine-only.** The JSON CLI runs one explicit
+   plan or one exact create-only build Packet, starts fresh sessions by default,
+   and resumes only an explicitly named session. It does not provide persistent
+   lineage recovery, QA acceptance, general repository work or a human TUI.
 
 Several modules are currently standalone or partially integrated, including
 `runtime/pressure_snapshot.lua`, `runtime/trace_store.lua`,
@@ -608,7 +616,9 @@ The active roadmap is deliberately ordered so new power follows owned facts:
    - adversarial/fault audit                                   complete
    - qualified suite/route promotion                           complete
    - first exact repository manifest                           complete
-8. expose a machine CLI and then a Go TUI                       next
+8. expose a machine CLI                                        complete (v0)
+9. close the v0 release boundary and run real CLI probes         next
+10. expose a Go TUI                                             deferred
 ```
 
 Step 4 implemented those contracts in ten bounded substeps and proved grown
@@ -647,9 +657,12 @@ the work unit becomes done
 ```
 
 Every line in this selected v0 loop is now runtime-confirmed, including one
-production C-provider life. The first hand chapter is complete. The next
-ordered product boundary is a machine CLI over this exact capability, followed
-by the Go TUI; operation widening remains a separate capability-first campaign.
+production C-provider life. The first hand chapter is complete. A narrow JSON
+machine CLI now exposes exactly this capability without widening it: one Packet
+per invocation, DeepSeek as the production substrate, fresh session by default,
+explicit resume, and one create-only artifact in build mode. The next ordered
+boundary is release closure and real CLI probing; the Go TUI and operation
+widening remain separate later campaigns.
 
 The detailed audit and authorship reconstruction are preserved in
 [`../00_chaos/full_project_audit_2026-07-15_notes.md`](../00_chaos/full_project_audit_2026-07-15_notes.md).

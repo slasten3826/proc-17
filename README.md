@@ -27,7 +27,7 @@ The repository currently contains:
 - a continuous runtime camera with immutable per-tick frames and explicit ☱ reconciliation;
 - all ten ProcessLang operators behind one rights-declaring registry;
 - CONNECT and DISSOLVE organs available for direct execution and shadow routing;
-- a legacy-authoritative default plus opt-in full-tree route authority;
+- full-tree route authority with legacy retained only as read-only instrumentation;
 - fake and OpenAI-compatible substrates, including a DeepSeek adapter;
 - internal mortality through budget exhaustion and identity loss;
 - grave inheritance, warning karma, bequests, and session compost;
@@ -38,7 +38,11 @@ The repository currently contains:
   through terminal △ under the explicit qualified treatment;
 - a bounded in-memory lineage runner with cumulative economics, immutable
   corpses, deterministic recovery carriers, and NETWORK@▽ rebirth;
-- 77 Lua test suites plus mortality and live-substrate smoke programs.
+- one capability-safe create-only repository hand with independent native
+  read-back and exact one-artifact delivery;
+- a JSON machine CLI for one explicit plan or build Packet per invocation;
+- 107 Lua test suites plus mortality, expected-red QA, and live-substrate smoke
+  programs.
 
 The fixed single-pass runner remains as a smoke rail. The tension runner is the
 active experiment: movement is chosen from packet pressure rather than a fixed
@@ -46,13 +50,13 @@ pipeline or an LLM-selected tool route.
 
 ## Current Boundary
 
-proc-17 is a working process-physics engine, but it is not yet a complete coding
-agent.
+proc-17 is a working process-physics engine with one narrow coding path, but it
+is not yet a general coding agent.
 
-- The body has no hands: it can form and select work, but cannot yet mutate a
-  repository and feed the resulting evidence back into the packet by itself.
-- Coding battery outputs are manifested by proc-17, then written and executed by
-  the external test harness. That is real delivery evidence, not body-side work.
+- Build mode can create exactly one previously absent UTF-8 file inside one
+  explicitly granted repository root. It cannot patch, overwrite, delete,
+  rename, inspect arbitrary source trees, run project tests, or coordinate a
+  multi-file transaction.
 - The first runner-managed lineage is in memory only. Disk recovery, branching,
   provider-owned substrate sessions, and automatic resume are not implemented.
   Bequests and compost patterns still need general named readers beyond direct
@@ -68,7 +72,45 @@ agent.
   Retry and repair policy remains intentionally separate.
 - The command sandbox must become capability-based before arbitrary hands are
   connected.
-- A machine CLI and human TUI are planned, not implemented.
+- The machine CLI is intentionally narrow. The Go TUI is not implemented.
+
+## Machine CLI
+
+The CLI uses DeepSeek by default and emits exactly one JSON object on stdout.
+Plan mode requires Lua 5.4, `curl`, and `DEEPSEEK_API_KEY`. Build mode also
+requires Linux, a C compiler, `pkg-config`, Lua 5.4 development headers, and the
+native create-only provider:
+
+```sh
+make -C native provider-shell
+```
+
+Set `DEEPSEEK_API_KEY` before a real run.
+
+```sh
+export DEEPSEEK_API_KEY=...
+
+# A fresh isolated session is created when --session is omitted.
+lua proc17.lua plan "design a tiny Lua program"
+
+# Build can create one new file below the granted repository root.
+mkdir -p /tmp/proc17-demo/fresh-project
+lua proc17.lua build "create hello.lua" \
+  --project-base /tmp/proc17-demo \
+  --repository fresh-project
+
+# Resume only an explicitly named existing session.
+lua proc17.lua plan "continue the design" --session SESSION_ID
+
+lua proc17.lua help
+```
+
+Task input can also come from `--task-file FILE` or stdin. Useful limits are
+`--max-steps`, `--max-calls`, `--max-tokens`, and `--max-loss`. Exit status `0`
+means the Packet completed, `2` means input/configuration failure, `3` is an
+honest non-complete Packet death, and `4` is a trusted runtime/setup failure.
+`ok=true` is Packet completion, not a claim that the produced software is
+universally correct or QA-accepted.
 
 ## Verification
 
@@ -77,7 +119,7 @@ Requires Lua 5.4.
 ```sh
 lua tests/run.lua
 lua tests/smoke_mortality_battery.lua
-lua tests/smoke_runtime_camera_treatment.lua
+lua tests/red_qa_hand.lua  # expected exit 1: 40 green / 44 intentionally red
 ```
 
 Live DeepSeek smoke programs require the corresponding API configuration.
