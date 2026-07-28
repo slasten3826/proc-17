@@ -49,7 +49,7 @@ end
 function qa_fixture.environment_input(label)
     label = label or "environment"
     return {
-        protocol_version = "qa.environment.v0",
+        protocol_version = "qa.environment.v1",
         profile_id = "qa.profile.lua54_test_suite.v0",
         provider_id = "linux.qa_supervisor.lua54.v0",
         provider_build_id = sha(label .. ":provider"),
@@ -58,6 +58,7 @@ function qa_fixture.environment_input(label)
         runtime_dependency_closure_id = sha(label .. ":closure"),
         runtime_name = "Lua 5.4",
         runtime_build_id = sha(label .. ":runtime"),
+        runtime_heap_limit_bytes = 67108864,
         platform = "linux",
         machine_arch = "x86_64",
         kernel_identity_id = sha(label .. ":kernel"),

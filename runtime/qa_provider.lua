@@ -35,6 +35,7 @@ local probe_keys = {
     runtime_dependency_closure_id = true,
     runtime_name = true,
     runtime_build_id = true,
+    runtime_heap_limit_bytes = true,
     platform = true,
     machine_arch = true,
     kernel_identity_id = true,
@@ -226,12 +227,13 @@ function qa_provider.probe()
     end
     local observed = returned[2]
     exact_record(observed, probe_keys, "native environment probe")
-    if observed.protocol_version ~= "qa.native_probe.v0"
+    if observed.protocol_version ~= "qa.native_probe.v1"
         or observed.provider_id ~= qa_schema.provider_id
         or observed.supervisor_abi ~= qa_schema.supervisor_abi
         or observed.supervisor_build_id ~= native.expected_supervisor_build_id
         or observed.runtime_name ~= "Lua 5.4"
         or observed.runtime_build_id ~= native.runtime_build_id
+        or observed.runtime_heap_limit_bytes ~= qa_schema.runtime_heap_limit_bytes
         or observed.platform ~= "linux"
         or observed.machine_arch ~= "x86_64"
         or observed.isolation_policy_digest ~= native.policy_digest
@@ -258,6 +260,7 @@ function qa_provider.probe()
         runtime_dependency_closure_id = observed.runtime_dependency_closure_id,
         runtime_name = observed.runtime_name,
         runtime_build_id = observed.runtime_build_id,
+        runtime_heap_limit_bytes = observed.runtime_heap_limit_bytes,
         platform = observed.platform,
         machine_arch = observed.machine_arch,
         kernel_identity_id = observed.kernel_identity_id,

@@ -3,13 +3,16 @@ local digest = require("core.digest")
 local qa_schema = {
     contract_protocol = "qa.contract.v0",
     profile_protocol = "qa.profile.v0",
-    environment_protocol = "qa.environment.v0",
+    environment_v0_protocol = "qa.environment.v0",
+    environment_protocol = "qa.environment.v1",
+    environment_v1_protocol = "qa.environment.v1",
     resource_limits_protocol = "qa.resource_limits.v0",
     profile_id = "qa.profile.lua54_test_suite.v0",
     provider_id = "linux.qa_supervisor.lua54.v0",
     supervisor_abi = "proc17.qa_supervisor.v0",
     check_kind = "lua54_test_suite.v0",
     execution_policy = "single_required_check.v0",
+    runtime_heap_limit_bytes = 67108864,
 }
 
 local MAX_ID_BYTES = 1024
@@ -348,7 +351,7 @@ local environment_names = {
     "hard_limits_digest", "event_truth_status",
 }
 
-function qa_schema.normalize_environment(input)
+function qa_schema.normalize_environment_v0(input)
     local tree_ok, tree_err = validate_plain_tree(input, "QA environment")
     if not tree_ok then
         return nil, tree_err
@@ -358,7 +361,7 @@ function qa_schema.normalize_environment(input)
     if not keys_ok then
         return nil, keys_err
     end
-    if input.protocol_version ~= qa_schema.environment_protocol
+    if input.protocol_version ~= qa_schema.environment_v0_protocol
         or input.profile_id ~= qa_schema.profile_id
         or input.provider_id ~= qa_schema.provider_id
         or input.supervisor_abi ~= qa_schema.supervisor_abi
@@ -404,11 +407,11 @@ function qa_schema.normalize_environment(input)
     return normalized
 end
 
-function qa_schema.verify_environment(value)
+function qa_schema.verify_environment_v0(value)
     if type(value) ~= "table" or value.environment_id == nil then
         return nil, "QA environment identity is required"
     end
-    local normalized, err = qa_schema.normalize_environment(value)
+    local normalized, err = qa_schema.normalize_environment_v0(value)
     if not normalized then
         return nil, err
     end
@@ -416,6 +419,94 @@ function qa_schema.verify_environment(value)
         return nil, "QA environment is not normalized"
     end
     return true
+end
+
+local environment_v1_names = {
+    "protocol_version", "environment_id", "profile_id", "provider_id",
+    "provider_build_id", "supervisor_abi", "supervisor_build_id",
+    "runtime_dependency_closure_id", "runtime_name", "runtime_build_id",
+    "runtime_heap_limit_bytes", "platform", "machine_arch",
+    "kernel_identity_id", "isolation_feature_set_id",
+    "isolation_policy_digest", "hard_limits_digest", "event_truth_status",
+}
+
+function qa_schema.normalize_environment_v1(input)
+    local tree_ok, tree_err = validate_plain_tree(input, "QA v1 environment")
+    if not tree_ok then
+        return nil, tree_err
+    end
+    local keys_ok, keys_err = exact_keys(input, environment_v1_names,
+        {environment_id = true}, "QA v1 environment")
+    if not keys_ok then
+        return nil, keys_err
+    end
+    if input.protocol_version ~= qa_schema.environment_v1_protocol
+        or input.profile_id ~= qa_schema.profile_id
+        or input.provider_id ~= qa_schema.provider_id
+        or input.supervisor_abi ~= qa_schema.supervisor_abi
+        or input.runtime_name ~= "Lua 5.4"
+        or input.runtime_heap_limit_bytes ~= qa_schema.runtime_heap_limit_bytes
+        or input.platform ~= "linux"
+        or input.event_truth_status ~= "runtime_confirmed" then
+        return nil, "QA environment envelope is not the closed v1 environment"
+    end
+    local machine_arch, arch_err = bounded_string(input.machine_arch,
+        "QA machine architecture", 128)
+    if not machine_arch then
+        return nil, arch_err
+    end
+    for _, name in ipairs({
+        "provider_build_id", "supervisor_build_id",
+        "runtime_dependency_closure_id", "runtime_build_id",
+        "kernel_identity_id", "isolation_feature_set_id",
+        "isolation_policy_digest", "hard_limits_digest",
+    }) do
+        if not prefixed_digest(input[name], "sha256:") then
+            return nil, "QA v1 environment digest is invalid: " .. name
+        end
+    end
+    local expected_limits_digest, digest_err = digest.record(hard_limits)
+    if not expected_limits_digest then
+        return nil, digest_err
+    end
+    if input.hard_limits_digest ~= "sha256:" .. expected_limits_digest then
+        return nil, "QA v1 environment hard limits do not match the profile"
+    end
+    local normalized = copy_value(input)
+    normalized.environment_id = nil
+    normalized.machine_arch = machine_arch
+    local environment_digest, environment_err = digest.record(normalized)
+    if not environment_digest then
+        return nil, environment_err
+    end
+    normalized.environment_id = "qa-environment:" .. environment_digest
+    if input.environment_id ~= nil
+        and input.environment_id ~= normalized.environment_id then
+        return nil, "QA v1 environment identity mismatch"
+    end
+    return normalized
+end
+
+function qa_schema.verify_environment_v1(value)
+    if type(value) ~= "table" or value.environment_id == nil then
+        return nil, "QA v1 environment identity is required"
+    end
+    local normalized, err = qa_schema.normalize_environment_v1(value)
+    if not normalized then
+        return nil, err
+    end
+    if not same_value(value, normalized) then
+        return nil, "QA v1 environment is not normalized"
+    end
+    return true
+end
+
+function qa_schema.normalize_environment(value)
+    return qa_schema.normalize_environment_v1(value)
+end
+
+function qa_schema.verify_environment(value)
+    return qa_schema.verify_environment_v1(value)
 end
 
 local contract_names = {

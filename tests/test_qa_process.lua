@@ -56,6 +56,94 @@ local function raw(reason, exit_code)
     }
 end
 
+local function copy(value)
+    if type(value) ~= "table" then return value end
+    local result = {}
+    for key, child in pairs(value) do result[key] = copy(child) end
+    return result
+end
+
+local request_v1 = copy(request)
+request_v1.protocol_version = "qa.native_run_request.v1"
+
+local function stream_v1()
+    return {
+        protocol_version = "qa.stream_measurement.v1",
+        observed_bytes = 0,
+        hashed_bytes = 0,
+        sha256 = empty_sha,
+        limit_bytes = qa_schema.hard_limits().stdout_bytes,
+        limit_reached = false,
+        eof_observed = true,
+        raw_retained = false,
+    }
+end
+
+local function raw_v1(reason, exit_code)
+    local limits = qa_schema.hard_limits()
+    return {
+        protocol_version = "qa.native_run_result.v1",
+        transaction_id = request_v1.transaction_id,
+        witness_id = request_v1.witness_id,
+        profile_id = request_v1.profile_id,
+        environment_id = request_v1.environment_id,
+        phase_ordinal = 2,
+        disposition = "contained_candidate",
+        start_attested = true,
+        source_staging_policy = "qa.source_staging.detached_mount.v0",
+        source_staging_complete = true,
+        reason = reason,
+        termination = {
+            kind = 1,
+            exit_code = exit_code,
+            signal = 4294967295,
+        },
+        cause = {
+            protocol_version = "qa.first_cause.v1",
+            kind = reason,
+            monotonic_sequence = 1,
+            observed_value = exit_code,
+        },
+        finality = {
+            source_staging_complete = true,
+            candidate_started = true,
+            candidate_terminal_observed = true,
+            process_tree_reaped = true,
+            stdout_eof_observed = true,
+            stderr_eof_observed = true,
+            scratch_observation_complete = true,
+            namespace_cleanup_complete = true,
+        },
+        stdout = stream_v1(),
+        stderr = stream_v1(),
+        resources = {
+            protocol_version = "qa.resource_measurement.v1",
+            wall_time_ms = 2,
+            cpu_user_ms = 1,
+            cpu_system_ms = 1,
+            max_rss_bytes = 4096,
+            address_space_limit_bytes = limits.address_space_bytes,
+            runtime_heap_peak_bytes = 1024,
+            runtime_heap_limit_bytes = qa_schema.runtime_heap_limit_bytes,
+            runtime_heap_denied = false,
+            max_processes = limits.max_processes,
+            max_open_files = limits.max_open_files,
+            max_file_bytes = limits.max_file_bytes,
+        },
+        scratch = {
+            protocol_version = "qa.scratch_measurement.v1",
+            stored_regular_bytes = 0,
+            stored_entries = 0,
+            limit_bytes = limits.scratch_bytes,
+            limit_entries = limits.scratch_entries,
+            byte_capacity_exhausted = false,
+            entry_capacity_exhausted = false,
+            inventory_complete = true,
+        },
+        event_truth_status = "runtime_confirmed",
+    }
+end
+
 suite:check("PO01 clean RUN normalizes to expected exit", function()
     local result = qa_process.normalize_result(raw(1, 0), request)
     H.assert_eq(result.protocol_version,
@@ -140,6 +228,84 @@ suite:check("PO08 returned observation is detached", function()
     local result = qa_process.normalize_result(input, request)
     result.stdout.sha256 = "changed"
     H.assert_eq(input.stdout_sha256, empty_sha)
+end)
+
+suite:check("PO09 RUN v1 request is closed and never coerces v0", function()
+    local normalized = assert(qa_process.normalize_request_v1(request_v1))
+    H.assert_eq(normalized.protocol_version, "qa.native_run_request.v1")
+    H.assert_nil(qa_process.normalize_request_v1(request))
+    local widened = copy(request_v1)
+    widened.command = "lua tests/run.lua"
+    H.assert_nil(qa_process.normalize_request_v1(widened))
+end)
+
+suite:check("PO10 complete RUN v1 result normalizes without private start token", function()
+    local result = qa_process.normalize_result_v1(
+        raw_v1("expected_exit", 0), request_v1)
+    H.assert_eq(result.protocol_version, "qa.provider_process_observation.v1")
+    H.assert_eq(result.outcome, "expected_exit")
+    H.assert_true(result.finality.namespace_cleanup_complete)
+    H.assert_eq(result.cost.qa_executions, 1)
+    H.assert_nil(result.candidate_process_token)
+    H.assert_nil(qa_process.normalize_started_v1)
+end)
+
+suite:check("PO11 incomplete or token-bearing RUN v1 result is loud", function()
+    local changed = raw_v1("expected_exit", 0)
+    changed.finality.stderr_eof_observed = false
+    local ok, err = pcall(qa_process.normalize_result_v1, changed, request_v1)
+    H.assert_false(ok)
+    H.assert_contains(err, "lacks finality")
+
+    changed = raw_v1("expected_exit", 0)
+    changed.candidate_process_token = "sha256:" .. string.rep("d", 64)
+    ok, err = pcall(qa_process.normalize_result_v1, changed, request_v1)
+    H.assert_false(ok)
+    H.assert_contains(err, "unknown key")
+end)
+
+suite:check("PO12 RUN v1 reason requires its physical witness", function()
+    local changed = raw_v1("memory_limit", 70)
+    local ok, err = pcall(qa_process.normalize_result_v1, changed, request_v1)
+    H.assert_false(ok)
+    H.assert_contains(err, "allocator denial")
+
+    changed.resources.runtime_heap_denied = true
+    local result = qa_process.normalize_result_v1(changed, request_v1)
+    H.assert_eq(result.outcome, "memory_limit")
+
+    changed = raw_v1("scratch_limit", 70)
+    ok, err = pcall(qa_process.normalize_result_v1, changed, request_v1)
+    H.assert_false(ok)
+    H.assert_contains(err, "reserved")
+end)
+
+suite:check("PO13 RUN v1 infrastructure error carries tri-state not verdict", function()
+    local raw_error = {
+        protocol_version = "qa.native_run_error.v1",
+        transaction_id = request_v1.transaction_id,
+        witness_id = request_v1.witness_id,
+        profile_id = request_v1.profile_id,
+        environment_id = request_v1.environment_id,
+        phase_ordinal = 1,
+        class = "unavailable",
+        code = "supervisor_unavailable",
+        stage = "preflight",
+        candidate_start_state = "not_started",
+        cleanup_state = "complete",
+        launcher_reaped = "complete",
+        result_eof = "complete",
+        event_truth_status = "runtime_confirmed",
+    }
+    local result = qa_process.normalize_error_v1(raw_error, request_v1)
+    H.assert_eq(result.protocol_version, "qa.provider_process_error.v1")
+    H.assert_nil(result.outcome)
+    H.assert_nil(result.measured_cost)
+
+    raw_error.phase_ordinal = 2
+    local ok, err = pcall(qa_process.normalize_error_v1, raw_error, request_v1)
+    H.assert_false(ok)
+    H.assert_contains(err, "contradicts start state")
 end)
 
 suite:finish()

@@ -18,6 +18,32 @@ profile.shell = "allowed"
 assert(qa_schema.verify_profile(profile) == nil)
 assert(qa_schema.profile().shell == "forbidden")
 
+local environment_v1_input = fixture.environment_input("schema-v1")
+local environment_v1 = assert(qa_schema.normalize_environment_v1(
+    environment_v1_input))
+assert(qa_schema.verify_environment_v1(environment_v1))
+assert(qa_schema.verify_environment(environment_v1))
+local historical_v0 = fixture.copy(environment_v1_input)
+historical_v0.protocol_version = qa_schema.environment_v0_protocol
+historical_v0.runtime_heap_limit_bytes = nil
+assert(qa_schema.normalize_environment(historical_v0) == nil)
+local normalized_historical_v0 = assert(
+    qa_schema.normalize_environment_v0(historical_v0))
+assert(normalized_historical_v0.environment_id ~= environment_v1.environment_id)
+local historical_adapter = fixture.native_adapter({
+    environment = normalized_historical_v0,
+})
+local historical_registry = assert(qa_environment.new(
+    "session-qa-historical-v0", historical_adapter))
+local unavailable_old, unavailable_old_err = qa_environment.probe(
+    historical_registry)
+assert(unavailable_old == nil)
+assert(unavailable_old_err.code == "environment_probe_invalid")
+local wrong_heap = fixture.copy(environment_v1_input)
+wrong_heap.runtime_heap_limit_bytes = wrong_heap.runtime_heap_limit_bytes + 1
+assert(qa_schema.normalize_environment_v1(wrong_heap) == nil)
+assert(qa_schema.runtime_heap_limit_bytes == 67108864)
+
 local excessive = fixture.hard_limits()
 excessive.stdout_bytes = excessive.stdout_bytes + 1
 assert(qa_schema.normalize_limits(excessive) == nil)

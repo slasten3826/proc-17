@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "../proc17_qa_launcher_internal.h"
+#include "../proc17_qa_policy.h"
 #include "../proc17_sha256.h"
 
 int luaopen_proc17_repository_fs(lua_State *L);
@@ -228,7 +229,7 @@ static int call_probe(lua_State *L)
     lua_remove(L, -2);
     if (lua_pcall(L, 0, LUA_MULTRET, 0) != LUA_OK
         || lua_gettop(L) != 1 || !lua_istable(L, -1)
-        || !exact_string_field(L, -1, "protocol_version", "qa.native_probe.v0")
+        || !exact_string_field(L, -1, "protocol_version", "qa.native_probe.v1")
         || !exact_string_field(L, -1, "provider_id",
             "linux.qa_supervisor.lua54.v0")
         || !exact_string_field(L, -1, "supervisor_abi",
@@ -237,6 +238,13 @@ static int call_probe(lua_State *L)
             "runtime_confirmed")) {
         return -1;
     }
+    lua_getfield(L, -1, "runtime_heap_limit_bytes");
+    if (!lua_isinteger(L, -1)
+        || lua_tointeger(L, -1) != (lua_Integer)PROC17_QA_RUNTIME_HEAP_BYTES) {
+        lua_pop(L, 1);
+        return -1;
+    }
+    lua_pop(L, 1);
     return 0;
 }
 

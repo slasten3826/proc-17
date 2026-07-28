@@ -2,6 +2,7 @@ local qa_schema = require("core.qa_schema")
 
 local qa_process = {
     protocol_version = "qa.process_normalizer.v0",
+    v1_protocol_version = "qa.process_normalizer.v1",
 }
 
 local EMPTY_SHA256 =
@@ -69,6 +70,97 @@ local process_error_stages = {
     [7] = "cleanup",
 }
 
+local v1_request_keys = request_keys
+
+local v1_result_keys = {
+    "protocol_version", "transaction_id", "witness_id", "profile_id",
+    "environment_id", "phase_ordinal", "disposition", "start_attested",
+    "source_staging_policy", "source_staging_complete", "reason",
+    "termination", "cause", "finality", "stdout", "stderr", "resources",
+    "scratch", "event_truth_status",
+}
+
+local v1_error_keys = {
+    "protocol_version", "transaction_id", "witness_id", "profile_id",
+    "environment_id", "phase_ordinal", "class", "code", "stage",
+    "candidate_start_state", "cleanup_state", "launcher_reaped",
+    "result_eof", "measured_cost", "event_truth_status",
+}
+
+local v1_finality_keys = {
+    "source_staging_complete", "candidate_started",
+    "candidate_terminal_observed", "process_tree_reaped",
+    "stdout_eof_observed", "stderr_eof_observed",
+    "scratch_observation_complete", "namespace_cleanup_complete",
+}
+
+local v1_stream_keys = {
+    "protocol_version", "observed_bytes", "hashed_bytes", "sha256",
+    "limit_bytes", "limit_reached", "eof_observed", "raw_retained",
+}
+
+local v1_resource_keys = {
+    "protocol_version", "wall_time_ms", "cpu_user_ms", "cpu_system_ms",
+    "max_rss_bytes", "address_space_limit_bytes",
+    "runtime_heap_peak_bytes", "runtime_heap_limit_bytes",
+    "runtime_heap_denied", "max_processes", "max_open_files",
+    "max_file_bytes",
+}
+
+local v1_scratch_keys = {
+    "protocol_version", "stored_regular_bytes", "stored_entries",
+    "limit_bytes", "limit_entries", "byte_capacity_exhausted",
+    "entry_capacity_exhausted", "inventory_complete",
+}
+
+local v1_cause_keys = {
+    "protocol_version", "kind", "monotonic_sequence", "observed_value",
+}
+
+local v1_termination_keys = {"kind", "exit_code", "signal"}
+
+local v1_cost_keys = {
+    "protocol_version", "tool_calls", "qa_executions", "wall_time_ms",
+    "cpu_time_ms", "scratch_written_bytes", "stdout_observed_bytes",
+    "stderr_observed_bytes",
+}
+
+local v1_error_classes = {
+    world = true,
+    unavailable = true,
+    ambiguous = true,
+}
+
+local v1_error_codes = {
+    supervisor_unavailable = true,
+    source_staging_failed = true,
+    supervisor_crashed = true,
+    result_pipe_lost = true,
+    terminal_frame_missing = true,
+    reap_ambiguous = true,
+    output_observation_incomplete = true,
+    scratch_observation_incomplete = true,
+    namespace_cleanup_incomplete = true,
+}
+
+local v1_error_stages = {
+    preflight = true,
+    source_staging = true,
+    namespace = true,
+    launch = true,
+    supervision = true,
+    postflight = true,
+    cleanup = true,
+}
+
+local v1_tri_states = {
+    unknown = true,
+    not_started = true,
+    started = true,
+    complete = true,
+    incomplete = true,
+}
+
 local function copy_value(value, seen)
     if type(value) ~= "table" then
         return value
@@ -85,10 +177,11 @@ local function copy_value(value, seen)
     return result
 end
 
-local function exact_keys(value, names, label)
+local function exact_keys(value, names, label, optional)
     if type(value) ~= "table" or getmetatable(value) ~= nil then
         return nil, label .. " must be a plain table"
     end
+    optional = optional or {}
     local allowed = {}
     for _, name in ipairs(names) do
         allowed[name] = true
@@ -99,7 +192,7 @@ local function exact_keys(value, names, label)
         end
     end
     for _, name in ipairs(names) do
-        if value[name] == nil then
+        if value[name] == nil and not optional[name] then
             return nil, label .. " is missing key: " .. name
         end
     end
@@ -386,6 +479,320 @@ function qa_process.normalize_native_error(raw, request)
         fail("native RUN unavailable lacks candidate and cleanup attestation")
     end
     fail("native RUN error code is unknown")
+end
+
+function qa_process.normalize_request_v1(value)
+    local keys_ok, keys_err = exact_keys(value, v1_request_keys,
+        "native RUN v1 request")
+    if not keys_ok then
+        return nil, keys_err
+    end
+    local limits, limits_err = qa_schema.normalize_limits(value.resource_limits)
+    if value.protocol_version ~= "qa.native_run_request.v1"
+        or value.operation ~= "run_lua54_test_suite"
+        or not tagged_digest(value.transaction_id, "qa-provider-transaction:")
+        or not tagged_digest(value.witness_id, "qa-provider-witness:")
+        or value.profile_id ~= qa_schema.profile_id
+        or not tagged_digest(value.environment_id, "qa-environment:")
+        or value.entrypoint_relative_path ~= "tests/run.lua"
+        or value.expected_exit_code ~= 0 then
+        return nil, "native RUN v1 request identity mismatch"
+    end
+    if not limits then
+        return nil, limits_err
+    end
+    if not qa_schema.same(limits, qa_schema.hard_limits()) then
+        return nil, "native RUN v1 request limits mismatch"
+    end
+    local normalized = copy_value(value)
+    normalized.resource_limits = limits
+    return normalized
+end
+
+local function v1_identity(raw, request, label)
+    if raw.transaction_id ~= request.transaction_id
+        or raw.witness_id ~= request.witness_id
+        or raw.profile_id ~= request.profile_id
+        or raw.environment_id ~= request.environment_id
+        or raw.event_truth_status ~= "runtime_confirmed" then
+        fail(label .. " identity mismatch")
+    end
+end
+
+local function v1_stream(raw, expected_limit, label)
+    local keys_ok, keys_err = exact_keys(raw, v1_stream_keys,
+        label .. " v1 stream")
+    if not keys_ok then fail(keys_err) end
+    if raw.protocol_version ~= "qa.stream_measurement.v1"
+        or not non_negative_integer(raw.observed_bytes)
+        or not non_negative_integer(raw.hashed_bytes)
+        or not tagged_digest(raw.sha256, "sha256:")
+        or raw.limit_bytes ~= expected_limit
+        or not boolean(raw.limit_reached)
+        or raw.eof_observed ~= true
+        or raw.raw_retained ~= false then
+        fail(label .. " v1 stream measurement is malformed")
+    end
+    if raw.hashed_bytes > raw.observed_bytes
+        or raw.hashed_bytes > raw.limit_bytes
+        or raw.limit_reached ~= (raw.observed_bytes > raw.limit_bytes)
+        or (raw.hashed_bytes == 0 and raw.sha256 ~= EMPTY_SHA256) then
+        fail(label .. " v1 stream measurement contradicts its bounds")
+    end
+    return copy_value(raw)
+end
+
+local function v1_resources(raw, limits)
+    local keys_ok, keys_err = exact_keys(raw, v1_resource_keys,
+        "native RUN v1 resources")
+    if not keys_ok then fail(keys_err) end
+    for _, key in ipairs({
+        "wall_time_ms", "cpu_user_ms", "cpu_system_ms", "max_rss_bytes",
+        "runtime_heap_peak_bytes",
+    }) do
+        if not non_negative_integer(raw[key]) then
+            fail("native RUN v1 resource measurement is invalid: " .. key)
+        end
+    end
+    if raw.protocol_version ~= "qa.resource_measurement.v1"
+        or raw.address_space_limit_bytes ~= limits.address_space_bytes
+        or raw.runtime_heap_limit_bytes ~= qa_schema.runtime_heap_limit_bytes
+        or not boolean(raw.runtime_heap_denied)
+        or raw.runtime_heap_peak_bytes > raw.runtime_heap_limit_bytes
+        or raw.max_processes ~= limits.max_processes
+        or raw.max_open_files ~= limits.max_open_files
+        or raw.max_file_bytes ~= limits.max_file_bytes then
+        fail("native RUN v1 resource measurement contradicts the environment")
+    end
+    return copy_value(raw)
+end
+
+local function v1_scratch(raw, limits)
+    local keys_ok, keys_err = exact_keys(raw, v1_scratch_keys,
+        "native RUN v1 scratch")
+    if not keys_ok then fail(keys_err) end
+    if raw.protocol_version ~= "qa.scratch_measurement.v1"
+        or not non_negative_integer(raw.stored_regular_bytes)
+        or not non_negative_integer(raw.stored_entries)
+        or raw.limit_bytes ~= limits.scratch_bytes
+        or raw.limit_entries ~= limits.scratch_entries
+        or raw.stored_regular_bytes > raw.limit_bytes
+        or raw.stored_entries > raw.limit_entries
+        or not boolean(raw.byte_capacity_exhausted)
+        or not boolean(raw.entry_capacity_exhausted)
+        or raw.inventory_complete ~= true then
+        fail("native RUN v1 scratch measurement is malformed")
+    end
+    return copy_value(raw)
+end
+
+local function v1_termination(raw)
+    local keys_ok, keys_err = exact_keys(raw, v1_termination_keys,
+        "native RUN v1 termination")
+    if not keys_ok then fail(keys_err) end
+    if not termination_kinds[raw.kind]
+        or not non_negative_integer(raw.exit_code)
+        or not non_negative_integer(raw.signal) then
+        fail("native RUN v1 termination is malformed")
+    end
+    return {
+        kind = termination_kinds[raw.kind],
+        exit_code = raw.kind == 1 and raw.exit_code or nil,
+        signal = raw.kind == 2 and raw.signal or nil,
+    }
+end
+
+local function v1_finality(raw)
+    local keys_ok, keys_err = exact_keys(raw, v1_finality_keys,
+        "native RUN v1 finality")
+    if not keys_ok then fail(keys_err) end
+    for _, key in ipairs(v1_finality_keys) do
+        if raw[key] ~= true then
+            fail("native RUN v1 candidate lacks finality: " .. key)
+        end
+    end
+    return copy_value(raw)
+end
+
+local function v1_cause(raw, reason)
+    local keys_ok, keys_err = exact_keys(raw, v1_cause_keys,
+        "native RUN v1 first cause")
+    if not keys_ok then fail(keys_err) end
+    if raw.protocol_version ~= "qa.first_cause.v1"
+        or raw.kind ~= reason
+        or not non_negative_integer(raw.monotonic_sequence)
+        or raw.monotonic_sequence < 1
+        or not non_negative_integer(raw.observed_value) then
+        fail("native RUN v1 first cause is malformed or mismatched")
+    end
+    return copy_value(raw)
+end
+
+local function v1_cost_from_result(resources, scratch, stdout, stderr)
+    return {
+        protocol_version = "qa.cost.v1",
+        tool_calls = 1,
+        qa_executions = 1,
+        wall_time_ms = resources.wall_time_ms,
+        cpu_time_ms = resources.cpu_user_ms + resources.cpu_system_ms,
+        scratch_written_bytes = scratch.stored_regular_bytes,
+        stdout_observed_bytes = stdout.observed_bytes,
+        stderr_observed_bytes = stderr.observed_bytes,
+    }
+end
+
+function qa_process.normalize_result_v1(raw, request)
+    local normalized_request, request_err = qa_process.normalize_request_v1(request)
+    if not normalized_request then fail(request_err) end
+    local keys_ok, keys_err = exact_keys(raw, v1_result_keys,
+        "native RUN v1 result")
+    if not keys_ok then fail(keys_err) end
+    if raw.protocol_version ~= "qa.native_run_result.v1"
+        or raw.phase_ordinal ~= 2
+        or raw.disposition ~= "contained_candidate"
+        or raw.start_attested ~= true
+        or raw.source_staging_policy ~= "qa.source_staging.detached_mount.v0"
+        or raw.source_staging_complete ~= true then
+        fail("native RUN v1 result envelope is invalid")
+    end
+    v1_identity(raw, normalized_request, "native RUN v1 result")
+    if type(raw.reason) ~= "string" then
+        fail("native RUN v1 reason is malformed")
+    end
+    local reason_known = false
+    for _, name in pairs(reasons) do
+        if raw.reason == name then reason_known = true end
+    end
+    if not reason_known or raw.reason == "scratch_limit" then
+        fail("native RUN v1 reason is unknown or reserved")
+    end
+    local finality = v1_finality(raw.finality)
+    local termination = v1_termination(raw.termination)
+    local cause = v1_cause(raw.cause, raw.reason)
+    local stdout = v1_stream(raw.stdout,
+        normalized_request.resource_limits.stdout_bytes, "stdout")
+    local stderr = v1_stream(raw.stderr,
+        normalized_request.resource_limits.stderr_bytes, "stderr")
+    local resources = v1_resources(raw.resources,
+        normalized_request.resource_limits)
+    local scratch = v1_scratch(raw.scratch,
+        normalized_request.resource_limits)
+    if raw.reason == "expected_exit" then
+        if termination.kind ~= "exit" or termination.exit_code ~= 0 then
+            fail("native RUN v1 expected exit contradicts termination")
+        end
+    elseif raw.reason == "unexpected_exit" then
+        if termination.kind ~= "exit" or termination.exit_code == 0 then
+            fail("native RUN v1 unexpected exit contradicts termination")
+        end
+    elseif raw.reason == "signal" or raw.reason == "sandbox_policy_violation" then
+        if termination.kind ~= "signal" then
+            fail("native RUN v1 signal reason contradicts termination")
+        end
+    end
+    local output_limit = stdout.limit_reached or stderr.limit_reached
+    if (raw.reason == "output_limit") ~= output_limit then
+        fail("native RUN v1 output reason contradicts stream evidence")
+    end
+    if (raw.reason == "memory_limit") ~= resources.runtime_heap_denied then
+        fail("native RUN v1 memory reason contradicts allocator denial")
+    end
+    return {
+        protocol_version = "qa.provider_process_observation.v1",
+        operation = "run_lua54_test_suite",
+        transaction_id = raw.transaction_id,
+        witness_id = raw.witness_id,
+        profile_id = raw.profile_id,
+        environment_id = raw.environment_id,
+        outcome = raw.reason,
+        candidate_started = true,
+        source_staging_policy = raw.source_staging_policy,
+        source_staging_complete = true,
+        termination = termination,
+        cause = cause,
+        finality = finality,
+        stdout = stdout,
+        stderr = stderr,
+        resources = resources,
+        scratch = scratch,
+        cleanup_complete = true,
+        cost = v1_cost_from_result(resources, scratch, stdout, stderr),
+        event_truth_status = "runtime_confirmed",
+    }
+end
+
+local function v1_error_cost(raw)
+    if raw == nil then return nil end
+    local keys_ok, keys_err = exact_keys(raw, v1_cost_keys,
+        "native RUN v1 measured cost")
+    if not keys_ok then fail(keys_err) end
+    if raw.protocol_version ~= "qa.cost.v1" then
+        fail("native RUN v1 measured cost protocol mismatch")
+    end
+    for _, key in ipairs(v1_cost_keys) do
+        if key ~= "protocol_version" and not non_negative_integer(raw[key]) then
+            fail("native RUN v1 measured cost is malformed: " .. key)
+        end
+    end
+    if raw.tool_calls ~= 1 or raw.qa_executions > 1 then
+        fail("native RUN v1 measured cost authority mismatch")
+    end
+    return copy_value(raw)
+end
+
+function qa_process.normalize_error_v1(raw, request)
+    local normalized_request, request_err = qa_process.normalize_request_v1(request)
+    if not normalized_request then fail(request_err) end
+    local keys_ok, keys_err = exact_keys(raw, v1_error_keys,
+        "native RUN v1 error", {measured_cost = true})
+    if not keys_ok then fail(keys_err) end
+    if raw.protocol_version ~= "qa.native_run_error.v1"
+        or (raw.phase_ordinal ~= 1 and raw.phase_ordinal ~= 2)
+        or not v1_error_classes[raw.class]
+        or not v1_error_codes[raw.code]
+        or not v1_error_stages[raw.stage]
+        or not v1_tri_states[raw.candidate_start_state]
+        or not v1_tri_states[raw.cleanup_state]
+        or not v1_tri_states[raw.launcher_reaped]
+        or not v1_tri_states[raw.result_eof] then
+        fail("native RUN v1 error envelope is invalid")
+    end
+    if raw.candidate_start_state ~= "not_started"
+        and raw.candidate_start_state ~= "started"
+        and raw.candidate_start_state ~= "unknown" then
+        fail("native RUN v1 start state is invalid")
+    end
+    for _, value in ipairs({raw.cleanup_state, raw.launcher_reaped, raw.result_eof}) do
+        if value ~= "complete" and value ~= "incomplete" and value ~= "unknown" then
+            fail("native RUN v1 cleanup tri-state is invalid")
+        end
+    end
+    if raw.phase_ordinal == 1 and raw.candidate_start_state == "started"
+        or raw.phase_ordinal == 2 and raw.candidate_start_state ~= "started" then
+        fail("native RUN v1 error phase contradicts start state")
+    end
+    if raw.cleanup_state == "complete"
+        and (raw.launcher_reaped ~= "complete" or raw.result_eof ~= "complete") then
+        fail("native RUN v1 complete cleanup lacks reap or EOF")
+    end
+    v1_identity(raw, normalized_request, "native RUN v1 error")
+    return {
+        protocol_version = "qa.provider_process_error.v1",
+        operation = "run_lua54_test_suite",
+        transaction_id = raw.transaction_id,
+        witness_id = raw.witness_id,
+        profile_id = raw.profile_id,
+        environment_id = raw.environment_id,
+        class = raw.class,
+        code = raw.code,
+        stage = raw.stage,
+        candidate_start_state = raw.candidate_start_state,
+        cleanup_state = raw.cleanup_state,
+        launcher_reaped = raw.launcher_reaped,
+        result_eof = raw.result_eof,
+        measured_cost = v1_error_cost(raw.measured_cost),
+        event_truth_status = "runtime_confirmed",
+    }
 end
 
 return qa_process

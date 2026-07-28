@@ -41,7 +41,7 @@
 #include "proc17_qa_wire.h"
 #include "proc17_sha256.h"
 
-#define PROC17_QA_PROBE_RESULT_BYTES 284U
+#define PROC17_QA_PROBE_RESULT_BYTES 292U
 #define PROC17_QA_SELF_MAX_BYTES (64U * 1024U * 1024U)
 #define PROC17_QA_PROBE_OUTPUT_BYTES 4096U
 #define PROC17_QA_SOURCE_POLICY_DETACHED_MOUNT_V0 1U
@@ -457,7 +457,7 @@ static int run_restricted_lua(const char *entrypoint, int probe_mode)
 {
     struct proc17_qa_allocator allocator = {
         .used = 0,
-        .ceiling = 64U * 1024U * 1024U,
+        .ceiling = (size_t)PROC17_QA_RUNTIME_HEAP_BYTES,
     };
     lua_State *state = lua_newstate(bounded_lua_allocator, &allocator);
     int result = -1;
@@ -1298,6 +1298,7 @@ static int emit_probe_result(
     proc17_qa_wire_put_u64(payload + 272U, stage->attached.mount_id);
     payload[280U] = stage->temporary_self_bind_live == 0 ? 1U : 0U;
     payload[281U] = stage->candidate_started != 0 ? 1U : 0U;
+    proc17_qa_wire_put_u64(payload + 284U, PROC17_QA_RUNTIME_HEAP_BYTES);
     (void)source_identity;
     if (proc17_qa_wire_encode(PROC17_QA_WIRE_PROBE_RESULT, nonce,
             payload, sizeof(payload), frame, &frame_bytes) != 0) {

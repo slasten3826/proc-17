@@ -12,6 +12,28 @@ tree/completion promotion: absent
 next hostile campaigns QN17-QN20: deferred
 ```
 
+Continuation amendment 2026-07-28:
+
+```text
+the required new TABLE/CRYSTALL round now exists and passed both audits;
+E1-E10 of qa_hostile_execution_campaign.v0 are authorized;
+QN17-QN20 remain runtime-red until that implementation executes;
+Packet/body QA authority remains absent.
+```
+
+Implementation continuation 2026-07-28:
+
+`E1` is complete with zero production/color delta. RUN v1 wire and strict Lua
+schemas exist beside the still-live RUN v0 path. `E2-E10` remain pending;
+QN17-QN20 remain deferred and body QA authority remains absent. See
+`docs/03_manifest/qa_hostile_execution_e1.v0.md`.
+
+E2 continuation 2026-07-28:
+
+Measured environment v1 is now active and historical v0 is unavailable for
+new contracts. Production execution remains RUN v0; E3-E10 remain pending.
+See `docs/03_manifest/qa_environment_rotation_e2.v0.md`.
+
 ## 1. Proven Claim
 
 The implemented slice proves one bounded physical statement:

@@ -33,7 +33,7 @@
 #define PROC17_QA_LAUNCHER_ABI "proc17.qa.launcher.lua54.v0"
 #define PROC17_QA_PROVIDER_ID "linux.qa_supervisor.lua54.v0"
 #define PROC17_QA_SUPERVISOR_ABI "proc17.qa_supervisor.v0"
-#define PROC17_QA_PROBE_RESULT_BYTES 284U
+#define PROC17_QA_PROBE_RESULT_BYTES 292U
 #define PROC17_QA_NATIVE_FILE_CEILING (64U * 1024U * 1024U)
 #define PROC17_QA_LAUNCHER_WATCHDOG_SECONDS 40
 #define PROC17_QA_SOURCE_POLICY_DETACHED_MOUNT_V0 1U
@@ -783,13 +783,15 @@ static int probe_environment(lua_State *L)
         || proc17_qa_wire_get_u64(payload + 272U)
             != proc17_qa_wire_get_u64(payload + 248U)
         || payload[280U] != 1U || payload[281U] != 1U
-        || payload[282U] != 0U || payload[283U] != 0U) {
+        || payload[282U] != 0U || payload[283U] != 0U
+        || proc17_qa_wire_get_u64(payload + 284U)
+            != PROC17_QA_RUNTIME_HEAP_BYTES) {
         return push_native_error(L, "environment_probe_rejected",
             "source_staging_attestation");
     }
 
-    lua_createtable(L, 0, 14);
-    lua_pushliteral(L, "qa.native_probe.v0");
+    lua_createtable(L, 0, 15);
+    lua_pushliteral(L, "qa.native_probe.v1");
     lua_setfield(L, -2, "protocol_version");
     lua_pushliteral(L, PROC17_QA_PROVIDER_ID);
     lua_setfield(L, -2, "provider_id");
@@ -803,6 +805,8 @@ static int probe_environment(lua_State *L)
     lua_setfield(L, -2, "runtime_name");
     push_sha(L, payload + 40U);
     lua_setfield(L, -2, "runtime_build_id");
+    lua_pushinteger(L, (lua_Integer)proc17_qa_wire_get_u64(payload + 284U));
+    lua_setfield(L, -2, "runtime_heap_limit_bytes");
     lua_pushliteral(L, "linux");
     lua_setfield(L, -2, "platform");
     lua_pushliteral(L, "x86_64");
