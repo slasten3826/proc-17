@@ -5,7 +5,7 @@ local capabilities = require("runtime.repository_capability")
 local repository_inventory = require("runtime.repository_inventory")
 
 local witness = {
-    protocol_version = "qa.provider_witness_runtime.v0",
+    protocol_version = "qa.provider_witness_runtime.v1",
 }
 
 local function copy_value(value, seen)
@@ -83,6 +83,8 @@ local function packet_snapshot(instance)
         trace = copy_value(instance.trace),
         revisions = copy_value(instance.revisions),
         tension = copy_value(instance.tension),
+        runtime_budget = copy_value(
+            instance.runtime and instance.runtime.budget or nil),
         field = copy_value(instance.field),
         death = copy_value(instance.death),
         manifest = copy_value(instance.manifest),
@@ -116,7 +118,7 @@ end
 
 local function native_request(value)
     return {
-        protocol_version = "qa.native_run_request.v0",
+        protocol_version = "qa.native_run_request.v1",
         operation = "run_lua54_test_suite",
         transaction_id = value.transaction_id,
         witness_id = value.witness_id,
@@ -294,9 +296,16 @@ local function disposition(transaction_id, state, reason)
     }
 end
 
-local function report_from(value, process, pre, post)
+local function report_from_pending(value, pending)
+    local process = pending.process
+    if pending.disposition ~= "consumed"
+        or type(process) ~= "table"
+        or process.protocol_version ~= "qa.provider_process_observation.v1"
+        or process.cleanup_complete ~= true then
+        error("QA provider witness report pending join is invalid", 0)
+    end
     return {
-        protocol_version = "qa.provider_witness_report.v0",
+        protocol_version = "qa.provider_witness_report.v1",
         operation = "run_lua54_test_suite",
         transaction_id = value.transaction_id,
         witness_id = value.witness_id,
@@ -305,50 +314,67 @@ local function report_from(value, process, pre, post)
         outcome = process.outcome == "expected_exit" and "accepted" or "rejected",
         reason = process.outcome,
         termination = copy_value(process.termination),
+        cause = copy_value(process.cause),
+        finality = copy_value(process.finality),
         source = {
-            pre_inventory_id = pre.inventory.inventory_id,
-            post_inventory_id = post.inventory.inventory_id,
+            pre_inventory_id = pending.pre_inventory_id,
+            post_inventory_id = pending.post_inventory_id,
             stable = true,
+            disposition = "consumed",
         },
         stdout = copy_value(process.stdout),
         stderr = copy_value(process.stderr),
         resources = copy_value(process.resources),
         scratch = copy_value(process.scratch),
-        cleanup = "complete",
         cost = copy_value(process.cost),
         event_truth_status = "runtime_confirmed",
     }
 end
 
-local function error_from(value, code, class, stage, process, source_stable)
-    local process_cost = type(process) == "table" and process.cost or nil
-    local cleanup_complete
-    if type(process) == "table" then
-        cleanup_complete = process.cleanup_complete
+local function process_error_projection(process)
+    if process == nil then
+        return "not_started", "complete", "complete", "complete", nil
     end
+    if type(process) ~= "table" then
+        error("QA provider witness process error evidence is invalid", 0)
+    end
+    if process.protocol_version == "qa.provider_process_observation.v1" then
+        if process.candidate_started ~= true
+            or process.cleanup_complete ~= true then
+            error("QA provider witness contained process evidence is invalid", 0)
+        end
+        return "started", "complete", "complete", "complete", process.cost
+    end
+    if process.protocol_version == "qa.provider_process_error.v1" then
+        return process.candidate_start_state, process.cleanup_state,
+            process.launcher_reaped, process.result_eof, process.measured_cost
+    end
+    error("QA provider witness process protocol is not v1", 0)
+end
+
+local function error_from_pending(value, pending)
+    if pending.disposition ~= "consumed"
+        and pending.disposition ~= "quarantined" then
+        error("QA provider witness error lacks terminal source disposition", 0)
+    end
+    local candidate_start_state, cleanup_state, launcher_reaped, result_eof,
+        measured_cost = process_error_projection(pending.process)
     return {
-        protocol_version = "qa.provider_witness_error.v0",
+        protocol_version = "qa.provider_witness_error.v1",
         transaction_id = value.transaction_id,
         witness_id = value.witness_id,
         profile_id = value.profile_id,
         environment_id = value.environment_id,
-        class = class,
-        code = code,
-        stage = stage,
-        candidate_started = type(process) == "table"
-            and process.candidate_started == true or false,
-        source_stable = source_stable,
-        cleanup_complete = cleanup_complete,
-        cost = copy_value(process_cost or {
-            protocol_version = "qa.cost.v0",
-            tool_calls = 0,
-            qa_executions = 0,
-            wall_time_ms = 0,
-            cpu_time_ms = 0,
-            scratch_written_bytes = 0,
-            stdout_observed_bytes = 0,
-            stderr_observed_bytes = 0,
-        }),
+        class = pending.class,
+        code = pending.code,
+        stage = pending.stage,
+        candidate_start_state = candidate_start_state,
+        source_stable = pending.source_stable,
+        source_disposition = pending.disposition,
+        cleanup_state = cleanup_state,
+        launcher_reaped = launcher_reaped,
+        result_eof = result_eof,
+        measured_cost = copy_value(measured_cost),
         event_truth_status = "runtime_confirmed",
     }
 end
@@ -390,11 +416,12 @@ function witness.execute(instance, host_services, plan)
                     kind = "error",
                     disposition = trusted and "quarantined" or "consumed",
                     loud = trusted,
-                    error = error_from(value,
-                        trusted and "trusted_inventory_contradiction"
-                            or "source_preflight_unavailable",
-                        trusted and "ambiguous" or "world",
-                        "preflight", nil, false),
+                    code = trusted and "trusted_inventory_contradiction"
+                        or "source_preflight_unavailable",
+                    class = trusted and "ambiguous" or "world",
+                    stage = "preflight",
+                    process = nil,
+                    source_stable = false,
                     detail = pre_err,
                 }
             end
@@ -402,8 +429,11 @@ function witness.execute(instance, host_services, plan)
                 return {
                     kind = "error",
                     disposition = "consumed",
-                    error = error_from(value, "source_preflight_mismatch",
-                        "world", "preflight", nil, true),
+                    code = "source_preflight_mismatch",
+                    class = "world",
+                    stage = "preflight",
+                    process = nil,
+                    source_stable = true,
                 }
             end
             local process, process_err = process_provider.run(
@@ -417,10 +447,12 @@ function witness.execute(instance, host_services, plan)
                     kind = "error",
                     disposition = "quarantined",
                     loud = trusted,
-                    error = error_from(value,
-                        trusted and "trusted_inventory_contradiction"
-                            or "source_drift", "ambiguous",
-                        "postflight", process or process_err, false),
+                    code = trusted and "trusted_inventory_contradiction"
+                        or "source_drift",
+                    class = "ambiguous",
+                    stage = "postflight",
+                    process = process or process_err,
+                    source_stable = false,
                     detail = post_err,
                 }
             end
@@ -428,16 +460,26 @@ function witness.execute(instance, host_services, plan)
                 return {
                     kind = "report",
                     disposition = "consumed",
-                    report = report_from(value, process, pre, post),
+                    process = process,
+                    pre_inventory_id = pre.inventory.inventory_id,
+                    post_inventory_id = post.inventory.inventory_id,
                 }
             end
-            local clean = process_err.cleanup_complete == true
-                and process_err.candidate_started == false
+            if type(process_err) ~= "table"
+                or process_err.protocol_version
+                    ~= "qa.provider_process_error.v1" then
+                error("QA provider returned an invalid process error", 0)
+            end
+            local clean = process_err.cleanup_state == "complete"
+                and process_err.candidate_start_state == "not_started"
             return {
                 kind = "error",
                 disposition = clean and "consumed" or "quarantined",
-                error = error_from(value, process_err.code, process_err.class,
-                    process_err.stage, process_err, true),
+                code = process_err.code,
+                class = process_err.class,
+                stage = process_err.stage,
+                process = process_err,
+                source_stable = true,
             }
         end
     )
@@ -452,7 +494,7 @@ function witness.execute(instance, host_services, plan)
         error("QA provider witness callback failed: " .. tostring(callback_err), 0)
     end
     local finish_reason = pending.disposition == "quarantined"
-        and (pending.error and pending.error.code or "provider_witness_ambiguous")
+        and (pending.code or "provider_witness_ambiguous")
         or nil
     local finished, finish_err = capabilities.finish_qa_source(
         registry, lease,
@@ -462,7 +504,16 @@ function witness.execute(instance, host_services, plan)
     end
     if pending.loud then
         error("QA provider witness trusted contradiction after finality: "
-            .. tostring(pending.detail or pending.error.code), 0)
+            .. tostring(pending.detail or pending.code), 0)
+    end
+    local final_report
+    local final_error
+    if pending.kind == "report" then
+        final_report = report_from_pending(value, pending)
+    elseif pending.kind == "error" then
+        final_error = error_from_pending(value, pending)
+    else
+        error("QA provider witness pending join kind is invalid", 0)
     end
     local root_after = assert(capabilities.root_authority(registry, {
         root_authority_id = value.root_authority_id,
@@ -470,10 +521,10 @@ function witness.execute(instance, host_services, plan)
     if packet_snapshot(instance) ~= packet_before or not same(root_after, root_before) then
         error("QA provider witness changed Packet or public root state", 0)
     end
-    if pending.kind == "report" and pending.disposition == "consumed" then
-        return copy_value(pending.report)
+    if final_report then
+        return copy_value(final_report)
     end
-    return nil, copy_value(pending.error)
+    return nil, copy_value(final_error)
 end
 
 return witness

@@ -24,13 +24,20 @@
 #include "generated/proc17_qa_build_identity.h"
 #include "generated/proc17_qa_prebuild.h"
 #include "proc17_qa_launcher_internal.h"
+#include "proc17_qa_launcher_v1.h"
 #include "proc17_qa_policy.h"
 #include "proc17_qa_wire.h"
 #include "proc17_repository_handle_abi.h"
 #include "proc17_sha256.h"
 
+#ifdef PROC17_QA_FAULT_TESTING
+#include "tests/proc17_qa_fault_testing.h"
+#endif
+
 #define PROC17_QA_LAUNCHER_PROTOCOL "qa.native_launcher.v0"
+#ifndef PROC17_QA_LAUNCHER_ABI
 #define PROC17_QA_LAUNCHER_ABI "proc17.qa.launcher.lua54.v0"
+#endif
 #define PROC17_QA_PROVIDER_ID "linux.qa_supervisor.lua54.v0"
 #define PROC17_QA_SUPERVISOR_ABI "proc17.qa_supervisor.v0"
 #define PROC17_QA_PROBE_RESULT_BYTES 292U
@@ -212,17 +219,16 @@ static int exact_sibling_path(const char *name, char output[PATH_MAX])
     return 0;
 }
 
-static int open_exact_supervisor(
+static int open_exact_supervisor_path(
+    const char *path,
     unsigned char digest[PROC17_SHA256_BYTES],
     int *descriptor)
 {
     unsigned char expected[PROC17_SHA256_BYTES];
-    char path[PATH_MAX];
     struct stat status;
     int opened;
 
-    if (exact_sibling_path("proc17_qa_supervisor", path) != 0
-        || proc17_sha256_parse_hex(
+    if (path == NULL || proc17_sha256_parse_hex(
             PROC17_QA_EXPECTED_SUPERVISOR_BUILD_ID_HEX, expected) != 0) {
         return -1;
     }
@@ -240,6 +246,29 @@ static int open_exact_supervisor(
     *descriptor = opened;
     return 0;
 }
+
+static int open_exact_supervisor(
+    unsigned char digest[PROC17_SHA256_BYTES],
+    int *descriptor)
+{
+    char path[PATH_MAX];
+
+    return exact_sibling_path("proc17_qa_supervisor", path) == 0
+        ? open_exact_supervisor_path(path, digest, descriptor) : -1;
+}
+
+#ifdef PROC17_QA_FAULT_TESTING
+int proc17_qa_fault_test_supervisor_identity_accepts(const char *path)
+{
+    unsigned char digest[PROC17_SHA256_BYTES];
+    int descriptor = -1;
+    int accepted = open_exact_supervisor_path(path, digest, &descriptor) == 0;
+
+    if (descriptor >= 0) (void)close(descriptor);
+    explicit_bzero(digest, sizeof(digest));
+    return accepted;
+}
+#endif
 
 static int open_probe_source(int *descriptor)
 {
@@ -563,12 +592,19 @@ cleanup:
     return result;
 }
 
-static int launch_run_frame(
+enum proc17_qa_launch_v1_status {
+    PROC17_QA_LAUNCH_V1_COMPLETE = 0,
+    PROC17_QA_LAUNCH_V1_UNAVAILABLE = 1,
+    PROC17_QA_LAUNCH_V1_SYSTEM_FAILURE = 2,
+    PROC17_QA_LAUNCH_V1_TRUSTED_INVARIANT = 3,
+};
+
+static enum proc17_qa_launch_v1_status launch_run_v1(
     int source,
     const unsigned char *request_frame,
     size_t request_bytes,
-    unsigned char result_frame[PROC17_QA_WIRE_MAX_FRAME_BYTES],
-    size_t *result_bytes)
+    const struct proc17_qa_launcher_v1_expectation *expectation,
+    struct proc17_qa_launcher_v1_terminal *terminal)
 {
     unsigned char supervisor_digest[PROC17_SHA256_BYTES];
     int supervisor = -1;
@@ -580,31 +616,32 @@ static int launch_run_frame(
     int child_result = -1;
     int pidfd = -1;
     pid_t child = -1;
-    int result = -1;
+    enum proc17_qa_launch_v1_status result
+        = PROC17_QA_LAUNCH_V1_UNAVAILABLE;
 
-    if (open_exact_supervisor(supervisor_digest, &supervisor) != 0) {
-        result = -10; goto cleanup;
+    if (source < 0 || request_frame == NULL || request_bytes == 0U
+        || expectation == NULL || terminal == NULL
+        || open_exact_supervisor(supervisor_digest, &supervisor) != 0) {
+        goto cleanup;
     }
-    if (request_frame == NULL || request_bytes == 0U) {
-        result = -11; goto cleanup;
-    }
-    if (pipe2(request_pipe, O_CLOEXEC) != 0) { result = -12; goto cleanup; }
-    if (pipe2(result_pipe, O_CLOEXEC) != 0) { result = -13; goto cleanup; }
+    if (pipe2(request_pipe, O_CLOEXEC) != 0) goto cleanup;
+    if (pipe2(result_pipe, O_CLOEXEC) != 0) goto cleanup;
     child_source = high_duplicate(source);
-    if (child_source < 0) { result = -14; goto cleanup; }
+    if (child_source < 0) goto cleanup;
     child_supervisor = high_duplicate(supervisor);
-    if (child_supervisor < 0) { result = -15; goto cleanup; }
+    if (child_supervisor < 0) goto cleanup;
     child_request = high_duplicate(request_pipe[0]);
-    if (child_request < 0) { result = -16; goto cleanup; }
+    if (child_request < 0) goto cleanup;
     child_result = high_duplicate(result_pipe[1]);
-    if (child_result < 0) { result = -17; goto cleanup; }
+    if (child_result < 0) goto cleanup;
     if (write_exact(request_pipe[1], request_frame, request_bytes) != 0) {
-        result = -18; goto cleanup;
+        goto cleanup;
     }
-    if (close(request_pipe[1]) != 0) { result = -19; goto cleanup; }
+    if (close(request_pipe[1]) != 0) goto cleanup;
     request_pipe[1] = -1;
     child = fork();
     if (child < 0) goto cleanup;
+    result = PROC17_QA_LAUNCH_V1_SYSTEM_FAILURE;
     if (child == 0) {
         supervisor_exec_child(child_source, child_request, child_result,
             child_supervisor, "run");
@@ -619,21 +656,24 @@ static int launch_run_frame(
     pidfd = (int)syscall(SYS_pidfd_open, child, 0U);
     if (pidfd < 0) goto cleanup_child;
     {
-        int flags = fcntl(result_pipe[0], F_GETFL);
-        int collected;
-        if (flags < 0 || fcntl(result_pipe[0], F_SETFL, flags | O_NONBLOCK) != 0) {
+        int collected = proc17_qa_launcher_collect_v1(child, pidfd,
+            result_pipe[0], PROC17_QA_LAUNCHER_WATCHDOG_SECONDS,
+            expectation, terminal);
+        if (collected == PROC17_QA_LAUNCHER_V1_INVALID_ARGUMENT) {
             goto cleanup_child;
         }
-        collected = collect_probe_result(child, pidfd, result_pipe[0],
-            result_frame, result_bytes);
-        if (collected != 0) {
-            child = -1;
-            result = collected;
+        child = -1;
+        if (collected == PROC17_QA_LAUNCHER_V1_TRUSTED_INVARIANT) {
+            result = PROC17_QA_LAUNCH_V1_TRUSTED_INVARIANT;
+        } else if (collected == PROC17_QA_LAUNCHER_V1_OK) {
+            result = PROC17_QA_LAUNCH_V1_COMPLETE;
+        } else {
+            result = PROC17_QA_LAUNCH_V1_SYSTEM_FAILURE;
+        }
+        if (collected != PROC17_QA_LAUNCHER_V1_OK) {
             goto cleanup;
         }
     }
-    child = -1;
-    result = 0;
     goto cleanup;
 
 cleanup_child:
@@ -829,31 +869,8 @@ struct proc17_qa_launcher_run {
     unsigned char environment[PROC17_SHA256_BYTES];
     uint64_t limits[PROC17_QA_WIRE_RESOURCE_LIMIT_FIELDS];
     char entrypoint[1025];
-    uint16_t disposition;
-    uint16_t reason;
-    uint16_t error_class;
-    uint16_t error_code;
-    uint16_t error_stage;
-    uint16_t termination_kind;
-    uint32_t exit_code;
-    uint32_t signal;
-    uint64_t wall_ms;
-    uint64_t user_cpu_ms;
-    uint64_t system_cpu_ms;
-    uint64_t max_rss_bytes;
-    uint64_t stdout_bytes;
-    uint64_t stderr_bytes;
-    uint64_t scratch_bytes;
-    uint64_t scratch_entries;
-    unsigned char stdout_digest[PROC17_SHA256_BYTES];
-    unsigned char stderr_digest[PROC17_SHA256_BYTES];
-    int stdout_limit;
-    int stderr_limit;
-    int scratch_bytes_limit;
-    int scratch_entries_limit;
-    int candidate_started;
-    int cleanup_complete;
-    int failure_step;
+    struct proc17_qa_launcher_v1_terminal terminal;
+    int trusted_invariant;
 };
 
 static int exact_table_keys(
@@ -967,7 +984,7 @@ static int parse_native_run(lua_State *L, struct proc17_qa_launcher_run *run)
     memset(run, 0, sizeof(*run));
     if (exact_table_keys(L, 2, request_keys,
             sizeof(request_keys) / sizeof(request_keys[0])) != 0
-        || exact_string(L, 2, "protocol_version", "qa.native_run_request.v0") != 0
+        || exact_string(L, 2, "protocol_version", "qa.native_run_request.v1") != 0
         || exact_string(L, 2, "operation", "run_lua54_test_suite") != 0
         || tagged_digest_field(L, 2, "transaction_id",
             "qa-provider-transaction:", run->transaction) != 0
@@ -1019,43 +1036,54 @@ static int parse_native_run(lua_State *L, struct proc17_qa_launcher_run *run)
     return 0;
 }
 
-static int validate_stage_payload(
-    const unsigned char *payload,
-    const struct proc17_qa_mount_identity *source)
+static void set_derived_launcher_error(
+    struct proc17_qa_launcher_run *run,
+    uint16_t error_class,
+    uint16_t error_code,
+    uint16_t error_stage,
+    uint8_t candidate_start_state,
+    uint8_t cleanup_state,
+    uint8_t launcher_reap_state,
+    uint8_t result_eof_state)
 {
-    return proc17_qa_wire_get_u16(payload) == PROC17_QA_SOURCE_POLICY_DETACHED_MOUNT_V0
-        && payload[2U] == 0U && payload[3U] == 0U
-        && proc17_qa_wire_get_u32(payload + 4U) == PROC17_QA_SOURCE_MOUNT_REQUIRED
-        && proc17_qa_wire_get_u64(payload + 8U) == source->device
-        && proc17_qa_wire_get_u64(payload + 16U) == source->inode
-        && proc17_qa_wire_get_u64(payload + 24U) == source->mount_id
-        && proc17_qa_wire_get_u64(payload + 32U) == source->device
-        && proc17_qa_wire_get_u64(payload + 40U) == source->inode
-        && proc17_qa_wire_get_u64(payload + 56U)
-            == proc17_qa_wire_get_u64(payload + 32U)
-        && proc17_qa_wire_get_u64(payload + 64U)
-            == proc17_qa_wire_get_u64(payload + 40U)
-        && proc17_qa_wire_get_u64(payload + 72U)
-            == proc17_qa_wire_get_u64(payload + 48U)
-        && payload[80U] == 1U && payload[81U] == 1U
-        && payload[82U] == 0U && payload[83U] == 0U;
+    memset(&run->terminal, 0, sizeof(run->terminal));
+    run->terminal.kind = PROC17_QA_LAUNCHER_V1_TERMINAL_DERIVED_ERROR;
+    run->terminal.phase = candidate_start_state == PROC17_QA_RUN_V1_TRUE
+        ? PROC17_QA_RUN_V1_PHASE_TERMINAL
+        : PROC17_QA_RUN_V1_PHASE_STARTED;
+    run->terminal.error_class = error_class;
+    run->terminal.error_code = error_code;
+    run->terminal.error_stage = error_stage;
+    run->terminal.candidate_start_state = candidate_start_state;
+    run->terminal.cleanup_state = cleanup_state;
+    run->terminal.started_attested
+        = candidate_start_state == PROC17_QA_RUN_V1_TRUE ? 1U : 0U;
+    run->terminal.launcher_reap_state = launcher_reap_state;
+    run->terminal.result_eof_state = result_eof_state;
 }
 
 static int run_source_consumer(int descriptor, void *opaque)
 {
     struct proc17_qa_launcher_run *run = opaque;
     struct proc17_qa_mount_identity source;
+    struct proc17_qa_launcher_v1_expectation expectation;
     unsigned char payload[PROC17_QA_WIRE_MAX_FRAME_BYTES];
     unsigned char request_frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
-    unsigned char result_frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
-    struct proc17_qa_wire_view view;
     size_t entrypoint_bytes = strlen(run->entrypoint);
-    size_t payload_bytes = PROC17_QA_RUN_REQUEST_FIXED_BYTES + entrypoint_bytes;
+    size_t payload_bytes
+        = PROC17_QA_RUN_REQUEST_V1_FIXED_BYTES + entrypoint_bytes;
     size_t request_bytes;
-    size_t result_bytes;
     size_t index;
+    enum proc17_qa_launch_v1_status launched;
 
-    if (observe_mount_identity(descriptor, &source) != 0) return -1;
+    if (observe_mount_identity(descriptor, &source) != 0) {
+        set_derived_launcher_error(run, PROC17_QA_RUN_V1_ERROR_WORLD,
+            PROC17_QA_RUN_V1_SOURCE_STAGING_FAILED,
+            PROC17_QA_RUN_V1_ERROR_SOURCE_STAGING,
+            PROC17_QA_RUN_V1_FALSE, PROC17_QA_RUN_V1_TRUE,
+            PROC17_QA_RUN_V1_TRUE, PROC17_QA_RUN_V1_TRUE);
+        return 0;
+    }
     memset(payload, 0, sizeof(payload));
     memcpy(payload, run->transaction, PROC17_SHA256_BYTES);
     memcpy(payload + 32U, run->witness, PROC17_SHA256_BYTES);
@@ -1070,67 +1098,33 @@ static int run_source_consumer(int descriptor, void *opaque)
     proc17_qa_wire_put_u32(payload + 232U, 0U);
     proc17_qa_wire_put_u16(payload + 236U, (uint16_t)entrypoint_bytes);
     memcpy(payload + 238U, run->entrypoint, entrypoint_bytes);
-    if (proc17_qa_wire_encode(PROC17_QA_WIRE_RUN_REQUEST, run->transaction,
-            payload, (uint32_t)payload_bytes, request_frame, &request_bytes) != 0) {
-        run->failure_step = 1; return -1;
+    if (proc17_qa_wire_encode_run_v1(PROC17_QA_WIRE_RUN_REQUEST_V1,
+            run->transaction, payload, (uint32_t)payload_bytes,
+            request_frame, &request_bytes) != 0) {
+        run->trusted_invariant = 1;
+        return -1;
     }
-    {
-        int launched = launch_run_frame(descriptor, request_frame, request_bytes,
-            result_frame, &result_bytes);
-        if (launched != 0) {
-            run->failure_step = launched < -1 ? -launched : 2;
-            return -1;
-        }
+    memset(&expectation, 0, sizeof(expectation));
+    memcpy(expectation.identity, payload, PROC17_QA_V1_IDENTITY_BYTES);
+    expectation.source_device = source.device;
+    expectation.source_inode = source.inode;
+    expectation.source_mount_id = source.mount_id;
+    expectation.source_mount_policy_flags = PROC17_QA_SOURCE_MOUNT_REQUIRED;
+    launched = launch_run_v1(descriptor, request_frame, request_bytes,
+        &expectation, &run->terminal);
+    if (launched == PROC17_QA_LAUNCH_V1_COMPLETE) return 0;
+    if (launched == PROC17_QA_LAUNCH_V1_TRUSTED_INVARIANT) {
+        run->trusted_invariant = 1;
+        return -1;
     }
-    if (proc17_qa_wire_decode(result_frame, result_bytes, &view) != 0) {
-        run->failure_step = 3; return -1;
-    }
-    if (view.kind != PROC17_QA_WIRE_RUN_RESULT
-        || view.payload_bytes != PROC17_QA_RUN_RESULT_BYTES
-        || memcmp(view.nonce, run->transaction, PROC17_SHA256_BYTES) != 0) {
-        run->failure_step = 4; return -1;
-    }
-    if (memcmp(view.payload + 176U, run->transaction, PROC17_SHA256_BYTES) != 0
-        || memcmp(view.payload + 208U, run->witness, PROC17_SHA256_BYTES) != 0
-        || memcmp(view.payload + 240U, run->profile, PROC17_SHA256_BYTES) != 0
-        || memcmp(view.payload + 272U, run->environment, PROC17_SHA256_BYTES) != 0) {
-        run->failure_step = 5; return -1;
-    }
-    if (!validate_stage_payload(view.payload + 304U, &source)) {
-        run->failure_step = 6; return -1;
-    }
-    run->disposition = proc17_qa_wire_get_u16(view.payload);
-    run->reason = proc17_qa_wire_get_u16(view.payload + 2U);
-    run->error_class = proc17_qa_wire_get_u16(view.payload + 4U);
-    run->error_code = proc17_qa_wire_get_u16(view.payload + 6U);
-    run->error_stage = proc17_qa_wire_get_u16(view.payload + 8U);
-    run->candidate_started = view.payload[10U];
-    run->cleanup_complete = view.payload[11U];
-    run->termination_kind = proc17_qa_wire_get_u16(view.payload + 12U);
-    run->exit_code = proc17_qa_wire_get_u32(view.payload + 16U);
-    run->signal = proc17_qa_wire_get_u32(view.payload + 20U);
-    run->wall_ms = proc17_qa_wire_get_u64(view.payload + 24U);
-    run->user_cpu_ms = proc17_qa_wire_get_u64(view.payload + 32U);
-    run->system_cpu_ms = proc17_qa_wire_get_u64(view.payload + 40U);
-    run->max_rss_bytes = proc17_qa_wire_get_u64(view.payload + 168U);
-    run->stdout_bytes = proc17_qa_wire_get_u64(view.payload + 48U);
-    run->stdout_limit = view.payload[56U];
-    memcpy(run->stdout_digest, view.payload + 64U, PROC17_SHA256_BYTES);
-    run->stderr_bytes = proc17_qa_wire_get_u64(view.payload + 96U);
-    run->stderr_limit = view.payload[104U];
-    memcpy(run->stderr_digest, view.payload + 112U, PROC17_SHA256_BYTES);
-    run->scratch_bytes = proc17_qa_wire_get_u64(view.payload + 144U);
-    run->scratch_entries = proc17_qa_wire_get_u64(view.payload + 152U);
-    run->scratch_bytes_limit = view.payload[160U];
-    run->scratch_entries_limit = view.payload[161U];
-    if ((run->disposition != PROC17_QA_RUN_CONTAINED
-            && run->disposition != PROC17_QA_RUN_PROCESS_ERROR)
-        || run->candidate_started != 1 || run->cleanup_complete != 1
-        || run->termination_kind != PROC17_QA_TERMINATION_EXIT
-        || (run->reason != PROC17_QA_RUN_EXPECTED_EXIT
-            && run->reason != PROC17_QA_RUN_UNEXPECTED_EXIT)
-        || run->stdout_limit != 0 || run->stderr_limit != 0
-        || run->scratch_bytes_limit != 0 || run->scratch_entries_limit != 0) {
+    if (launched == PROC17_QA_LAUNCH_V1_UNAVAILABLE) {
+        set_derived_launcher_error(run, PROC17_QA_RUN_V1_ERROR_UNAVAILABLE,
+            PROC17_QA_RUN_V1_SUPERVISOR_UNAVAILABLE,
+            PROC17_QA_RUN_V1_ERROR_LAUNCH,
+            PROC17_QA_RUN_V1_FALSE, PROC17_QA_RUN_V1_TRUE,
+            PROC17_QA_RUN_V1_TRUE, PROC17_QA_RUN_V1_TRUE);
+    } else {
+        run->trusted_invariant = 1;
         return -1;
     }
     return 0;
@@ -1148,6 +1142,257 @@ static void push_tagged_digest(
     lua_pushstring(L, tagged);
 }
 
+static void set_string(lua_State *L, const char *field, const char *value)
+{
+    lua_pushstring(L, value);
+    lua_setfield(L, -2, field);
+}
+
+static void set_integer(lua_State *L, const char *field, uint64_t value)
+{
+    lua_pushinteger(L, (lua_Integer)value);
+    lua_setfield(L, -2, field);
+}
+
+static void set_boolean(lua_State *L, const char *field, int value)
+{
+    lua_pushboolean(L, value);
+    lua_setfield(L, -2, field);
+}
+
+static const char *reason_name(uint16_t value)
+{
+    static const char *const names[] = {
+        NULL, "expected_exit", "unexpected_exit", "signal",
+        "wall_timeout", "cpu_limit", "memory_limit", "output_limit",
+        "scratch_limit", "sandbox_policy_violation",
+    };
+    return value < sizeof(names) / sizeof(names[0]) ? names[value] : NULL;
+}
+
+static const char *error_class_name(uint16_t value)
+{
+    static const char *const names[] = {
+        NULL, "world", "unavailable", "ambiguous",
+    };
+    return value < sizeof(names) / sizeof(names[0]) ? names[value] : NULL;
+}
+
+static const char *error_code_name(uint16_t value)
+{
+    static const char *const names[] = {
+        NULL, "supervisor_unavailable", "source_staging_failed",
+        "supervisor_crashed", "result_pipe_lost",
+        "terminal_frame_missing", "reap_ambiguous",
+        "output_observation_incomplete", "scratch_observation_incomplete",
+        "namespace_cleanup_incomplete",
+    };
+    return value < sizeof(names) / sizeof(names[0]) ? names[value] : NULL;
+}
+
+static const char *error_stage_name(uint16_t value)
+{
+    static const char *const names[] = {
+        NULL, "preflight", "source_staging", "namespace", "launch",
+        "supervision", "postflight", "cleanup",
+    };
+    return value < sizeof(names) / sizeof(names[0]) ? names[value] : NULL;
+}
+
+static const char *start_state_name(uint8_t value)
+{
+    if (value == PROC17_QA_RUN_V1_UNKNOWN) return "unknown";
+    if (value == PROC17_QA_RUN_V1_FALSE) return "not_started";
+    if (value == PROC17_QA_RUN_V1_TRUE) return "started";
+    return NULL;
+}
+
+static const char *completion_state_name(uint8_t value)
+{
+    if (value == PROC17_QA_RUN_V1_UNKNOWN) return "unknown";
+    if (value == PROC17_QA_RUN_V1_FALSE) return "incomplete";
+    if (value == PROC17_QA_RUN_V1_TRUE) return "complete";
+    return NULL;
+}
+
+static void push_run_identity(lua_State *L, const struct proc17_qa_launcher_run *run)
+{
+    push_tagged_digest(L, "qa-provider-transaction:", run->transaction);
+    lua_setfield(L, -2, "transaction_id");
+    push_tagged_digest(L, "qa-provider-witness:", run->witness);
+    lua_setfield(L, -2, "witness_id");
+    set_string(L, "profile_id", "qa.profile.lua54_test_suite.v0");
+    push_tagged_digest(L, "qa-environment:", run->environment);
+    lua_setfield(L, -2, "environment_id");
+}
+
+static void push_v1_stream(lua_State *L, const unsigned char *stream)
+{
+    lua_createtable(L, 0, 8);
+    set_string(L, "protocol_version", "qa.stream_measurement.v1");
+    set_integer(L, "observed_bytes", proc17_qa_wire_get_u64(stream));
+    set_integer(L, "hashed_bytes", proc17_qa_wire_get_u64(stream + 8U));
+    push_sha(L, stream + 24U);
+    lua_setfield(L, -2, "sha256");
+    set_integer(L, "limit_bytes", proc17_qa_wire_get_u64(stream + 16U));
+    set_boolean(L, "limit_reached", stream[56U] != 0U);
+    set_boolean(L, "eof_observed", stream[57U] != 0U);
+    set_boolean(L, "raw_retained", stream[58U] != 0U);
+}
+
+static void push_v1_resources(lua_State *L, const unsigned char *resource)
+{
+    lua_createtable(L, 0, 12);
+    set_string(L, "protocol_version", "qa.resource_measurement.v1");
+    set_integer(L, "wall_time_ms", proc17_qa_wire_get_u64(resource));
+    set_integer(L, "cpu_user_ms", proc17_qa_wire_get_u64(resource + 8U));
+    set_integer(L, "cpu_system_ms", proc17_qa_wire_get_u64(resource + 16U));
+    set_integer(L, "max_rss_bytes", proc17_qa_wire_get_u64(resource + 24U));
+    set_integer(L, "address_space_limit_bytes",
+        proc17_qa_wire_get_u64(resource + 32U));
+    set_integer(L, "runtime_heap_peak_bytes",
+        proc17_qa_wire_get_u64(resource + 40U));
+    set_integer(L, "runtime_heap_limit_bytes",
+        proc17_qa_wire_get_u64(resource + 48U));
+    set_boolean(L, "runtime_heap_denied", resource[80U] != 0U);
+    set_integer(L, "max_processes", proc17_qa_wire_get_u64(resource + 56U));
+    set_integer(L, "max_open_files", proc17_qa_wire_get_u64(resource + 64U));
+    set_integer(L, "max_file_bytes", proc17_qa_wire_get_u64(resource + 72U));
+}
+
+static void push_v1_scratch(lua_State *L, const unsigned char *scratch)
+{
+    lua_createtable(L, 0, 8);
+    set_string(L, "protocol_version", "qa.scratch_measurement.v1");
+    set_integer(L, "stored_regular_bytes",
+        proc17_qa_wire_get_u64(scratch));
+    set_integer(L, "stored_entries", proc17_qa_wire_get_u64(scratch + 8U));
+    set_integer(L, "limit_bytes", proc17_qa_wire_get_u64(scratch + 16U));
+    set_integer(L, "limit_entries", proc17_qa_wire_get_u64(scratch + 24U));
+    set_boolean(L, "byte_capacity_exhausted", scratch[32U] != 0U);
+    set_boolean(L, "entry_capacity_exhausted", scratch[33U] != 0U);
+    set_boolean(L, "inventory_complete", scratch[34U] != 0U);
+}
+
+static int push_v1_result(
+    lua_State *L,
+    const struct proc17_qa_launcher_run *run)
+{
+    struct proc17_qa_wire_view view;
+    const unsigned char *payload;
+    const char *reason;
+    size_t index;
+    static const char *const finality_names[] = {
+        "source_staging_complete", "candidate_started",
+        "candidate_terminal_observed", "process_tree_reaped",
+        "stdout_eof_observed", "stderr_eof_observed",
+        "scratch_observation_complete", "namespace_cleanup_complete",
+    };
+
+    if (run->terminal.kind != PROC17_QA_LAUNCHER_V1_TERMINAL_RESULT
+        || proc17_qa_wire_decode_run_v1(run->terminal.frame,
+            run->terminal.frame_bytes, &view) != 0
+        || view.kind != PROC17_QA_WIRE_RUN_RESULT_V1
+        || run->terminal.started_attested != 1U) {
+        return luaL_error(L, "trusted RUN v1 result invariant failed");
+    }
+    payload = view.payload;
+    reason = reason_name(proc17_qa_wire_get_u16(payload + 132U));
+    if (reason == NULL) {
+        return luaL_error(L, "trusted RUN v1 reason is unknown");
+    }
+    lua_createtable(L, 0, 19);
+    set_string(L, "protocol_version", "qa.native_run_result.v1");
+    push_run_identity(L, run);
+    set_integer(L, "phase_ordinal",
+        proc17_qa_wire_get_u16(payload + PROC17_QA_V1_PHASE_OFFSET));
+    set_string(L, "disposition", "contained_candidate");
+    set_boolean(L, "start_attested", 1);
+    set_string(L, "source_staging_policy",
+        "qa.source_staging.detached_mount.v0");
+    set_boolean(L, "source_staging_complete", 1);
+    set_string(L, "reason", reason);
+
+    lua_createtable(L, 0, 3);
+    set_integer(L, "kind", proc17_qa_wire_get_u16(payload + 134U));
+    set_integer(L, "exit_code", proc17_qa_wire_get_u32(payload + 136U));
+    set_integer(L, "signal", proc17_qa_wire_get_u32(payload + 140U));
+    lua_setfield(L, -2, "termination");
+
+    lua_createtable(L, 0, 4);
+    set_string(L, "protocol_version", "qa.first_cause.v1");
+    set_string(L, "kind", reason);
+    set_integer(L, "monotonic_sequence",
+        proc17_qa_wire_get_u64(payload + 148U));
+    set_integer(L, "observed_value",
+        proc17_qa_wire_get_u64(payload + 156U));
+    lua_setfield(L, -2, "cause");
+
+    lua_createtable(L, 0, 8);
+    for (index = 0U; index < 8U; index++) {
+        set_boolean(L, finality_names[index],
+            payload[PROC17_QA_V1_RESULT_FINALITY_OFFSET + index] != 0U);
+    }
+    lua_setfield(L, -2, "finality");
+    push_v1_stream(L, payload + PROC17_QA_V1_RESULT_STDOUT_OFFSET);
+    lua_setfield(L, -2, "stdout");
+    push_v1_stream(L, payload + PROC17_QA_V1_RESULT_STDERR_OFFSET);
+    lua_setfield(L, -2, "stderr");
+    push_v1_resources(L, payload + PROC17_QA_V1_RESULT_RESOURCE_OFFSET);
+    lua_setfield(L, -2, "resources");
+    push_v1_scratch(L, payload + PROC17_QA_V1_RESULT_SCRATCH_OFFSET);
+    lua_setfield(L, -2, "scratch");
+    set_string(L, "event_truth_status", "runtime_confirmed");
+    return 1;
+}
+
+static int push_v1_error(
+    lua_State *L,
+    const struct proc17_qa_launcher_run *run)
+{
+    const struct proc17_qa_launcher_v1_terminal *terminal = &run->terminal;
+    const char *error_class = error_class_name(terminal->error_class);
+    const char *error_code = error_code_name(terminal->error_code);
+    const char *error_stage = error_stage_name(terminal->error_stage);
+    const char *start_state = start_state_name(terminal->candidate_start_state);
+    const char *cleanup_state = completion_state_name(terminal->cleanup_state);
+    const char *reap_state = completion_state_name(terminal->launcher_reap_state);
+    const char *eof_state = completion_state_name(terminal->result_eof_state);
+
+    if (terminal->kind == PROC17_QA_LAUNCHER_V1_TERMINAL_ERROR) {
+        struct proc17_qa_wire_view view;
+        if (proc17_qa_wire_decode_run_v1(terminal->frame,
+                terminal->frame_bytes, &view) != 0
+            || view.kind != PROC17_QA_WIRE_RUN_ERROR_V1
+            || view.payload[138U] != 0U) {
+            return luaL_error(L,
+                "trusted RUN v1 error or measured-cost invariant failed");
+        }
+    }
+    if ((terminal->kind != PROC17_QA_LAUNCHER_V1_TERMINAL_ERROR
+            && terminal->kind
+                != PROC17_QA_LAUNCHER_V1_TERMINAL_DERIVED_ERROR)
+        || error_class == NULL || error_code == NULL || error_stage == NULL
+        || start_state == NULL || cleanup_state == NULL
+        || reap_state == NULL || eof_state == NULL) {
+        return luaL_error(L, "trusted RUN v1 error state is malformed");
+    }
+    lua_pushnil(L);
+    lua_createtable(L, 0, 14);
+    set_string(L, "protocol_version", "qa.native_run_error.v1");
+    push_run_identity(L, run);
+    set_integer(L, "phase_ordinal", terminal->phase);
+    set_string(L, "class", error_class);
+    set_string(L, "code", error_code);
+    set_string(L, "stage", error_stage);
+    set_string(L, "candidate_start_state", start_state);
+    set_string(L, "cleanup_state", cleanup_state);
+    set_string(L, "launcher_reaped", reap_state);
+    set_string(L, "result_eof", eof_state);
+    set_string(L, "event_truth_status", "runtime_confirmed");
+    return 2;
+}
+
 static int run_lua54_test_suite(lua_State *L)
 {
     struct proc17_qa_launcher_run run;
@@ -1156,60 +1401,25 @@ static int run_lua54_test_suite(lua_State *L)
         return luaL_error(L, "run_lua54_test_suite requires exactly two arguments");
     }
     if (parse_native_run(L, &run) != 0) {
-        return push_native_error(L, "native_run_request_rejected", "preflight");
+        return luaL_error(L, "RUN v1 request rejected by native boundary");
     }
     status = proc17_qa_with_repository_source(
         L, 1, run_source_consumer, &run);
     if (status != PROC17_QA_SOURCE_OK) {
-        char stage[64];
-        snprintf(stage, sizeof(stage), "supervision_step_%d", run.failure_step);
-        return push_native_error(L, "native_run_unavailable", stage);
+        if (run.trusted_invariant) {
+            return luaL_error(L, "trusted RUN v1 sequence invariant failed");
+        }
+        set_derived_launcher_error(&run, PROC17_QA_RUN_V1_ERROR_WORLD,
+            PROC17_QA_RUN_V1_SOURCE_STAGING_FAILED,
+            PROC17_QA_RUN_V1_ERROR_SOURCE_STAGING,
+            PROC17_QA_RUN_V1_FALSE, PROC17_QA_RUN_V1_TRUE,
+            PROC17_QA_RUN_V1_TRUE, PROC17_QA_RUN_V1_TRUE);
+        return push_v1_error(L, &run);
     }
-    lua_createtable(L, 0, 31);
-    lua_pushliteral(L, "qa.native_run_result.v0");
-    lua_setfield(L, -2, "protocol_version");
-#define PUSH_INT(field, value) do { lua_pushinteger(L, (lua_Integer)(value)); \
-    lua_setfield(L, -2, field); } while (0)
-#define PUSH_BOOL(field, value) do { lua_pushboolean(L, (value)); \
-    lua_setfield(L, -2, field); } while (0)
-    PUSH_INT("disposition_code", run.disposition);
-    PUSH_INT("reason_code", run.reason);
-    PUSH_INT("error_class_code", run.error_class);
-    PUSH_INT("error_code", run.error_code);
-    PUSH_INT("error_stage_code", run.error_stage);
-    PUSH_BOOL("candidate_started", run.candidate_started);
-    PUSH_BOOL("cleanup_complete", run.cleanup_complete);
-    PUSH_INT("termination_kind_code", run.termination_kind);
-    PUSH_INT("exit_code", run.exit_code);
-    PUSH_INT("signal", run.signal);
-    PUSH_INT("wall_time_ms", run.wall_ms);
-    PUSH_INT("user_cpu_ms", run.user_cpu_ms);
-    PUSH_INT("system_cpu_ms", run.system_cpu_ms);
-    PUSH_INT("max_rss_bytes", run.max_rss_bytes);
-    PUSH_INT("stdout_bytes", run.stdout_bytes);
-    PUSH_BOOL("stdout_limit_reached", run.stdout_limit);
-    push_sha(L, run.stdout_digest); lua_setfield(L, -2, "stdout_sha256");
-    PUSH_INT("stderr_bytes", run.stderr_bytes);
-    PUSH_BOOL("stderr_limit_reached", run.stderr_limit);
-    push_sha(L, run.stderr_digest); lua_setfield(L, -2, "stderr_sha256");
-    PUSH_INT("scratch_bytes", run.scratch_bytes);
-    PUSH_INT("scratch_entries", run.scratch_entries);
-    PUSH_BOOL("scratch_bytes_limit_reached", run.scratch_bytes_limit);
-    PUSH_BOOL("scratch_entries_limit_reached", run.scratch_entries_limit);
-    lua_pushliteral(L, "qa.source_staging.detached_mount.v0");
-    lua_setfield(L, -2, "source_staging_policy");
-    PUSH_BOOL("source_staging_complete", 1);
-    push_tagged_digest(L, "qa-provider-transaction:", run.transaction);
-    lua_setfield(L, -2, "transaction_id");
-    push_tagged_digest(L, "qa-provider-witness:", run.witness);
-    lua_setfield(L, -2, "witness_id");
-    lua_pushliteral(L, "qa.profile.lua54_test_suite.v0");
-    lua_setfield(L, -2, "profile_id");
-    push_tagged_digest(L, "qa-environment:", run.environment);
-    lua_setfield(L, -2, "environment_id");
-#undef PUSH_INT
-#undef PUSH_BOOL
-    return 1;
+    if (run.terminal.kind == PROC17_QA_LAUNCHER_V1_TERMINAL_RESULT) {
+        return push_v1_result(L, &run);
+    }
+    return push_v1_error(L, &run);
 }
 
 static void push_limits(lua_State *L)

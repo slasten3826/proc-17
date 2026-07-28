@@ -1,4 +1,4 @@
-# Current State - 2026-07-27
+# Current State - 2026-07-28
 
 Status: active packet-first body
 
@@ -9,6 +9,7 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> qualified relation/upper witnesses -> exact structure/choice actions
 -> exact plan assessment/delivery -> in-memory lineage -> build hands
 -> first complete capability-safe repository life
+-> private QA RUN v1 witness + QN17/QN18 containment campaigns
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -27,7 +28,11 @@ Packet generations in memory: one real local death can produce one bounded
 carrier and one clean descendant. One opt-in Tree life now routes the first
 capability-safe repository hand through exact review, effect evidence and
 body-owned completion, then projects one bounded `repository.result.v0` through
-△ and freezes a `dead/complete` Packet.
+△ and freezes a `dead/complete` Packet. The production QA execution closure now
+owns one exact RUN v1, complete process finality and terminal source disposition.
+Its 17 hostile-candidate and nine trusted-runtime fault campaigns are promoted,
+but the closure remains private: no Packet request, check evidence, verdict or
+software acceptance reader exists yet.
 
 ## Runtime Shape
 
@@ -354,6 +359,13 @@ execution exist. One exact create-no-replace hand is assembled into an opt-in
 body-owned repository mutation loop. Broader file operations, commands and
 multi-file work remain absent; exact one-artifact manifest delivery is present.
 
+The private QA provider executes only a sealed `tests/run.lua` candidate under
+the exact static supervisor identity. RUN v1 preserves candidate start, cause,
+measurements, cleanup, reap and EOF facts; provider witness v1 joins those facts
+to pre/post source inventories and terminal consumed/quarantined disposition.
+The QN17/QN18 campaigns prove the named candidate and trusted-fault boundaries
+without exporting a fault selector or giving this evidence Packet authority.
+
 ## Measured Evidence
 
 Current local audit results:
@@ -388,7 +400,9 @@ tests/test_repository_progress.lua    9/9 passed
 tests/test_repository_effect_linux.lua 3/3 real-provider lives passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
 tests/test_cli.lua                   passed plan/build/session/native-provider/hostile cases
-lua tests/red_qa_hand.lua            expected red: 40 green / 44 red
+tests/test_qa_native_supervisor.lua  18 green / 0 red / 2 deferred
+lua tests/run_qa_trusted_fault_campaign.lua 9/9, zero candidate outcomes
+lua tests/red_qa_hand.lua            expected red: 42 green / 42 red
 live CLI plan                        complete, 1 DeepSeek call, 373 tokens
 live CLI build                       complete, 1 DeepSeek call, 408 tokens, one verified file
 live CLI overwrite attempt           effect_failure, original file unchanged
@@ -589,6 +603,11 @@ completion and repository manifestation inside the body.
    plan or one exact create-only build Packet, starts fresh sessions by default,
    and resumes only an explicitly named session. It does not provide persistent
    lineage recovery, QA acceptance, general repository work or a human TUI.
+10. **The QA execution engine is not yet the body QA hand.** Production RUN v1,
+    source finality and QN17/QN18 containment are implemented, but Packet-owned
+    request/receipt, check evidence, verdict, QA economics and completion readers
+    remain expected-red. QN19 cleanup ambiguity and QN20 repeated residue are
+    still deferred native campaigns.
 
 Several modules are currently standalone or partially integrated, including
 `runtime/pressure_snapshot.lua`, `runtime/trace_store.lua`,

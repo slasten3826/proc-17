@@ -37,9 +37,20 @@
 #include <unistd.h>
 
 #include "generated/proc17_qa_prebuild.h"
+#include "proc17_qa_allocator.h"
+#include "proc17_qa_controller.h"
+#include "proc17_qa_phase.h"
 #include "proc17_qa_policy.h"
+#include "proc17_qa_report.h"
+#include "proc17_qa_scratch.h"
+#include "proc17_qa_status.h"
+#include "proc17_qa_stream.h"
 #include "proc17_qa_wire.h"
 #include "proc17_sha256.h"
+
+#ifdef PROC17_QA_FAULT_TESTING
+#include "tests/proc17_qa_fault_testing.h"
+#endif
 
 #define PROC17_QA_PROBE_RESULT_BYTES 292U
 #define PROC17_QA_SELF_MAX_BYTES (64U * 1024U * 1024U)
@@ -135,16 +146,6 @@ struct proc17_qa_run_metrics {
     uint64_t user_cpu_ms;
     uint64_t system_cpu_ms;
     uint64_t max_rss_bytes;
-};
-
-struct proc17_qa_allocator {
-    size_t used;
-    size_t ceiling;
-};
-
-union proc17_qa_allocation_header {
-    max_align_t alignment;
-    size_t bytes;
 };
 
 static int write_exact(int descriptor, const void *bytes, size_t length)
@@ -313,6 +314,17 @@ static int apply_candidate_limits(void)
         && set_limit(RLIMIT_CORE, 0U) == 0 ? 0 : -1;
 }
 
+static int apply_candidate_limits_v1(void)
+{
+    return proc17_qa_candidate_apply_cpu_limit(PROC17_QA_CPU_TIME_MS) == 0
+        && set_limit(RLIMIT_AS, PROC17_QA_ADDRESS_SPACE_BYTES) == 0
+        && set_limit(RLIMIT_NOFILE, PROC17_QA_MAX_OPEN_FILES) == 0
+        && set_limit(RLIMIT_FSIZE, PROC17_QA_MAX_FILE_BYTES) == 0
+        && set_limit(RLIMIT_NPROC, PROC17_QA_MAX_PROCESSES) == 0
+        && set_limit(RLIMIT_STACK, PROC17_QA_STACK_BYTES) == 0
+        && set_limit(RLIMIT_CORE, 0U) == 0 ? 0 : -1;
+}
+
 static int drop_capabilities(void)
 {
     struct __user_cap_header_struct header;
@@ -384,43 +396,6 @@ static int install_candidate_seccomp(void)
         ? 0 : -1;
 }
 
-static void *bounded_lua_allocator(
-    void *opaque,
-    void *pointer,
-    size_t old_size,
-    size_t new_size)
-{
-    struct proc17_qa_allocator *allocator = opaque;
-    union proc17_qa_allocation_header *header;
-    size_t prior = 0;
-    size_t total;
-    (void)old_size;
-
-    if (pointer != NULL) {
-        header = (union proc17_qa_allocation_header *)pointer - 1;
-        prior = header->bytes;
-    }
-    if (new_size == 0U) {
-        if (pointer != NULL) {
-            allocator->used -= prior;
-            free(header);
-        }
-        return NULL;
-    }
-    if (new_size > allocator->ceiling - (allocator->used - prior)
-        || new_size > SIZE_MAX - sizeof(*header)) {
-        return NULL;
-    }
-    total = sizeof(*header) + new_size;
-    header = pointer == NULL ? malloc(total) : realloc(header, total);
-    if (header == NULL) {
-        return NULL;
-    }
-    allocator->used = allocator->used - prior + new_size;
-    header->bytes = new_size;
-    return header + 1;
-}
-
 static void open_restricted_libraries(lua_State *state)
 {
     static const struct {
@@ -453,15 +428,16 @@ static void remove_field(lua_State *state, const char *table, const char *field)
     lua_pop(state, 1);
 }
 
-static int run_restricted_lua(const char *entrypoint, int probe_mode)
+static int run_restricted_lua_with_allocator(
+    const char *entrypoint,
+    int probe_mode,
+    struct proc17_qa_allocator_state *allocator)
 {
-    struct proc17_qa_allocator allocator = {
-        .used = 0,
-        .ceiling = (size_t)PROC17_QA_RUNTIME_HEAP_BYTES,
-    };
-    lua_State *state = lua_newstate(bounded_lua_allocator, &allocator);
+    lua_State *state;
     int result = -1;
 
+    if (allocator == NULL) return PROC17_QA_PROBE_LUA_STATE_FAILED;
+    state = lua_newstate(proc17_qa_lua_allocator, allocator);
     if (state == NULL) {
         return PROC17_QA_PROBE_LUA_STATE_FAILED;
     }
@@ -514,6 +490,21 @@ static int run_restricted_lua(const char *entrypoint, int probe_mode)
     }
     lua_close(state);
     return result;
+}
+
+static int run_restricted_lua(const char *entrypoint, int probe_mode)
+{
+    struct proc17_qa_allocator_telemetry telemetry;
+    struct proc17_qa_allocator_state allocator;
+
+    if (proc17_qa_allocator_telemetry_init(
+            &telemetry, PROC17_QA_RUNTIME_HEAP_BYTES) != 0
+        || proc17_qa_allocator_state_init(
+            &allocator, &telemetry, NULL, NULL) != 0) {
+        return PROC17_QA_PROBE_LUA_STATE_FAILED;
+    }
+    return run_restricted_lua_with_allocator(
+        entrypoint, probe_mode, &allocator);
 }
 
 static int prepare_candidate(void)
@@ -1315,10 +1306,11 @@ static int digest_nonzero(const unsigned char value[PROC17_SHA256_BYTES])
     return combined != 0U;
 }
 
-static int parse_run_request(
+static int parse_run_request_kind(
     const struct proc17_qa_wire_view *view,
     const struct proc17_qa_root_identity *observed_root,
-    struct proc17_qa_run_request *request)
+    struct proc17_qa_run_request *request,
+    uint16_t expected_kind)
 {
     static const uint64_t exact_limits[PROC17_QA_WIRE_RESOURCE_LIMIT_FIELDS] = {
         PROC17_QA_WALL_TIME_MS, PROC17_QA_CPU_TIME_MS,
@@ -1331,7 +1323,7 @@ static int parse_run_request(
     uint16_t path_bytes;
     size_t index;
 
-    if (view->kind != PROC17_QA_WIRE_RUN_REQUEST
+    if (view->kind != expected_kind
         || view->payload_bytes < PROC17_QA_RUN_REQUEST_FIXED_BYTES) {
         return -1;
     }
@@ -1371,6 +1363,19 @@ static int parse_run_request(
     return 0;
 }
 
+static int parse_run_request_v1(
+    const struct proc17_qa_wire_view *view,
+    const struct proc17_qa_root_identity *observed_root,
+    struct proc17_qa_run_request *request)
+{
+    return view != NULL
+        && proc17_qa_wire_v1_request_valid(
+            view->payload, view->payload_bytes)
+        ? parse_run_request_kind(view, observed_root, request,
+            PROC17_QA_WIRE_RUN_REQUEST_V1)
+        : -1;
+}
+
 static void encode_stage(
     unsigned char *payload,
     const struct proc17_qa_source_stage *stage)
@@ -1390,81 +1395,828 @@ static void encode_stage(
     payload[81U] = stage->candidate_started != 0 ? 1U : 0U;
 }
 
-static int emit_run_result(
-    const struct proc17_qa_run_request *request,
-    uint32_t status,
-    const struct proc17_qa_source_stage *stage,
-    const struct proc17_qa_run_metrics *metrics)
-{
-    static const unsigned char empty_digest[PROC17_SHA256_BYTES] = {
-        0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
-        0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
-        0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
-        0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
-    };
-    unsigned char payload[PROC17_QA_RUN_RESULT_BYTES];
-    unsigned char frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
-    size_t frame_bytes;
-    int contained = status == 0U || status == PROC17_QA_CANDIDATE_LUA_ERROR_EXIT;
+struct proc17_qa_heap_notify_context {
+    int descriptor;
+    const struct proc17_qa_status_context *status;
+};
 
-    memset(payload, 0, sizeof(payload));
-    proc17_qa_wire_put_u16(payload,
-        contained ? PROC17_QA_RUN_CONTAINED : PROC17_QA_RUN_PROCESS_ERROR);
-    proc17_qa_wire_put_u16(payload + 2U, status == 0U
-        ? PROC17_QA_RUN_EXPECTED_EXIT : PROC17_QA_RUN_UNEXPECTED_EXIT);
-    if (!contained) {
-        proc17_qa_wire_put_u16(payload + 4U, 1U);
-        proc17_qa_wire_put_u16(payload + 6U, (uint16_t)status);
-        proc17_qa_wire_put_u16(payload + 8U, 2U);
-    }
-    payload[10U] = stage->candidate_started != 0 ? 1U : 0U;
-    payload[11U] = 1U;
-    proc17_qa_wire_put_u16(payload + 12U, PROC17_QA_TERMINATION_EXIT);
-    proc17_qa_wire_put_u32(payload + 16U, status);
-    proc17_qa_wire_put_u32(payload + 20U, UINT32_MAX);
-    proc17_qa_wire_put_u64(payload + 24U, metrics->wall_ms);
-    proc17_qa_wire_put_u64(payload + 32U, metrics->user_cpu_ms);
-    proc17_qa_wire_put_u64(payload + 40U, metrics->system_cpu_ms);
-    memcpy(payload + 64U, empty_digest, sizeof(empty_digest));
-    memcpy(payload + 112U, empty_digest, sizeof(empty_digest));
-    proc17_qa_wire_put_u64(payload + 168U, metrics->max_rss_bytes);
-    memcpy(payload + 176U, request->transaction, PROC17_SHA256_BYTES);
-    memcpy(payload + 208U, request->witness, PROC17_SHA256_BYTES);
-    memcpy(payload + 240U, request->profile, PROC17_SHA256_BYTES);
-    memcpy(payload + 272U, request->environment, PROC17_SHA256_BYTES);
-    encode_stage(payload + 304U, stage);
-    if (proc17_qa_wire_encode(PROC17_QA_WIRE_RUN_RESULT,
-            request->transaction, payload, sizeof(payload), frame,
-            &frame_bytes) != 0) {
-        return -1;
-    }
-    return write_exact(5, frame, frame_bytes);
+static int notify_heap_denied(void *opaque)
+{
+    struct proc17_qa_heap_notify_context *notification = opaque;
+    if (notification == NULL || notification->status == NULL) return -1;
+    return proc17_qa_status_send(notification->descriptor,
+        notification->status, PROC17_QA_STATUS_HEAP_DENIED, 3U, 1);
 }
 
-static int run_execution_protocol(void)
+static int prepare_candidate_v1(void)
 {
-    unsigned char frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
-    unsigned char self_digest[PROC17_SHA256_BYTES];
-    size_t frame_bytes;
-    struct proc17_qa_wire_view view;
-    struct proc17_qa_root_identity source_identity = {0};
-    struct proc17_qa_source_stage stage;
-    struct proc17_qa_run_request request;
-    struct proc17_qa_run_metrics metrics;
-    uint32_t status;
-
-    memset(&stage, 0, sizeof(stage));
-    stage.detached_mount_fd = -1;
-    if (read_frame(4, frame, &frame_bytes) != 0
-        || proc17_qa_wire_decode(frame, frame_bytes, &view) != 0
-        || sha_self(self_digest) != 0 || close(6) != 0
-        || observe_root(3, &source_identity) != 0
-        || parse_run_request(&view, &source_identity, &request) != 0
-        || close(4) != 0) {
+    if (clearenv() != 0
+        || setenv("HOME", "/qa/scratch/home", 1) != 0
+        || setenv("TMPDIR", "/qa/scratch/tmp", 1) != 0
+        || setenv("LANG", "C", 1) != 0
+        || setenv("LC_ALL", "C", 1) != 0
+        || setenv("TZ", "UTC", 1) != 0
+        || chdir("/qa/source") != 0
+        || proc17_qa_status_ignore_sigpipe() != 0
+        || apply_candidate_limits_v1() != 0
+        || drop_capabilities() != 0
+        || install_candidate_seccomp() != 0) {
         return -1;
     }
-    status = run_namespace_probe(3, &stage, request.entrypoint, 0, &metrics);
-    return emit_run_result(&request, status, &stage, &metrics);
+    return 0;
+}
+
+static int ensure_descriptor_closed(int descriptor)
+{
+    if (close(descriptor) == 0) return 0;
+    return errno == EBADF ? 0 : -1;
+}
+
+static int reserve_standard_descriptors(void)
+{
+    int null_descriptor = open("/dev/null", O_RDWR | O_CLOEXEC);
+    int descriptor;
+
+    if (null_descriptor < 0) return -1;
+    for (descriptor = STDIN_FILENO;
+            descriptor <= STDERR_FILENO; ++descriptor) {
+        if (null_descriptor != descriptor
+            && dup3(null_descriptor, descriptor, O_CLOEXEC) < 0) {
+            if (null_descriptor > STDERR_FILENO) {
+                (void)close(null_descriptor);
+            }
+            return -1;
+        }
+    }
+    if (null_descriptor > STDERR_FILENO
+        && close(null_descriptor) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int run_candidate_v1(
+    const char *entrypoint,
+    int public_result_descriptor,
+    int status_descriptor,
+    int controller_status_descriptor,
+    int stdout_read_descriptor,
+    int stdout_write_descriptor,
+    int stderr_read_descriptor,
+    int stderr_write_descriptor,
+    int report_descriptor,
+    int scratch_descriptor,
+    const struct proc17_qa_phase_identity *identity,
+    const unsigned char process_token[PROC17_QA_WIRE_DIGEST_BYTES],
+    const unsigned char source_stage[PROC17_QA_SOURCE_STAGE_V1_BYTES],
+    struct proc17_qa_allocator_telemetry *telemetry)
+{
+    struct proc17_qa_started_writer_state writer;
+    struct proc17_qa_status_context status;
+    struct proc17_qa_status_message message;
+    struct proc17_qa_allocator_state allocator;
+    struct proc17_qa_heap_notify_context notification;
+    int lua_status;
+
+    if (entrypoint == NULL || identity == NULL || process_token == NULL
+        || source_stage == NULL || telemetry == NULL
+        || close(controller_status_descriptor) != 0
+        || close(stdout_read_descriptor) != 0
+        || close(stderr_read_descriptor) != 0
+        || close(report_descriptor) != 0
+        || close(scratch_descriptor) != 0
+        || ensure_descriptor_closed(STDIN_FILENO) != 0
+        || dup2(stdout_write_descriptor, STDOUT_FILENO) < 0
+        || dup2(stderr_write_descriptor, STDERR_FILENO) < 0
+        || close(stdout_write_descriptor) != 0
+        || close(stderr_write_descriptor) != 0
+        || setvbuf(stdout, NULL, _IONBF, 0) != 0
+        || setvbuf(stderr, NULL, _IONBF, 0) != 0
+        || prepare_candidate_v1() != 0) {
+        return 120;
+    }
+    memset(&status, 0, sizeof(status));
+    status.identity = *identity;
+    memcpy(status.process_token, process_token, sizeof(status.process_token));
+    proc17_qa_started_writer_init(&writer);
+    if (proc17_qa_phase_emit_started_and_close(&writer,
+            &public_result_descriptor, identity, process_token,
+            source_stage) != 0
+        || public_result_descriptor != -1
+        || proc17_qa_status_send(status_descriptor, &status,
+            PROC17_QA_STATUS_READY, 1U, 0) != 0
+        || proc17_qa_status_receive(status_descriptor, &status, 0, &message)
+            != PROC17_QA_STATUS_RECEIVE_MESSAGE
+        || message.kind != PROC17_QA_STATUS_RELEASE
+        || message.sequence != 2U
+        || proc17_qa_status_set_nonblocking(status_descriptor) != 0) {
+        return 121;
+    }
+    notification.descriptor = status_descriptor;
+    notification.status = &status;
+    if (proc17_qa_allocator_state_init(&allocator, telemetry,
+            notify_heap_denied, &notification) != 0) {
+        return 122;
+    }
+    lua_status = run_restricted_lua_with_allocator(
+        entrypoint, 0, &allocator);
+    if (close(status_descriptor) != 0) return 123;
+    return lua_status == PROC17_QA_PROBE_OK ? 0
+        : lua_status == PROC17_QA_CANDIDATE_LUA_ERROR_EXIT
+            ? PROC17_QA_CANDIDATE_LUA_ERROR_EXIT : 124;
+}
+
+static int set_nonblocking(int descriptor)
+{
+    int flags = fcntl(descriptor, F_GETFL);
+    return flags >= 0
+        && fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
+}
+
+static void close_if_open(int *descriptor)
+{
+    if (descriptor != NULL && *descriptor >= 0) {
+        (void)close(*descriptor);
+        *descriptor = -1;
+    }
+}
+
+static int same_allocator_snapshot(
+    const struct proc17_qa_allocator_snapshot *left,
+    const struct proc17_qa_allocator_snapshot *right)
+{
+    return left->ceiling_bytes == right->ceiling_bytes
+        && left->current_bytes == right->current_bytes
+        && left->peak_bytes == right->peak_bytes
+        && left->ceiling_denied == right->ceiling_denied
+        && left->system_allocation_failed == right->system_allocation_failed
+        && left->status_notification_failed
+            == right->status_notification_failed;
+}
+
+static int termination_from_wait(
+    int wait_status,
+    uint16_t first_cause,
+    struct proc17_qa_candidate_termination *termination)
+{
+    if (termination == NULL) return -1;
+    memset(termination, 0, sizeof(*termination));
+    termination->exit_code = UINT32_MAX;
+    termination->signal_number = UINT32_MAX;
+    if (WIFEXITED(wait_status)) {
+        termination->kind = PROC17_QA_TERMINATION_EXIT;
+        termination->exit_code = (uint32_t)WEXITSTATUS(wait_status);
+        return 0;
+    }
+    if (!WIFSIGNALED(wait_status)) return -1;
+    termination->signal_number = (uint32_t)WTERMSIG(wait_status);
+    if (first_cause == PROC17_QA_RUN_WALL_TIMEOUT
+        || first_cause == PROC17_QA_RUN_MEMORY_LIMIT
+        || first_cause == PROC17_QA_RUN_OUTPUT_LIMIT) {
+        if (WTERMSIG(wait_status) != SIGKILL) return -1;
+        termination->kind = PROC17_QA_TERMINATION_SUPERVISOR_KILL;
+    } else {
+        termination->kind = PROC17_QA_TERMINATION_SIGNAL;
+    }
+    return 0;
+}
+
+static int drain_epoch_stream(
+    struct proc17_qa_stream_observer *observer,
+    int descriptor,
+    uint8_t *crossed)
+{
+    int result = proc17_qa_stream_drain_nonblocking(observer, descriptor);
+    if (result == PROC17_QA_STREAM_DRAIN_ERROR) return -1;
+    if (result == PROC17_QA_STREAM_DRAIN_LIMIT_CROSSED) *crossed = 1U;
+    return 0;
+}
+
+int proc17_qa_run_namespace_controller_v1(
+    int source_descriptor,
+    int public_result_descriptor,
+    int private_report_descriptor,
+    const struct proc17_qa_run_request *request,
+    const struct proc17_qa_phase_identity *identity,
+    const unsigned char process_token[PROC17_QA_WIRE_DIGEST_BYTES])
+{
+    struct proc17_qa_source_stage stage;
+    struct proc17_qa_phase_state phase;
+    struct proc17_qa_status_context status_context;
+    struct proc17_qa_candidate_clock clock;
+    struct proc17_qa_stream_observer stdout_observer;
+    struct proc17_qa_stream_observer stderr_observer;
+    struct proc17_qa_stream_measurement stdout_measurement;
+    struct proc17_qa_stream_measurement stderr_measurement;
+    struct proc17_qa_scratch_baseline scratch_baseline;
+    struct proc17_qa_scratch_measurement scratch_measurement;
+    struct proc17_qa_candidate_metrics candidate_metrics;
+    struct proc17_qa_allocator_telemetry *telemetry = NULL;
+    struct proc17_qa_allocator_snapshot allocator;
+    struct proc17_qa_allocator_snapshot allocator_again;
+    struct proc17_qa_controller_report_input report_input;
+    struct proc17_qa_candidate_termination termination;
+    struct proc17_qa_status_message status_message;
+    unsigned char stage_payload[PROC17_QA_SOURCE_STAGE_V1_BYTES];
+    unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES];
+    int status_descriptors[2] = {-1, -1};
+    int stdout_descriptors[2] = {-1, -1};
+    int stderr_descriptors[2] = {-1, -1};
+    int scratch_descriptor = -1;
+    int candidate_pidfd = -1;
+    pid_t candidate = -1;
+    int wait_status = 0;
+    struct rusage usage;
+    uint8_t candidate_reaped = 0U;
+    uint8_t status_eof = 0U;
+    uint8_t heap_notifications = 0U;
+    uint8_t kill_sent = 0U;
+    int result = -1;
+
+    memset(&stage, 0, sizeof(stage));
+    memset(&scratch_baseline, 0, sizeof(scratch_baseline));
+    memset(&scratch_measurement, 0, sizeof(scratch_measurement));
+    memset(&usage, 0, sizeof(usage));
+    memset(stage_payload, 0, sizeof(stage_payload));
+    proc17_qa_phase_init(&phase);
+    proc17_qa_candidate_clock_init(&clock);
+    if (source_descriptor <= STDERR_FILENO
+        || public_result_descriptor <= STDERR_FILENO
+        || private_report_descriptor <= STDERR_FILENO
+        || request == NULL || identity == NULL || process_token == NULL) {
+        goto cleanup;
+    }
+    if (reserve_standard_descriptors() != 0
+        || mount_isolated_world(source_descriptor, &stage) != 0) {
+        goto cleanup;
+    }
+    if (close(source_descriptor) != 0) {
+        source_descriptor = -1;
+        goto cleanup;
+    }
+    source_descriptor = -1;
+    stage.candidate_started = 1;
+    encode_stage(stage_payload, &stage);
+    scratch_descriptor = open("/qa/scratch",
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (!proc17_qa_wire_v1_source_stage_valid(stage_payload)
+        || scratch_descriptor < 0
+        || proc17_qa_scratch_capture_baseline(
+            scratch_descriptor, &scratch_baseline) != 0
+        || proc17_qa_allocator_telemetry_map(
+            PROC17_QA_RUNTIME_HEAP_BYTES, &telemetry) != 0
+        || proc17_qa_status_socket_pair(status_descriptors) != 0
+        || pipe2(stdout_descriptors, O_CLOEXEC) != 0
+        || pipe2(stderr_descriptors, O_CLOEXEC) != 0
+        || proc17_qa_stream_init(
+            &stdout_observer, PROC17_QA_STDOUT_BYTES) != 0
+        || proc17_qa_stream_init(
+            &stderr_observer, PROC17_QA_STDERR_BYTES) != 0) {
+        goto cleanup;
+    }
+    memset(&status_context, 0, sizeof(status_context));
+    status_context.identity = *identity;
+    memcpy(status_context.process_token, process_token,
+        sizeof(status_context.process_token));
+    candidate = fork();
+    if (candidate < 0) goto cleanup;
+    if (candidate == 0) {
+        int candidate_result = run_candidate_v1(request->entrypoint,
+            public_result_descriptor, status_descriptors[1],
+            status_descriptors[0], stdout_descriptors[0],
+            stdout_descriptors[1], stderr_descriptors[0],
+            stderr_descriptors[1], private_report_descriptor,
+            scratch_descriptor, identity, process_token,
+            stage_payload, telemetry);
+        _exit(candidate_result);
+    }
+    close_if_open(&status_descriptors[1]);
+    close_if_open(&stdout_descriptors[1]);
+    close_if_open(&stderr_descriptors[1]);
+    close_if_open(&public_result_descriptor);
+    candidate_pidfd = (int)syscall(SYS_pidfd_open, candidate, 0U);
+    if (candidate_pidfd < 0
+        || set_nonblocking(stdout_descriptors[0]) != 0
+        || set_nonblocking(stderr_descriptors[0]) != 0
+        || proc17_qa_allocator_telemetry_make_read_only(telemetry) != 0) {
+        goto cleanup;
+    }
+    {
+        struct pollfd ready_descriptors[2];
+        int polled;
+        ready_descriptors[0] = (struct pollfd){
+            .fd = status_descriptors[0], .events = POLLIN | POLLHUP};
+        ready_descriptors[1] = (struct pollfd){
+            .fd = candidate_pidfd, .events = POLLIN};
+        do {
+            polled = poll(ready_descriptors, 2, (int)PROC17_QA_SETUP_GRACE_MS);
+        } while (polled < 0 && errno == EINTR);
+        if (polled <= 0) {
+            goto cleanup;
+        }
+        if ((ready_descriptors[1].revents & POLLIN) != 0) {
+            goto cleanup;
+        }
+        if ((ready_descriptors[0].revents & POLLIN) == 0) {
+            goto cleanup;
+        }
+        {
+            int ready_status = proc17_qa_status_receive(
+                status_descriptors[0], &status_context, 0, &status_message);
+            if (ready_status != PROC17_QA_STATUS_RECEIVE_MESSAGE) {
+                goto cleanup;
+            }
+        }
+        if (proc17_qa_status_accept_ready(&status_message, &phase) != 0) {
+            goto cleanup;
+        }
+        if (proc17_qa_candidate_clock_arm(
+                &clock, PROC17_QA_WALL_TIME_MS) != 0) {
+            goto cleanup;
+        }
+        if (proc17_qa_phase_authorize_candidate(&phase) != 0) {
+            goto cleanup;
+        }
+        if (proc17_qa_status_send(status_descriptors[0],
+                &status_context, PROC17_QA_STATUS_RELEASE, 2U, 0) != 0) {
+            goto cleanup;
+        }
+        if (proc17_qa_status_set_nonblocking(status_descriptors[0]) != 0) {
+            goto cleanup;
+        }
+    }
+
+    while (candidate_reaped == 0U
+            || stdout_observer.eof_observed == 0U
+            || stderr_observer.eof_observed == 0U
+            || status_eof == 0U) {
+        struct pollfd descriptors[5];
+        struct proc17_qa_observation_epoch epoch;
+        int polled;
+        int epoch_result;
+
+        descriptors[0] = (struct pollfd){.fd = stdout_descriptors[0],
+            .events = stdout_observer.eof_observed ? 0 : POLLIN | POLLHUP};
+        descriptors[1] = (struct pollfd){.fd = stderr_descriptors[0],
+            .events = stderr_observer.eof_observed ? 0 : POLLIN | POLLHUP};
+        descriptors[2] = (struct pollfd){.fd = candidate_pidfd,
+            .events = candidate_reaped ? 0 : POLLIN};
+        descriptors[3] = (struct pollfd){.fd = clock.timer_descriptor,
+            .events = candidate_reaped ? 0 : POLLIN};
+        descriptors[4] = (struct pollfd){.fd = status_descriptors[0],
+            .events = status_eof ? 0 : POLLIN | POLLHUP};
+        do {
+            polled = poll(descriptors, 5, -1);
+        } while (polled < 0 && errno == EINTR);
+        if (polled <= 0) goto cleanup;
+        memset(&epoch, 0, sizeof(epoch));
+        if ((descriptors[0].revents & (POLLIN | POLLHUP)) != 0
+            && drain_epoch_stream(&stdout_observer, stdout_descriptors[0],
+                &epoch.stdout_limit_crossed) != 0) {
+            goto cleanup;
+        }
+        epoch.stdout_observed_bytes = stdout_observer.observed_bytes;
+        if ((descriptors[1].revents & (POLLIN | POLLHUP)) != 0
+            && drain_epoch_stream(&stderr_observer, stderr_descriptors[0],
+                &epoch.stderr_limit_crossed) != 0) {
+            goto cleanup;
+        }
+        epoch.stderr_observed_bytes = stderr_observer.observed_bytes;
+        if ((descriptors[4].revents & (POLLIN | POLLHUP)) != 0) {
+            for (;;) {
+                int received = proc17_qa_status_receive(status_descriptors[0],
+                    &status_context, 1, &status_message);
+                if (received == PROC17_QA_STATUS_RECEIVE_IDLE) break;
+                if (received == PROC17_QA_STATUS_RECEIVE_EOF) {
+                    status_eof = 1U;
+                    break;
+                }
+                if (received != PROC17_QA_STATUS_RECEIVE_MESSAGE
+                    || status_message.kind != PROC17_QA_STATUS_HEAP_DENIED
+                    || heap_notifications != 0U) {
+                    goto cleanup;
+                }
+                heap_notifications = 1U;
+                if (proc17_qa_allocator_snapshot(telemetry, &allocator) != 0
+                    || allocator.ceiling_denied != 1U
+                    || allocator.system_allocation_failed != 0U) {
+                    goto cleanup;
+                }
+                epoch.heap_denied = 1U;
+                epoch.heap_peak_bytes = allocator.peak_bytes;
+            }
+        }
+        if ((descriptors[3].revents & POLLIN) != 0) {
+            if (proc17_qa_candidate_clock_consume_timer(&clock) != 1) {
+                goto cleanup;
+            }
+            epoch.wall_timer_expired = 1U;
+            epoch.wall_limit_ms = PROC17_QA_WALL_TIME_MS;
+        }
+        if ((descriptors[2].revents & POLLIN) != 0) {
+            if (proc17_qa_wait_candidate(candidate, &wait_status, &usage) != 0) {
+                goto cleanup;
+            }
+            candidate_reaped = 1U;
+            epoch.candidate_terminal = 1U;
+            epoch.wait_status = wait_status;
+        }
+        epoch_result = proc17_qa_controller_resolve_epoch(&phase, &epoch);
+        if (epoch_result == PROC17_QA_EPOCH_INVALID
+            || epoch_result == PROC17_QA_EPOCH_AMBIGUOUS) {
+            goto cleanup;
+        }
+        if (phase.first_cause.kind != 0U && candidate_reaped == 0U
+            && kill_sent == 0U) {
+            if (syscall(SYS_pidfd_send_signal, candidate_pidfd,
+                    SIGKILL, NULL, 0U) != 0) {
+                goto cleanup;
+            }
+            kill_sent = 1U;
+        }
+    }
+    if (proc17_qa_phase_mark_finality(
+            &phase, PROC17_QA_FINAL_CANDIDATE_TERMINAL) != 0
+        || proc17_qa_phase_mark_finality(
+            &phase, PROC17_QA_FINAL_PROCESS_TREE_REAPED) != 0
+        || proc17_qa_phase_mark_finality(
+            &phase, PROC17_QA_FINAL_STDOUT_EOF) != 0
+        || proc17_qa_phase_mark_finality(
+            &phase, PROC17_QA_FINAL_STDERR_EOF) != 0
+        || proc17_qa_stream_snapshot(
+            &stdout_observer, &stdout_measurement) != 0
+        || proc17_qa_stream_snapshot(
+            &stderr_observer, &stderr_measurement) != 0
+        || proc17_qa_candidate_clock_finish(
+            &clock, &usage, &candidate_metrics) != 0
+        || proc17_qa_scratch_measure_final(scratch_descriptor,
+            &scratch_baseline, PROC17_QA_SCRATCH_BYTES,
+            PROC17_QA_SCRATCH_ENTRIES, &scratch_measurement)
+            != PROC17_QA_SCRATCH_COMPLETE
+        || proc17_qa_phase_mark_finality(
+            &phase, PROC17_QA_FINAL_SCRATCH_OBSERVED) != 0
+        || proc17_qa_allocator_snapshot(telemetry, &allocator) != 0
+        || proc17_qa_allocator_snapshot(telemetry, &allocator_again) != 0
+        || !same_allocator_snapshot(&allocator, &allocator_again)
+        || termination_from_wait(wait_status, phase.first_cause.kind,
+            &termination) != 0) {
+        goto cleanup;
+    }
+    memset(&report_input, 0, sizeof(report_input));
+    report_input.identity = identity;
+    report_input.process_token = process_token;
+    report_input.phase = &phase;
+    report_input.termination = termination;
+    report_input.stdout_measurement = &stdout_measurement;
+    report_input.stderr_measurement = &stderr_measurement;
+    report_input.candidate_metrics = &candidate_metrics;
+    report_input.allocator = &allocator;
+    report_input.scratch = &scratch_measurement;
+    report_input.source_stage = stage_payload;
+    report_input.status_eof_observed = status_eof;
+    report_input.allocator_observation_stable = 1U;
+    report_input.heap_denied_notifications = heap_notifications;
+    if (proc17_qa_controller_report_build(&report_input, report) != 0
+        || write_exact(private_report_descriptor,
+            report, sizeof(report)) != 0
+        || close(private_report_descriptor) != 0) {
+        private_report_descriptor = -1;
+        goto cleanup;
+    }
+    private_report_descriptor = -1;
+    result = 0;
+
+cleanup:
+    if (candidate > 0 && candidate_reaped == 0U) {
+        if (candidate_pidfd >= 0) {
+            (void)syscall(SYS_pidfd_send_signal,
+                candidate_pidfd, SIGKILL, NULL, 0U);
+        } else {
+            (void)kill(candidate, SIGKILL);
+        }
+        (void)waitpid(candidate, NULL, 0);
+    }
+    close_if_open(&source_descriptor);
+    close_if_open(&public_result_descriptor);
+    close_if_open(&private_report_descriptor);
+    close_if_open(&status_descriptors[0]);
+    close_if_open(&status_descriptors[1]);
+    close_if_open(&stdout_descriptors[0]);
+    close_if_open(&stdout_descriptors[1]);
+    close_if_open(&stderr_descriptors[0]);
+    close_if_open(&stderr_descriptors[1]);
+    close_if_open(&scratch_descriptor);
+    close_if_open(&candidate_pidfd);
+    (void)proc17_qa_candidate_clock_close(&clock);
+    if (telemetry != NULL) {
+        (void)proc17_qa_allocator_telemetry_unmap(telemetry);
+    }
+    memset(report, 0, sizeof(report));
+    return result;
+}
+
+static int wait_exact_child(pid_t child, int *status)
+{
+    pid_t waited;
+    do {
+        waited = waitpid(child, status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited == child ? 0 : -1;
+}
+
+static int force_reap_child(pid_t child, int pidfd)
+{
+    int status;
+    if (child <= 0) return -1;
+    if (pidfd < 0 || syscall(SYS_pidfd_send_signal,
+            pidfd, SIGKILL, NULL, 0U) != 0) {
+        if (kill(child, SIGKILL) != 0 && errno != ESRCH) return -1;
+    }
+    return wait_exact_child(child, &status);
+}
+
+static int collect_controller_report_v1(
+    pid_t controller,
+    int controller_pidfd,
+    int report_descriptor,
+    unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES],
+    int *controller_wait_status)
+{
+    struct itimerspec watchdog;
+    struct pollfd descriptors[3];
+    size_t used = 0U;
+    int report_eof = 0;
+    int controller_ready = 0;
+    int controller_reaped = 0;
+    int result = -1;
+    int timer_descriptor = timerfd_create(
+        CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
+
+    if (timer_descriptor < 0 || set_nonblocking(report_descriptor) != 0) {
+        goto cleanup;
+    }
+    memset(&watchdog, 0, sizeof(watchdog));
+    watchdog.it_value.tv_sec = (time_t)(
+        (PROC17_QA_WALL_TIME_MS + PROC17_QA_SETUP_GRACE_MS) / 1000U);
+    if (timerfd_settime(timer_descriptor, 0, &watchdog, NULL) != 0) {
+        goto cleanup;
+    }
+    while (!report_eof || !controller_ready) {
+        int polled;
+        descriptors[0] = (struct pollfd){.fd = report_descriptor,
+            .events = report_eof ? 0 : POLLIN | POLLHUP};
+        descriptors[1] = (struct pollfd){.fd = controller_pidfd,
+            .events = controller_ready ? 0 : POLLIN};
+        descriptors[2] = (struct pollfd){.fd = timer_descriptor,
+            .events = POLLIN};
+        do {
+            polled = poll(descriptors, 3, -1);
+        } while (polled < 0 && errno == EINTR);
+        if (polled <= 0 || (descriptors[2].revents & POLLIN) != 0) {
+            goto cleanup;
+        }
+        if ((descriptors[0].revents & (POLLIN | POLLHUP)) != 0) {
+            for (;;) {
+                ssize_t observed;
+                if (used == PROC17_QA_CONTROLLER_REPORT_BYTES) {
+                    unsigned char overflow;
+                    observed = read(report_descriptor, &overflow, 1U);
+                    if (observed > 0) {
+                        goto cleanup;
+                    }
+                    if (observed == 0) report_eof = 1;
+                    if (observed < 0 && errno != EAGAIN
+                        && errno != EWOULDBLOCK && errno != EINTR) {
+                        goto cleanup;
+                    }
+                    break;
+                }
+                observed = read(report_descriptor, report + used,
+                    PROC17_QA_CONTROLLER_REPORT_BYTES - used);
+                if (observed > 0) {
+                    used += (size_t)observed;
+                    continue;
+                }
+                if (observed == 0) report_eof = 1;
+                if (observed < 0 && errno != EAGAIN
+                    && errno != EWOULDBLOCK && errno != EINTR) {
+                    goto cleanup;
+                }
+                break;
+            }
+        }
+        if ((descriptors[1].revents & POLLIN) != 0) controller_ready = 1;
+    }
+    if (wait_exact_child(controller, controller_wait_status) != 0) {
+        goto cleanup;
+    }
+    controller_reaped = 1;
+    if (used == PROC17_QA_CONTROLLER_REPORT_BYTES) result = 0;
+
+cleanup:
+    close_if_open(&timer_descriptor);
+    if (!controller_reaped
+        && force_reap_child(controller, controller_pidfd) != 0) {
+        result = -1;
+    }
+    return result;
+}
+
+int proc17_qa_run_namespace_v1_unrouted(
+    int source_descriptor,
+    int public_result_descriptor,
+    const struct proc17_qa_run_request *request,
+    const struct proc17_qa_phase_identity *identity,
+    const unsigned char process_token[PROC17_QA_WIRE_DIGEST_BYTES],
+    unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES],
+    int *controller_wait_status)
+{
+    struct clone_args arguments;
+    int synchronization[2] = {-1, -1};
+    int report_descriptors[2] = {-1, -1};
+    int controller_pidfd = -1;
+    pid_t controller = -1;
+    unsigned char ready = 0xa5U;
+    int result = -1;
+
+    if (source_descriptor < 0 || public_result_descriptor < 0
+        || request == NULL || identity == NULL || process_token == NULL
+        || report == NULL || controller_wait_status == NULL
+        || !proc17_qa_phase_identity_valid(identity)
+        || !proc17_qa_wire_digest_nonzero(process_token)
+        || pipe2(synchronization, O_CLOEXEC) != 0
+        || pipe2(report_descriptors, O_CLOEXEC) != 0) {
+        goto cleanup;
+    }
+    memset(report, 0, PROC17_QA_CONTROLLER_REPORT_BYTES);
+    memset(&arguments, 0, sizeof(arguments));
+    arguments.flags = CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWPID
+        | CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWUTS | CLONE_PIDFD;
+    arguments.pidfd = (uint64_t)(uintptr_t)&controller_pidfd;
+    arguments.exit_signal = SIGCHLD;
+    controller = (pid_t)syscall(SYS_clone3, &arguments, sizeof(arguments));
+    if (controller < 0) goto cleanup;
+    if (controller == 0) {
+        int child_result;
+        close_if_open(&synchronization[1]);
+        close_if_open(&report_descriptors[0]);
+        if (read(synchronization[0], &ready, 1U) != 1 || ready != 0xa5U
+            || close(synchronization[0]) != 0
+            || getuid() != 0 || geteuid() != 0
+            || getgid() != 0 || getegid() != 0
+            || sethostname("proc17-qa", sizeof("proc17-qa") - 1U) != 0) {
+            _exit(125);
+        }
+        child_result = proc17_qa_run_namespace_controller_v1(
+            source_descriptor, public_result_descriptor,
+            report_descriptors[1], request, identity, process_token);
+        _exit(child_result == 0 ? 0 : 124);
+    }
+    close_if_open(&synchronization[0]);
+    close_if_open(&report_descriptors[1]);
+    close_if_open(&source_descriptor);
+    if (controller_pidfd < 0 || map_namespace_identity(controller) != 0
+        || write_exact(synchronization[1], &ready, 1U) != 0
+        || close(synchronization[1]) != 0) {
+        synchronization[1] = -1;
+        goto cleanup_controller;
+    }
+    synchronization[1] = -1;
+    if (collect_controller_report_v1(controller, controller_pidfd,
+            report_descriptors[0], report, controller_wait_status) != 0) {
+        goto cleanup_controller;
+    }
+    controller = -1;
+    result = 0;
+    goto cleanup;
+
+cleanup_controller:
+    if (controller > 0) {
+        if (controller_pidfd >= 0) {
+            (void)syscall(SYS_pidfd_send_signal,
+                controller_pidfd, SIGKILL, NULL, 0U);
+        } else {
+            (void)kill(controller, SIGKILL);
+        }
+        (void)waitpid(controller, NULL, 0);
+        controller = -1;
+    }
+cleanup:
+    close_if_open(&source_descriptor);
+    close_if_open(&synchronization[0]);
+    close_if_open(&synchronization[1]);
+    close_if_open(&report_descriptors[0]);
+    close_if_open(&report_descriptors[1]);
+    close_if_open(&controller_pidfd);
+    if (result != 0) memset(report, 0, PROC17_QA_CONTROLLER_REPORT_BYTES);
+    return result;
+}
+
+static int emit_run_error_v1(
+    int result_descriptor,
+    const struct proc17_qa_phase_identity *identity,
+    uint16_t phase,
+    uint16_t error_class,
+    uint16_t error_code,
+    uint16_t error_stage,
+    uint8_t candidate_start_state,
+    uint8_t cleanup_state,
+    const unsigned char source_stage[PROC17_QA_SOURCE_STAGE_V1_BYTES])
+{
+    unsigned char payload[PROC17_QA_RUN_ERROR_V1_BYTES];
+    unsigned char frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
+    size_t frame_bytes = 0U;
+
+    if (result_descriptor < 0 || identity == NULL) return -1;
+    memset(payload, 0, sizeof(payload));
+    memcpy(payload, identity, PROC17_QA_V1_IDENTITY_BYTES);
+    proc17_qa_wire_put_u16(payload + PROC17_QA_V1_PHASE_OFFSET, phase);
+    proc17_qa_wire_put_u16(payload + 130U, error_class);
+    proc17_qa_wire_put_u16(payload + 132U, error_code);
+    proc17_qa_wire_put_u16(payload + 134U, error_stage);
+    payload[136U] = candidate_start_state;
+    payload[137U] = cleanup_state;
+    payload[138U] = 0U;
+    payload[139U] = source_stage == NULL ? 0U : 1U;
+    if (source_stage != NULL) {
+        memcpy(payload + PROC17_QA_V1_ERROR_STAGE_OFFSET, source_stage,
+            PROC17_QA_SOURCE_STAGE_V1_BYTES);
+    }
+    if (proc17_qa_wire_encode_run_v1(PROC17_QA_WIRE_RUN_ERROR_V1,
+            identity->transaction, payload, sizeof(payload), frame,
+            &frame_bytes) != 0 || frame_bytes > PIPE_BUF) {
+        return -1;
+    }
+    return write_exact(result_descriptor, frame, frame_bytes);
+}
+
+static int run_execution_protocol_v1(void)
+{
+    unsigned char request_frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
+    unsigned char self_digest[PROC17_SHA256_BYTES];
+    unsigned char process_token[PROC17_QA_WIRE_DIGEST_BYTES];
+    unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES];
+    unsigned char terminal_frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
+    size_t request_bytes = 0U;
+    size_t terminal_bytes = 0U;
+    struct proc17_qa_wire_view view;
+    struct proc17_qa_root_identity source_identity = {0};
+    struct proc17_qa_run_request request;
+    struct proc17_qa_phase_identity identity;
+    int controller_wait_status = 0;
+    int result = -1;
+
+    memset(&request, 0, sizeof(request));
+    memset(&identity, 0, sizeof(identity));
+    memset(process_token, 0, sizeof(process_token));
+    memset(report, 0, sizeof(report));
+#define PROC17_QA_V1_PREFLIGHT(condition) \
+    do { if (condition) return -1; } while (0)
+    PROC17_QA_V1_PREFLIGHT(
+        read_frame(4, request_frame, &request_bytes) != 0);
+    PROC17_QA_V1_PREFLIGHT(proc17_qa_wire_decode_run_v1(
+        request_frame, request_bytes, &view) != 0);
+    PROC17_QA_V1_PREFLIGHT(view.kind != PROC17_QA_WIRE_RUN_REQUEST_V1);
+    PROC17_QA_V1_PREFLIGHT(sha_self(self_digest) != 0);
+    PROC17_QA_V1_PREFLIGHT(close(6) != 0);
+    PROC17_QA_V1_PREFLIGHT(observe_root(3, &source_identity) != 0);
+    PROC17_QA_V1_PREFLIGHT(parse_run_request_v1(
+        &view, &source_identity, &request) != 0);
+    PROC17_QA_V1_PREFLIGHT(close(4) != 0);
+#undef PROC17_QA_V1_PREFLIGHT
+    memcpy(&identity, view.payload, sizeof(identity));
+    if (proc17_qa_phase_make_process_token(&identity, process_token) != 0) {
+        result = emit_run_error_v1(5, &identity,
+            PROC17_QA_RUN_V1_PHASE_STARTED,
+            PROC17_QA_RUN_V1_ERROR_UNAVAILABLE,
+            PROC17_QA_RUN_V1_SUPERVISOR_UNAVAILABLE,
+            PROC17_QA_RUN_V1_ERROR_PREFLIGHT,
+            PROC17_QA_RUN_V1_FALSE, PROC17_QA_RUN_V1_TRUE, NULL);
+        (void)close(3);
+        (void)close(5);
+        return result;
+    }
+    if (proc17_qa_run_namespace_v1_unrouted(3, 5, &request,
+            &identity, process_token, report,
+            &controller_wait_status) != 0) {
+        (void)close(5);
+        memset(process_token, 0, sizeof(process_token));
+        memset(report, 0, sizeof(report));
+        return -1;
+    }
+    if (proc17_qa_controller_report_finalize(report, &identity,
+            process_token, controller_wait_status, 1U,
+            terminal_frame, &terminal_bytes) != 0
+        || terminal_bytes > PIPE_BUF
+        || write_exact(5, terminal_frame, terminal_bytes) != 0
+        || close(5) != 0) {
+        memset(process_token, 0, sizeof(process_token));
+        memset(report, 0, sizeof(report));
+        return -1;
+    }
+    memset(process_token, 0, sizeof(process_token));
+    memset(report, 0, sizeof(report));
+    return 0;
 }
 
 static int run_probe_protocol(void)
@@ -1508,6 +2260,14 @@ int main(int argument_count, char **arguments)
     if (argument_count == 2 && strcmp(arguments[1], "self-test") == 0) {
         return exact_static_lua_selftest() == 0 ? 0 : 1;
     }
+#ifdef PROC17_QA_FAULT_TESTING
+    if (argument_count == 2
+        && strcmp(arguments[1],
+            PROC17_QA_FAULT_SUPERVISOR_IDENTITY_ARGUMENT) == 0) {
+        puts(PROC17_QA_FAULT_SUPERVISOR_IDENTITY);
+        return 0;
+    }
+#endif
     if (argument_count != 2) {
         return 126;
     }
@@ -1515,7 +2275,7 @@ int main(int argument_count, char **arguments)
         return run_probe_protocol() == 0 ? 0 : 127;
     }
     if (strcmp(arguments[1], "run") == 0) {
-        return run_execution_protocol() == 0 ? 0 : 127;
+        return run_execution_protocol_v1() == 0 ? 0 : 127;
     }
     return 126;
 }

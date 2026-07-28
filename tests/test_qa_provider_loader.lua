@@ -132,7 +132,7 @@ suite:check("L5 malformed candidate request fails before native boundary", funct
     local current = require_provider()
     local ok, err = pcall(current.run, {}, {})
     H.assert_false(ok, "malformed D request cannot enter native code")
-    H.assert_contains(err, "native RUN request",
+    H.assert_contains(err, "native RUN v1 request",
         "closed request schema rejects the call")
 end)
 

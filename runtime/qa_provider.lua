@@ -276,33 +276,27 @@ function qa_provider.probe()
 end
 
 function qa_provider.run(repository_userdata, native_request)
-    local normalized_request, request_err = qa_process.normalize_request(native_request)
+    local normalized_request, request_err = qa_process.normalize_request_v1(
+        native_request)
     if not normalized_request then
         fail(request_err)
     end
     if not native then
         return nil, {
-            protocol_version = "qa.provider_process_error.v0",
+            protocol_version = "qa.provider_process_error.v1",
             operation = "run_lua54_test_suite",
             transaction_id = normalized_request.transaction_id,
             witness_id = normalized_request.witness_id,
             profile_id = normalized_request.profile_id,
             environment_id = normalized_request.environment_id,
             class = "unavailable",
-            code = "provider_unavailable",
+            code = "supervisor_unavailable",
             stage = "preflight",
-            candidate_started = false,
-            cleanup_complete = true,
-            cost = {
-                protocol_version = "qa.cost.v0",
-                tool_calls = 1,
-                qa_executions = 0,
-                wall_time_ms = 0,
-                cpu_time_ms = 0,
-                scratch_written_bytes = 0,
-                stdout_observed_bytes = 0,
-                stderr_observed_bytes = 0,
-            },
+            candidate_start_state = "not_started",
+            cleanup_state = "complete",
+            launcher_reaped = "complete",
+            result_eof = "complete",
+            measured_cost = nil,
             event_truth_status = "runtime_confirmed",
         }
     end
@@ -312,10 +306,10 @@ function qa_provider.run(repository_userdata, native_request)
         fail("native candidate boundary raised: " .. tostring(returned[2]))
     end
     if returned.n == 2 and type(returned[2]) == "table" then
-        return qa_process.normalize_result(returned[2], normalized_request)
+        return qa_process.normalize_result_v1(returned[2], normalized_request)
     end
     if returned.n == 3 and returned[2] == nil and type(returned[3]) == "table" then
-        return nil, qa_process.normalize_native_error(returned[3], normalized_request)
+        return nil, qa_process.normalize_error_v1(returned[3], normalized_request)
     end
     fail("native candidate boundary returned an invalid value count")
 end

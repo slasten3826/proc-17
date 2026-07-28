@@ -41,12 +41,19 @@ struct proc17_qa_phase_state {
     uint64_t next_sequence;
     struct proc17_qa_first_cause first_cause;
     uint16_t finality_mask;
-    uint8_t started_emitted;
-    uint8_t result_descriptor_closed;
+    uint8_t started_attested;
     uint8_t candidate_release_authorized;
 };
 
+struct proc17_qa_started_writer_state {
+    uint8_t started_emitted;
+    uint8_t result_descriptor_closed;
+};
+
 void proc17_qa_phase_init(struct proc17_qa_phase_state *state);
+
+void proc17_qa_started_writer_init(
+    struct proc17_qa_started_writer_state *state);
 
 int proc17_qa_phase_identity_valid(
     const struct proc17_qa_phase_identity *identity);
@@ -56,7 +63,7 @@ int proc17_qa_phase_make_process_token(
     unsigned char output[PROC17_QA_WIRE_DIGEST_BYTES]);
 
 int proc17_qa_phase_emit_started_and_close(
-    struct proc17_qa_phase_state *state,
+    struct proc17_qa_started_writer_state *state,
     int *result_descriptor,
     const struct proc17_qa_phase_identity *identity,
     const unsigned char process_token[PROC17_QA_WIRE_DIGEST_BYTES],
@@ -78,6 +85,9 @@ int proc17_qa_phase_finality_complete(
     const struct proc17_qa_phase_state *state);
 
 int proc17_qa_phase_candidate_result_ready(
+    const struct proc17_qa_phase_state *state);
+
+int proc17_qa_phase_controller_report_ready(
     const struct proc17_qa_phase_state *state);
 
 #endif

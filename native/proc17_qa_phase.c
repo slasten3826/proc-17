@@ -11,6 +11,8 @@
 #include "proc17_sha256.h"
 
 #define PROC17_QA_FINALITY_MASK ((UINT16_C(1) << PROC17_QA_FINALITY_COUNT) - 1U)
+#define PROC17_QA_CONTROLLER_FINALITY_MASK \
+    ((UINT16_C(1) << PROC17_QA_FINAL_NAMESPACE_CLEAN) - 1U)
 
 _Static_assert(PROC17_QA_WIRE_ENVELOPE_BYTES
         + PROC17_QA_RUN_STARTED_V1_BYTES <= PIPE_BUF,
@@ -31,6 +33,12 @@ static void close_owned_descriptor(int *descriptor)
 }
 
 void proc17_qa_phase_init(struct proc17_qa_phase_state *state)
+{
+    if (state != NULL) memset(state, 0, sizeof(*state));
+}
+
+void proc17_qa_started_writer_init(
+    struct proc17_qa_started_writer_state *state)
 {
     if (state != NULL) memset(state, 0, sizeof(*state));
 }
@@ -84,7 +92,7 @@ int proc17_qa_phase_mark_finality(
 }
 
 int proc17_qa_phase_emit_started_and_close(
-    struct proc17_qa_phase_state *state,
+    struct proc17_qa_started_writer_state *state,
     int *result_descriptor,
     const struct proc17_qa_phase_identity *identity,
     const unsigned char process_token[PROC17_QA_WIRE_DIGEST_BYTES],
@@ -98,7 +106,6 @@ int proc17_qa_phase_emit_started_and_close(
 
     if (state == NULL || result_descriptor == NULL || *result_descriptor < 0
         || state->started_emitted != 0U
-        || state->candidate_release_authorized != 0U
         || !proc17_qa_phase_identity_valid(identity)
         || !proc17_qa_wire_digest_nonzero(process_token)
         || !proc17_qa_wire_v1_source_stage_valid(source_stage)) {
@@ -127,10 +134,6 @@ int proc17_qa_phase_emit_started_and_close(
         return -1;
     }
     state->started_emitted = 1U;
-    (void)proc17_qa_phase_mark_finality(
-        state, PROC17_QA_FINAL_SOURCE_STAGED);
-    (void)proc17_qa_phase_mark_finality(
-        state, PROC17_QA_FINAL_CANDIDATE_STARTED);
     close_result = close(*result_descriptor);
     *result_descriptor = -1;
     if (close_result != 0) return -1;
@@ -138,11 +141,28 @@ int proc17_qa_phase_emit_started_and_close(
     return 0;
 }
 
+int proc17_qa_phase_observe_started_ready(
+    struct proc17_qa_phase_state *state)
+{
+    if (state == NULL || state->started_attested != 0U
+        || state->candidate_release_authorized != 0U
+        || state->first_cause.kind != 0U || state->finality_mask != 0U) {
+        return -1;
+    }
+    state->started_attested = 1U;
+    if (proc17_qa_phase_mark_finality(
+            state, PROC17_QA_FINAL_SOURCE_STAGED) != 0
+        || proc17_qa_phase_mark_finality(
+            state, PROC17_QA_FINAL_CANDIDATE_STARTED) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
 int proc17_qa_phase_authorize_candidate(
     struct proc17_qa_phase_state *state)
 {
-    if (state == NULL || state->started_emitted != 1U
-        || state->result_descriptor_closed != 1U
+    if (state == NULL || state->started_attested != 1U
         || state->candidate_release_authorized != 0U) {
         return -1;
     }
@@ -182,10 +202,20 @@ int proc17_qa_phase_candidate_result_ready(
     const struct proc17_qa_phase_state *state)
 {
     return state != NULL
-        && state->started_emitted == 1U
-        && state->result_descriptor_closed == 1U
+        && state->started_attested == 1U
         && state->candidate_release_authorized == 1U
         && state->first_cause.kind != 0U
         && state->first_cause.monotonic_sequence != 0U
         && proc17_qa_phase_finality_complete(state);
+}
+
+int proc17_qa_phase_controller_report_ready(
+    const struct proc17_qa_phase_state *state)
+{
+    return state != NULL
+        && state->started_attested == 1U
+        && state->candidate_release_authorized == 1U
+        && state->first_cause.kind != 0U
+        && state->first_cause.monotonic_sequence != 0U
+        && state->finality_mask == PROC17_QA_CONTROLLER_FINALITY_MASK;
 }

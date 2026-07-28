@@ -23,6 +23,15 @@ CRYSTALL authorized by:
 runtime implementation remains forbidden until crystall audit
 ```
 
+E4.0a gate amendment 2026-07-28:
+
+```text
+private status + allocator-survival amendment accepted by:
+  docs/00_chaos/qa_measurement_e4_status_amendment_cross_audit_2026-07-28.md
+implementation authority follows CRYSTALL section 15 only
+RUN v1 and Packet/body QA authority remain forbidden
+```
+
 ## 0. Table Thesis
 
 Step E promotes no new body fact. It strengthens the private provider boundary
@@ -172,6 +181,77 @@ STARTED means the isolated candidate process exists after environment, limits,
 capability drop and seccomp installation, immediately before candidate chunk
 execution. It does not mean success or terminality.
 
+### 5.1 E4.0a private status and release boundary
+
+Implementation amendment 2026-07-28:
+
+The public STARTED pipe is not the controller channel. The candidate prelude
+also owns exactly one C-private endpoint of a controller-created
+`AF_UNIX/SOCK_SEQPACKET|SOCK_CLOEXEC` pair. It has no Lua name, userdata,
+environment field, path, integer projection or public protocol representation.
+
+The fixed private packet is 184 bytes:
+
+```text
+offset  bytes  field
+0       8      magic = "P17QAST\0"
+8       2      version = 1
+10      2      kind: READY=1, RELEASE=2, HEAP_DENIED=3
+12      4      packet_bytes = 184
+16      8      conversation sequence
+24      128    transaction/witness/profile/environment identity join
+152     32     private candidate process token
+```
+
+No reserved or variable-length region exists. Exact legal conversation:
+
+```text
+candidate  -> READY(sequence=1), after public STARTED write+close
+controller -> RELEASE(sequence=2), after READY validation and wall-timer arm
+candidate  -> zero or one HEAP_DENIED(sequence=3)
+candidate terminal -> endpoint EOF
+```
+
+The candidate blocks before loading candidate bytes until exact RELEASE. A
+missing, duplicate, malformed, reordered or identity/token-mismatched packet is
+infrastructure failure. Public STARTED followed by private READY/RELEASE failure
+remains `started` infrastructure failure, never candidate rejection.
+
+The amended descriptor law is:
+
+```text
+the public STARTED descriptor closes before candidate bytes;
+all candidate-reachable non-stdio descriptors close before candidate bytes;
+exactly one C-private status endpoint remains until candidate termination;
+Lua cannot name, enumerate, read, write or close that endpoint;
+status EOF is required before candidate finality can complete.
+```
+
+The trusted path uses record-preserving `write`/`read` on the seqpacket socket,
+not `send`/`recv`; no network-shaped syscall is added to candidate seccomp.
+Reads use a 185-byte buffer and accept exactly 184 bytes, so oversized records
+cannot truncate into validity. The trusted prelude ignores `SIGPIPE` before
+seccomp and changes the candidate endpoint to nonblocking after RELEASE.
+
+The controller is the only first-cause writer. `HEAP_DENIED` is a bounded
+wakeup witness; it does not itself own or duplicate allocator truth.
+
+### 5.2 Split phase authority amendment (E5.0, 2026-07-28)
+
+The candidate and controller do not share one mutable phase object. The
+candidate owns a short-lived `STARTED` writer state that proves one atomic
+public write and close. The controller owns the supervision phase state.
+
+Only the private status decoder, after validating exact `READY(sequence=1)`,
+may record `started_attested` in the controller state. This attests that the
+fixed trusted prelude already wrote and closed public STARTED. The controller
+then arms the wall timer, authorizes release and writes exact `RELEASE(2)`.
+
+The launcher independently validates the actual public STARTED frame. READY is
+therefore a controller-side causal witness, not an alias or replacement for
+public STARTED. Shared phase/cause memory and direct caller assertion remain
+forbidden.
+
 ## 6. Candidate Result
 
 `qa.native_run_result.v1` is legal only with a matching STARTED frame and all
@@ -204,6 +284,25 @@ finality flags true:
 
 One false/missing finality member invalidates the candidate result and routes to
 infrastructure ambiguity. It cannot be normalized as a partial rejection.
+
+### 6.1 Private controller report amendment
+
+E4.5 transports namespace-local evidence in one exact 572-byte private record,
+not a public wire kind. It binds the identity join and private process token;
+reason, termination and immutable first cause; the first seven finality facts;
+status EOF, stable allocator observation, zero/one HEAP_DENIED count, allocator
+current reservation and both sticky failure flags; both streams, resources,
+scratch and source-stage summary. Reserved bytes are zero and multi-byte fields
+use QA network byte order.
+
+The namespace controller cannot set `namespace_cleanup_complete`. The
+top-level supervisor validates the private record only after reaping the
+controller, then writes that eighth fact and assembles the existing public
+RESULT. A malformed record, abnormal controller exit, identity/token mismatch,
+missing status EOF, unstable allocator page or notification/page disagreement
+suppresses candidate RESULT and is infrastructure ambiguity.
+An observed in-budget host allocator failure follows the same suppression law;
+it is not projected as candidate `unexpected_exit`.
 
 ## 7. Infrastructure Error
 
@@ -257,6 +356,16 @@ are not members of this error protocol. They are loud invariants.
 The supervisor records the first causally terminal event in a private monotonic
 cause slot. Later measurements may validate but cannot replace it.
 
+E4.3 arbitration amendment 2026-07-28:
+
+One `poll()` return is one observation epoch. The controller classifies every
+ready source before cause selection. Zero distinct cause kinds continues; one
+claims the slot; multiple distinct kinds are infrastructure ambiguity. Two
+stream crossings collapse only to the same `output_limit` kind while retaining
+both measurements. Descriptor order and canonical tie-break never select
+physical cause. After a cause exists, wait status is finality rather than a new
+cause candidate.
+
 | Reason | Required cause witness |
 |---|---|
 | `expected_exit` | wait status exit 0; no earlier terminal cause |
@@ -268,6 +377,12 @@ cause slot. Later measurements may validate but cannot replace it.
 | `output_limit` | trusted stdout or stderr observed-count crossing caused termination |
 | `scratch_limit` | reserved until a trusted write-denial hook exists; not emitted by Step E |
 | `sandbox_policy_violation` | SIGSYS under active exact seccomp policy; no candidate-accessible signal forgery |
+
+Candidate wall time starts when the controller arms an absolute monotonic
+timer immediately before private RELEASE. Candidate CPU/RSS comes only from
+`wait4(candidate_pid)`; namespace-controller rusage and the outer watchdog are
+infrastructure evidence. Simultaneous new pidfd/timer readiness without an
+existing cause is ambiguous, not guessed.
 
 No reason is derived from error text, fixture id, filename, elapsed-time guess
 or exit code alone.
@@ -286,6 +401,46 @@ request field. It is added to the measured environment schema, policy digest
 and environment identity. The v1 request binds that exact environment id while
 retaining the existing closed resource-limit surface. The bounded Lua allocator
 owns exact current/peak/denied measurements.
+
+E4.0a allocator-survival amendment:
+
+One fixed anonymous shared telemetry record is initialized before candidate
+fork. The trusted candidate allocator is its only post-fork writer; the
+controller is read-only and reads it after HEAP_DENIED notification or
+candidate reap. Candidate Lua receives neither its address nor an API that can
+reach it.
+
+```text
+protocol/version              fixed private C ABI
+ceiling_bytes                 immutable policy value
+current_bytes                 atomic, allocator-owned
+peak_bytes                    atomic monotonic maximum
+ceiling_denied                atomic sticky boolean
+system_allocation_failed      atomic sticky boolean
+status_notification_failed    atomic sticky boolean
+```
+
+The record is the sole allocator measurement truth. The private status packet
+only wakes the controller. A denial notification without `ceiling_denied`, a
+denial flag without its exact notification, an unlocked/non-stable ABI, or a
+notification failure is infrastructure ambiguity. Abrupt candidate death may
+leave `current_bytes` nonzero but cannot erase `peak_bytes` or sticky flags.
+
+Every mutable telemetry field uses a proved lock-free interprocess atomic.
+Layout, size, alignment and lock-free support are build/runtime gates. A host
+that cannot prove them is unavailable before candidate start; process-local
+locks and shared phase/cause fields are forbidden.
+
+`current_bytes` and `peak_bytes` measure allocator reservations, not RSS. An
+in-budget request is published before entering host `malloc/realloc`; host
+failure sets its separate sticky flag and rolls current back, while peak keeps
+the maximum authorized reservation. This ordering prevents abrupt death
+between host allocation and telemetry publication from erasing the peak.
+
+`memory_limit` requires the exact HEAP_DENIED notification,
+`ceiling_denied=true` and `system_allocation_failed=false`. A run where both
+failure flags are true is infrastructure ambiguity. System allocation failure
+can never establish or be laundered into `memory_limit`.
 
 The environment schema is revised explicitly to `qa.environment.v1`. Existing
 contracts bound to the historical environment id become unavailable and must
@@ -361,6 +516,12 @@ Scratch uses a trusted final walk plus filesystem capacity observation:
 }
 ```
 
+The walk is bound by `PROC17_QA_SCRATCH_MAX_DEPTH = 64`, which is part of the
+isolation policy digest. Depth zero is `/qa/scratch`; direct children have
+depth one. The controller pins and records the scratch root plus the exact
+empty `home` and `tmp` directories before release. Those trusted directories
+do not count as candidate entries, while their descendants do.
+
 Rules:
 
 ```text
@@ -370,6 +531,9 @@ capacity exhaustion is a final kernel/filesystem observation, not proof of the
 earlier write that caused candidate termination
 Step E therefore never derives scratch_limit from this record
 candidate error text or exit code cannot add the missing causal witness
+baseline replacement/mutation/disappearance, symlink/special objects,
+depth/count/byte overflow, mount crossing or observation failure is
+infrastructure ambiguity
 ```
 
 No impossible `stored > bound` requirement remains.
@@ -520,9 +684,11 @@ targets, aliases to QN16 and skipped rows fail.
 | Fact | Writer | First reader | May reach Packet? |
 |---|---|---|---|
 | start attestation | production supervisor | trusted launcher phase machine | no |
+| private ready/release phase | candidate prelude + namespace controller | namespace controller phase machine | no |
 | terminal/cause fact | kernel + supervisor | launcher v1 decoder | no |
 | stream facts | launcher/supervisor bounded drains | strict process normalizer | no raw content |
-| allocator denial | trusted Lua allocator | supervisor result assembler | no direct |
+| allocator telemetry | trusted Lua allocator | namespace controller telemetry reader | no direct |
+| allocator denial notification | trusted Lua allocator | namespace controller first-cause writer | no |
 | scratch facts | trusted namespace final inventory | strict process normalizer | no direct |
 | native infrastructure error | launcher phase machine | strict process normalizer | no |
 | process observation/error | strict Lua adapter | provider witness assembler | no |
@@ -593,6 +759,14 @@ HE19 QN20 restores every named residue channel on every iteration
 HE20 QN17-QN20 are the only red-to-green controls
 HE21 Packet/public root/economics remain unchanged
 HE22 old environment contract cannot silently accept revised provider identity
+HE23 no candidate byte loads before exact private RELEASE
+HE24 READY before public STARTED close is infrastructure failure
+HE25 malformed/duplicate/reordered private status is infrastructure failure
+HE26 Lua cannot name or operate the private status endpoint or allocator record
+HE27 abrupt candidate death preserves allocator peak and sticky flags
+HE28 allocator notification/telemetry mismatch is infrastructure ambiguity
+HE29 shared phase/cause state is forbidden; only allocator measurement is shared
+HE30 missing private status EOF suppresses candidate result
 ```
 
 ## 21. Implementation Order Constraint
@@ -612,6 +786,13 @@ E8 QN20 repeated residue corpus and exact matrix audit
 
 Every slice runs ordinary, mortality, native and expected-red matrices. No later
 slice begins after an unauthorized color change.
+
+Implementation amendment 2026-07-28:
+
+The sequence above is the original TABLE decomposition and remains archaeology.
+Executable numbering is superseded by CRYSTALL section 15. At checkpoint
+`a194b1a`, E1-E3 of that sequence are complete; E4 begins with E4.0a, the
+private status and allocator-survival amendment in sections 5.1 and 9 here.
 
 ## 22. Explicit Deferrals
 
@@ -636,3 +817,169 @@ cross-table audit checks existing QA contract/provider/candidate-seal joins
 the v1 revision does not widen public request authority
 the expected-red delta remains exactly four controls
 ```
+
+## 24. E6 Provider Witness V1 Amendment
+
+Amended 2026-07-28 from runtime evidence after E5.
+
+The Step-D final objects are exact closed schemas:
+
+```text
+qa.provider_witness_report.v1
+  identity + accepted/rejected reason
+  termination + cause + all finality
+  exact pre/post inventory ids
+  source disposition = consumed
+  stream/resource/scratch/cost v1
+
+qa.provider_witness_error.v1
+  identity + closed class/code/stage
+  candidate start tri-state
+  source stable state + terminal disposition
+  cleanup/reap/EOF tri-states
+  optional measured cost v1
+```
+
+No boolean may replace an `unknown` process fact. No zero cost is fabricated
+when no process measurement exists. `cleanup=true` is not copied beside the
+authoritative finality record.
+
+The source callback returns only an untagged pending join. The repository
+registry writes terminal disposition before the witness assembler may create a
+v1 report/error. A failed disposition creates no final witness object.
+
+Packet ablation includes `runtime.budget`. Step D receives no lineage budget
+handle, imports no lineage writer and changes no Packet/public-root/economic
+state. This amendment authorizes no body QA transaction or red-control delta.
+
+## 25. E7 QN17 Harness Precision Amendment
+
+Amended 2026-07-28 from the E6 production witness boundary.
+
+The dedicated QN17 harness is the only executable reader of candidate fixture
+bytes. It remains outside `tests/run.lua` and executes only `class=candidate`.
+It requires a closed count of 17 and validates marker, embedded id, local
+filename and byte ceiling before materialization.
+
+The exact bytes are written unchanged as `tests/run.lua` by the first hand into
+one fresh identity-owned root per row. The harness does not use `load`,
+`loadfile`, `dofile`, direct repository filesystem writes or QN16 candidate
+directories. Every row crosses candidate seal, source lease, production RUN v1
+and provider witness v1.
+
+Expected reason/outcome comes from a closed matrix independent of the
+descriptive fixture `pressure` field. Entry bytes and SHA-256 must bind the
+original inert record. Every successful row also requires:
+
+```text
+report protocol = qa.provider_witness_report.v1
+cause.kind = reason
+all eight finality facts = true
+source disposition = consumed
+seal inventory id = pre inventory id = post inventory id
+no raw content, path, fd, repository handle or process token
+```
+
+The target must print and enforce exactly:
+
+```text
+executed=17 matched=17 source_drifts=0 cleanup_ambiguities=0
+```
+
+The only authorized control change is QN17 red to green, producing
+`41 green / 43 red`. QN18-QN20 and every body QE/QV control remain unchanged.
+
+## 26. E8 QN18 Trusted-Fault Precision Amendment
+
+Amended 2026-07-28 from the production E5-E7 boundaries.
+
+### 26.1 Faults have named owners
+
+The nine `class=trusted_fault` records are inert test instructions. They are
+never candidate source and never production request data.
+
+```text
+wrong launcher ABI          production Lua loader
+wrong supervisor identity  production launcher identity verifier
+malformed request           production supervisor decoder
+malformed result            production launcher collector + source finality
+crash before/after STARTED  production launcher collector
+lost result pipe            production launcher collector
+wait/reap ambiguity         production launcher collector
+postflight source drift     production provider-witness transaction
+```
+
+The campaign may join evidence from these owners but may not reassign the
+underlying fact.
+
+### 26.2 Exact infrastructure results
+
+| Observation | class/code/stage | start | reap | result EOF |
+|---|---|---|---|---|
+| child exits dirty before STARTED and pipe reaches EOF | unavailable / supervisor_crashed / supervision | not_started | complete | complete |
+| STARTED then child exits dirty and pipe reaches EOF | unavailable / supervisor_crashed / supervision | started | complete | complete |
+| result descriptor read fails | ambiguous / result_pipe_lost / supervision | known from STARTED ledger | complete after owned kill/reap, otherwise unknown | unknown |
+| wait/reap ownership fails | ambiguous / reap_ambiguous / cleanup | known from STARTED ledger | unknown | observed value only |
+
+Unknown facts remain unknown. A generic collector/system failure cannot be
+reported as `result_pipe_lost`. Read-channel and reap ownership failures are
+different physical witnesses.
+
+Malformed trusted terminal bytes are not represented by the table above. They
+are a loud trusted invariant after the source-finality layer has attempted
+quarantine. They never become a process-error object or candidate outcome.
+
+### 26.3 Frame sub-campaigns
+
+Both malformed frame rows execute exactly:
+
+```text
+short, oversized, wrong_magic, wrong_version,
+unknown_kind, digest_mismatch, trailing
+```
+
+Request variants cross the real supervisor decoder and emit zero STARTED
+frames. Result variants cross the real launcher v1 collector and all fail as
+trusted invariants. One passing variant does not satisfy the row.
+
+### 26.4 Test-only closure
+
+The distinct test closure consists of:
+
+```text
+native/tests/proc17_qa_fault_testing.h
+native/tests/proc17_qa_launcher_fault_test.so
+native/tests/proc17_qa_supervisor_fault_test
+native/tests/test_proc17_qa_trusted_faults
+```
+
+Production sources may expose test-only seams only below
+`PROC17_QA_FAULT_TESTING`. The production build never defines it. The test
+launcher ABI and test supervisor digest differ from production. The selector
+is a closed enum inside the parameterless native driver and is absent from the
+wire, environment, Lua API and candidate source.
+
+### 26.5 Production exclusion
+
+QN18 fails unless all are true:
+
+```text
+production request/result schemas have no fault key
+production Lua module exports no fault function
+production supervisor/launcher artifacts contain no fault symbol, fixture id
+or test build identity
+production loader rejects the test launcher module
+production launcher identity verifier rejects the test supervisor binary
+```
+
+### 26.6 Campaign gate
+
+The parameterless target `qa-supervisor-trusted-fault-test` requires:
+
+```text
+declared=9 executed=9 matched=9 candidate_outcomes=0
+```
+
+It also requires trusted-invariant source quarantine and postflight-drift
+source quarantine as separate policy witnesses. The only authorized matrix
+change is QN18, from `41/43` to `42/42`.

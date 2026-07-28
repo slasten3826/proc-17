@@ -284,12 +284,12 @@ static int run_launcher_contract(void)
     }
     lua_pushnil(L);
     lua_pushnil(L);
-    if (lua_pcall(L, 2, 2, 0) != LUA_OK || !lua_isnil(L, -2)
-        || !lua_istable(L, -1)
-        || !exact_string_field(L, -1, "code",
-            "native_run_request_rejected")) {
+    if (lua_pcall(L, 2, 0, 0) == LUA_OK || !lua_isstring(L, -1)
+        || strcmp(lua_tostring(L, -1),
+            "RUN v1 request rejected by native boundary") != 0) {
         goto cleanup;
     }
+    lua_pop(L, 1);
     result = 0;
 
 cleanup:

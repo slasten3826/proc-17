@@ -9,6 +9,8 @@ chapter: 8.5.5E
 sources:
   docs/01_table/yellowprints/qa_hostile_execution_campaign_yellowprint.v0.md
   docs/00_chaos/qa_hostile_execution_table_cross_audit_2026-07-28.md
+  docs/00_chaos/qa_measurement_e4_topology_audit_2026-07-28.md
+  docs/00_chaos/qa_measurement_e4_status_amendment_cross_audit_2026-07-28.md
 scope: C1-C10 private provider physics
 implementation authorized: no; crystall cross-audit required
 Packet/body QA authority: forbidden
@@ -270,7 +272,14 @@ launcher process
 ### 5.2 Pre-chunk start attestation
 
 The trusted candidate prelude writes STARTED directly to the launcher-owned
-result pipe before any candidate chunk is loaded:
+result pipe before any candidate chunk is loaded.
+
+E4.0a amendment 2026-07-28 supersedes the original nine-step prelude below.
+The original sequence remains visible in repository history; it could not both
+close every non-stdio descriptor and retain the C5 status witness needed after
+Lua starts.
+
+The executable sequence is:
 
 ```text
 candidate process
@@ -278,11 +287,13 @@ candidate process
   2. apply rlimits
   3. drop capabilities
   4. install seccomp
-  5. encode one bounded RUN_STARTED_V1 from a trusted private identity record
-  6. write the complete frame atomically to the result pipe
-  7. close the result/control descriptor
-  8. close every remaining non-stdio descriptor
-  9. load and execute the candidate chunk
+  5. derive one private candidate-process token
+  6. encode and atomically write one bounded RUN_STARTED_V1
+  7. close the public STARTED descriptor
+  8. send private READY(sequence=1)
+  9. block until exact private RELEASE(sequence=2)
+ 10. close every candidate-Lua-reachable non-stdio descriptor
+ 11. load and execute the candidate chunk
 ```
 
 The frame is no larger than Linux `PIPE_BUF`; one write owns it. If STARTED
@@ -290,6 +301,57 @@ cannot be written completely, the prelude exits without loading candidate
 bytes. The top-level supervisor emits only the later terminal frame after the
 candidate/controller is reaped, so frame order is fixed. Candidate code cannot
 access, suppress or forge the attestation descriptor.
+
+The controller creates one
+`AF_UNIX/SOCK_SEQPACKET|SOCK_CLOEXEC` pair before candidate fork. The candidate
+retains exactly one endpoint as C-private state; it is never projected as a Lua
+fd, userdata, path, environment value, protocol field or corpus value. Its fixed
+packet is exactly 184 bytes:
+
+```text
+offset  bytes  field
+0       8      magic = "P17QAST\0"
+8       2      version = 1
+10      2      kind: READY=1, RELEASE=2, HEAP_DENIED=3
+12      4      packet_bytes = 184
+16      8      conversation sequence
+24      128    transaction/witness/profile/environment identity join
+152     32     private candidate-process token
+```
+
+Exact legal conversation:
+
+```text
+candidate  -> READY(sequence=1), after public STARTED write and close
+controller -> RELEASE(sequence=2), after READY validation and wall-timer arm
+candidate  -> zero or one HEAP_DENIED(sequence=3)
+candidate terminal -> status endpoint EOF
+```
+
+No candidate byte is loaded before RELEASE. Missing, duplicate, malformed,
+reordered or identity/token-mismatched packets are infrastructure failure.
+STARTED followed by a failed READY/RELEASE join remains a started
+infrastructure failure, never candidate rejection.
+
+The candidate uses only record-preserving `write`/`read` on the seqpacket
+endpoint. A 185-byte receive buffer accepts exactly 184 bytes and rejects
+truncation. The trusted prelude installs `SIGPIPE=SIG_IGN` before seccomp and
+sets the endpoint nonblocking after RELEASE. `send`, `recv`, `sendmsg` and
+`recvmsg` are not added to candidate seccomp.
+
+#### 5.2.1 Split process-local phase state (E5.0 amendment)
+
+The candidate owns a dedicated one-shot STARTED writer state; it does not own
+the controller phase ledger. The namespace controller owns a separate
+process-local phase state. After the private status decoder validates exact
+`READY(1)`, it performs the sole legal `started_attested` transition in that
+controller state. The controller then arms the wall timer, authorizes candidate
+release and sends `RELEASE(2)`.
+
+This is a two-channel join, not duplicated truth. READY proves the fixed
+candidate-prelude ordering to the controller; the launcher separately validates
+the public STARTED frame and process token. No shared mutable phase/cause state
+is introduced, and neither witness can substitute for the other.
 
 ### 5.3 First-cause ledger
 
@@ -304,9 +366,21 @@ struct proc17_qa_first_cause {
 ```
 
 Only compare-and-set from `NONE` is legal. Writers are trusted timer, wait,
-allocator status, stream crossing, scratch denial and seccomp/wait evidence.
-Later cleanup failures do not rewrite candidate cause; they suppress the
-candidate result and produce infrastructure ambiguity.
+allocator notification plus telemetry, stream crossing, scratch denial and
+seccomp/wait evidence. The controller is the only process permitted to perform
+that compare-and-set. A candidate status packet is evidence submitted to the
+controller, never a cause write. Later cleanup failures do not rewrite
+candidate cause; they suppress the candidate result and produce infrastructure
+ambiguity.
+
+E4.3 arbitration amendment 2026-07-28:
+
+Every successful `poll()` return is one observation epoch. Classify all ready
+sources first. Exactly one distinct cause kind may claim the slot; multiple
+distinct kinds produce infrastructure ambiguity. Two stream crossings are one
+`output_limit` kind with two measurements. Descriptor index, enum order and
+canonical tie-break are forbidden as physical ordering. Once cause is set,
+later wait status supplies termination/finality only.
 
 ### 5.4 Terminal state
 
@@ -318,11 +392,40 @@ whole candidate-tree kill if required
 candidate reap with rusage
 stdout and stderr EOF
 scratch final observation
-private descriptor closure
+private status EOF
+stable allocator telemetry observation
 ```
 
 The top-level supervisor sets namespace cleanup complete only after the
 controller itself is reaped and its report is internally consistent.
+
+### 5.5 Exact private controller report
+
+E4.5 fixes the controller-to-supervisor record at 572 bytes:
+
+```text
+header(16) + identity(128) + private process token(32)
++ reason/termination(12) + first cause(20)
++ local finality(7) + status EOF(1) + allocator stable(1)
++ HEAP_DENIED count(1) + allocator failure flags(2) + reserved(4)
++ allocator current reservation(8)
++ stdout(64) + stderr(64) + resources(88) + scratch(40)
++ source stage(84)
+```
+
+The header is `P17QACR\0`, version 1, exact byte count and four zero bytes.
+All multi-byte values use QA network byte order. The first seven public
+finality members must be true and namespace-clean must still be absent in the
+controller phase state. Status EOF, stable post-reap allocator telemetry and
+notification/page agreement are additional private prerequisites.
+
+After exact successful controller reap and namespace cleanup, the top-level
+supervisor validates identity and token, copies the immutable evidence and
+sets only `namespace_cleanup_complete`. It never re-derives first cause.
+Failure of any prerequisite emits no candidate RESULT.
+`system_allocation_failed=true` is one such failure: the E4.5 join takes the
+infrastructure branch rather than hiding host allocation failure in a
+candidate `unexpected_exit`.
 
 ## 6. C5 - Measurements
 
@@ -336,7 +439,7 @@ stdout read fd
 stderr read fd
 candidate pidfd
 wall timerfd
-private ready/status fd
+private `SOCK_SEQPACKET` ready/release/status endpoint
 ```
 
 For each stream maintain:
@@ -354,18 +457,55 @@ continue draining until both EOFs or infrastructure failure.
 
 ### 6.2 Allocator
 
-Extend the existing bounded allocator state:
+E4.0a supersedes post-`lua_close` transfer. A terminal transfer cannot preserve
+measurements when wall, CPU or output enforcement kills the candidate before
+its trusted epilogue.
+
+Create one fixed anonymous `MAP_SHARED` allocator telemetry record before
+candidate fork. The controller changes its inherited mapping to read-only; the
+trusted candidate allocator is the only post-fork writer. Lua receives neither
+the address nor an API that can reach the record.
+
+The fixed private ABI contains:
 
 ```text
-current_bytes
-peak_bytes
-ceiling_bytes
-denied
+protocol/version              fixed
+ceiling_bytes                 immutable
+current_bytes                 atomic
+peak_bytes                    atomic monotonic maximum
+ceiling_denied                atomic sticky boolean
+system_allocation_failed      atomic sticky boolean
+status_notification_failed    atomic sticky boolean
 ```
 
-The candidate child transfers this fixed record to the controller after Lua
-closes. If the allocator refuses and `lua_pcall` fails, first cause becomes
-memory limit. Candidate text cannot set the flag.
+The allocator publishes measurement updates with release ordering; the
+controller observes them with acquire ordering after HEAP_DENIED notification
+or candidate reap. Abrupt death may leave `current_bytes` nonzero but cannot
+erase `peak_bytes` or any sticky flag.
+
+Mutable fields use proved lock-free interprocess atomics. Static ABI assertions
+cover size, offset and alignment, and the provider refuses availability before
+candidate start when the target cannot prove lock-free operation. No
+process-local lock, process-shared mutex, shared phase field or shared cause
+field is permitted.
+
+Current and peak are allocator-reservation measurements, not RSS. The
+allocator publishes an in-budget reservation and peak before entering host
+`malloc/realloc`. Host failure first sets `system_allocation_failed`, then
+rolls current back; peak retains the maximum authorized request. Therefore a
+kill inside the host allocator cannot erase the observed peak.
+
+On the first policy-ceiling refusal, the allocator atomically sets
+`ceiling_denied` and sends exactly one HEAP_DENIED(sequence=3) packet. The
+packet is only a wakeup witness. The shared record is the sole allocator
+measurement truth, and the controller first-cause slot is the sole cause truth.
+
+`memory_limit` requires exact HEAP_DENIED, `ceiling_denied=true` and
+`system_allocation_failed=false`. A run where both failure flags are true is
+infrastructure ambiguity; system allocation failure can never establish or be
+laundered into memory limit. Notification/page mismatch, status notification
+failure, unstable ABI, inaccessible telemetry or a second denial packet is
+infrastructure ambiguity. Candidate text cannot set any trusted field.
 
 ### 6.3 CPU and wall
 
@@ -376,11 +516,23 @@ controller then owns whole-tree termination/reap. A hard SIGKILL without the
 earlier SIGXCPU witness falls back to `signal` or infrastructure ambiguity,
 never a guessed CPU limit.
 
+Arm the candidate timerfd with an absolute `CLOCK_MONOTONIC` deadline before
+private RELEASE. Candidate metrics come only from exact
+`wait4(candidate_pid)`. `wait4(namespace_controller)` and the outer watchdog
+remain cleanup/infrastructure evidence. If candidate pidfd and timer are both
+newly ready in one epoch before a cause exists, return infrastructure
+ambiguity.
+
 ### 6.4 Scratch
 
 After candidate reap, the namespace controller walks only `/qa/scratch` with a
 closed no-follow bounded walker and records regular-byte/entry totals. It also
 records final trusted filesystem byte/inode capacity state.
+
+The exact internal depth bound is
+`PROC17_QA_SCRATCH_MAX_DEPTH = 64`, included in the isolation policy digest.
+Depth zero is the pinned scratch root and direct children have depth one. This
+bound constrains observer work; it is not a result field or terminal cause.
 
 The controller snapshots the exact trusted initialization (`home`, `tmp` and
 their identities) before candidate release. Final measurements are candidate
@@ -397,6 +549,12 @@ Stored use may equal but never exceed configured bounds. Step E maps the
 scratch-exhaustion fixture to `unexpected_exit` and does not emit
 `scratch_limit`. That reason remains reserved until a future trusted write-
 denial hook can set first cause before candidate termination.
+
+E4.4 exposes a fixed private 40-byte projection to E4.5: four QA network-order
+u64 values (`stored_regular_bytes`, `stored_entries`, `limit_bytes`,
+`limit_entries`), then the byte-capacity, entry-capacity and
+inventory-complete booleans, followed by five zero bytes. The enclosing report
+owns the protocol tag.
 
 ## 7. C6 - Launcher State Machine
 
@@ -651,6 +809,14 @@ HE16 crash/pipe fault remains infrastructure
 HE17 ambiguity quarantines
 HE18 trusted contradiction loud after finality attempt
 HE21 Packet/root/economics zero mass
+HE23 no candidate byte loads before exact private RELEASE
+HE24 READY before public STARTED close is infrastructure failure
+HE25 malformed/duplicate/reordered private status is infrastructure failure
+HE26 Lua cannot reach private status or allocator telemetry
+HE27 abrupt candidate death preserves allocator peak/sticky flags
+HE28 allocator notification/telemetry mismatch is infrastructure ambiguity
+HE29 no shared phase/cause state exists
+HE30 missing private status EOF suppresses candidate result
 ```
 
 ### C8-C10
@@ -702,7 +868,13 @@ After C8-C10, run each target independently from a cold native build.
 E1 C1/C2 wire and Lua schemas; no execution delta
 E2 C3 environment rotation and QN01-QN16 migration
 E3 C4 ready handshake/first-cause/finality
-E4 C5 stream, allocator and scratch witnesses
+E4.0a TABLE/CRYSTALL private status and allocator-survival amendment
+E4.1 C5 independent stream witnesses
+E4.2 C5 allocator witness
+E4.3 C5 candidate CPU/wall witness
+E4.4 C5 scratch witness
+E4.5 C5 controller report/finality join, production-linked but unrouted
+E4.6 C5 batteries, manifest and checkpoint
 E5 C6 launcher state machine and fault-free v1 path
 E6 C7 provider witness migration and source disposition
 E7 C8 QN17 campaign
@@ -739,3 +911,204 @@ fault hooks cannot enter production identity;
 source disposition agrees with repository registry law;
 QN17-QN20 are the only authorized color changes.
 ```
+
+## 18. E6/C7 Provider Witness V1 Precision Amendment
+
+Amended 2026-07-28 after the E5 production switch.
+
+### 18.1 Final report
+
+`qa.provider_witness_report.v1` has exactly these top-level fields:
+
+```text
+protocol_version, operation, transaction_id, witness_id, profile_id,
+environment_id, outcome, reason, termination, cause, finality, source,
+stdout, stderr, resources, scratch, cost, event_truth_status
+```
+
+`source` has exactly:
+
+```text
+pre_inventory_id, post_inventory_id, stable=true, disposition=consumed
+```
+
+Cause, finality and all measurements are detached copies of the already strict
+process observation v1. The report has no second cleanup boolean.
+
+### 18.2 Final error
+
+`qa.provider_witness_error.v1` has exactly:
+
+```text
+protocol_version, transaction_id, witness_id, profile_id, environment_id,
+class, code, stage, candidate_start_state, source_stable,
+source_disposition, cleanup_state, launcher_reaped, result_eof,
+measured_cost, event_truth_status
+```
+
+Process tri-states and optional cost are preserved without coercion. A
+pre-provider source error is `not_started` with no measured process cost.
+
+### 18.3 Ordering and authority
+
+The source callback returns an untagged pending join only. Final v1 object
+assembly occurs after successful terminal `finish_qa_source`. Trusted
+contradiction attempts quarantine/finality and then raises. No v0 report/error
+is accepted as an alias.
+
+E6 changes no Packet, public root, Packet budget or lineage economics. It
+creates no body request, execution receipt, outcome event, verdict or reader.
+The required red-matrix delta is zero.
+
+## 19. E7/C8 QN17 Executable Harness Amendment
+
+Source: `docs/00_chaos/qa_e7_qn17_hostile_candidate_campaign_notes_2026-07-28.md`.
+
+### 19.1 Trusted entrypoint
+
+One dedicated Lua entrypoint outside the ordinary suite imports both the inert
+fixture manifest and the existing real-candidate support. The Make target
+`qa-supervisor-hostile-fixtures-test` invokes only that entrypoint. The
+entrypoint has no CLI parameters, fixture selector, path selector or alternate
+provider input.
+
+### 19.2 Closed matrix
+
+The harness owns an exact 17-key expectation table containing only reason and
+provider outcome plus reason-specific witness checks. It rejects missing,
+duplicate and extra candidate fixture ids. The fixture `pressure` string is not
+read for classification.
+
+### 19.3 Per-row transaction
+
+For each validated candidate record:
+
+```text
+fixture.read -> unchanged bytes
+qa_provider_witness_support.with_candidate(bytes)
+-> first-hand materialization
+-> candidate seal
+-> witness.prepare
+-> assert entrypoint bytes/hash and seal inventory binding
+-> witness.execute exactly once
+-> assert report/source/cause/finality/measurement matrix
+-> identity-owned root cleanup
+```
+
+`with_candidate` is the already exercised real first-hand path. E7 must not add
+a test-only source writer or alternate supervisor. Witness-internal ablation is
+part of every row.
+
+### 19.4 Exact checks
+
+All reports use `qa.provider_witness_report.v1`; errors fail QN17. All finality
+members are true. Source pre/post inventory ids equal the witness plan's sealed
+inventory id and disposition is `consumed`. The report contains measurement
+records only; no content, path, fd, handle, raw stream or process token is
+accepted.
+
+Reason-specific evidence includes allocator denial for `memory_limit`, the
+named stream crossing for output fixtures, complete bounded scratch inventory
+for scratch exhaustion and exact source stability for source mutation.
+
+### 19.5 Gate
+
+The campaign succeeds only at:
+
+```text
+declared=17 executed=17 matched=17 source_drifts=0 cleanup_ambiguities=0
+```
+
+The expected red battery becomes `41 green / 43 red`. No QN18-QN20, QE or QV
+control may change. The implementation adds no production fault selector and
+no body QA authority.
+
+## 20. E8/C9 QN18 Executable Harness Amendment
+
+Source: `docs/00_chaos/qa_e8_qn18_trusted_fault_campaign_notes_2026-07-28.md`.
+
+### 20.1 Production classifier repair
+
+`proc17_qa_launcher_collect_v1` must preserve these real observation classes:
+
+```text
+result-channel read failure -> ambiguous/result_pipe_lost/supervision
+waitpid ownership failure   -> ambiguous/reap_ambiguous/cleanup
+malformed trusted bytes     -> trusted invariant
+dirty child exit            -> unavailable/supervisor_crashed/supervision
+```
+
+The classifier copies the already observed STARTED state. It writes no clean
+reap, EOF, cleanup or cost claim without the corresponding host witness.
+
+### 20.2 Distinct test build
+
+One internal header is visible only when `PROC17_QA_FAULT_TESTING` is defined.
+The test build uses production launcher/supervisor/wire state machines but has:
+
+```text
+launcher ABI = proc17.qa.launcher.lua54.fault-test.v0
+supervisor binary digest != production supervisor digest
+test-only artifact names under native/tests/
+closed driver-owned row enum
+```
+
+The driver is parameterless. Fault selection does not enter a frame, source,
+environment variable or Lua function. Prefer synthetic trusted process
+observations over a source hook whenever the production state machine can be
+exercised directly.
+
+### 20.3 Native result protocol
+
+The native driver emits exactly seven bounded records, one for every native
+row other than loader rejection and provider postflight drift:
+
+```text
+QN18_NATIVE_V0|fixture_id|boundary|start_state|terminal_state|variant_count
+```
+
+Allowed values are owned by an exact Lua expectation map. There is no free
+diagnostic field. The malformed request/result rows require `variant_count=7`;
+all other rows require `variant_count=1`.
+
+### 20.4 Lua campaign
+
+The parameterless Lua entrypoint validates all nine inert fixture records and
+then joins:
+
+```text
+production-loader rejection of the fault launcher
+seven exact native driver records
+provider-witness postflight source drift
+provider-witness quarantine-before-loud trusted contradiction
+production artifact/API exclusion audit
+```
+
+The fixture `pressure` field is never read as an expected result.
+
+### 20.5 Artifact exclusion
+
+After both production and fault artifacts are built:
+
+```text
+fault artifacts have identities different from production
+production loader rejects the fault launcher
+production verifier rejects the fault supervisor
+nm/strings/API inspection finds no test symbol, fixture id or selector in
+production proc17_qa_launcher.so or proc17_qa_supervisor
+```
+
+Source-level `#ifdef PROC17_QA_FAULT_TESTING` is not sufficient evidence;
+compiled-artifact inspection is mandatory.
+
+### 20.6 Gate
+
+The target succeeds only at:
+
+```text
+declared=9 executed=9 matched=9 candidate_outcomes=0
+```
+
+The expected red battery becomes `42 green / 42 red`. QN19/QN20 and every
+body QE/QV control remain red. E8 authorizes no body execution request,
+check evidence, verdict, completion reader or retry policy.

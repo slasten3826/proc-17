@@ -13,6 +13,14 @@ implementation authorized: E1-E10 in exact order
 Packet/body QA authority: forbidden
 ```
 
+Partial supersession 2026-07-28:
+
+Sections 2 and 5 are superseded by
+`qa_measurement_e4_status_amendment_cross_audit_2026-07-28.md`. The original
+direct-STARTED sequence could not arm candidate wall time before execution and
+its post-`lua_close` allocator transfer could not survive abrupt death. All
+other findings remain active.
+
 ## 0. Audited Surface
 
 ```text

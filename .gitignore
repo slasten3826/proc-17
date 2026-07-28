@@ -21,7 +21,18 @@ native/tests/test_proc17_qa_launcher
 native/tests/test_proc17_qa_supervisor
 native/tests/test_proc17_qa_wire
 native/tests/test_proc17_qa_run
+native/tests/test_proc17_qa_phase
+native/tests/test_proc17_qa_stream
+native/tests/test_proc17_qa_allocator
+native/tests/test_proc17_qa_controller
+native/tests/test_proc17_qa_scratch
+native/tests/test_proc17_qa_report
+native/tests/test_proc17_qa_launcher_v1
+native/tests/test_proc17_qa_execution
+native/tests/test_proc17_qa_trusted_faults
 native/tests/proc17_qa_launcher_wrong_abi.so
+native/tests/proc17_qa_launcher_fault_test.so
+native/tests/proc17_qa_supervisor_fault_test
 
 __pycache__/
 *.pyc

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include "../proc17_qa_phase.h"
+#include "../proc17_qa_status.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -35,6 +36,11 @@ static int test_started_and_release(void)
 {
     struct proc17_qa_phase_identity identity;
     struct proc17_qa_phase_state state;
+    struct proc17_qa_started_writer_state writer;
+    struct proc17_qa_status_message ready = {
+        .kind = PROC17_QA_STATUS_READY,
+        .sequence = 1U,
+    };
     unsigned char stage[PROC17_QA_SOURCE_STAGE_V1_BYTES];
     unsigned char token[PROC17_QA_WIRE_DIGEST_BYTES];
     unsigned char frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
@@ -46,17 +52,19 @@ static int test_started_and_release(void)
     fill_identity(&identity);
     fill_stage(stage);
     proc17_qa_phase_init(&state);
+    proc17_qa_started_writer_init(&writer);
     if (!proc17_qa_phase_identity_valid(&identity)
         || proc17_qa_phase_make_process_token(&identity, token) != 0
         || proc17_qa_phase_authorize_candidate(&state) == 0
         || pipe2(descriptors, O_CLOEXEC) != 0) {
         return -1;
     }
-    if (proc17_qa_phase_emit_started_and_close(&state, &descriptors[1],
+    if (proc17_qa_phase_emit_started_and_close(&writer, &descriptors[1],
             &identity, token, stage) != 0
         || descriptors[1] != -1
-        || state.started_emitted != 1U
-        || state.result_descriptor_closed != 1U
+        || writer.started_emitted != 1U
+        || writer.result_descriptor_closed != 1U
+        || state.started_attested != 0U
         || state.candidate_release_authorized != 0U) {
         close(descriptors[0]);
         return -1;
@@ -71,12 +79,14 @@ static int test_started_and_release(void)
             PROC17_QA_WIRE_DIGEST_BYTES) != 0
         || memcmp(view.payload, &identity, sizeof(identity)) != 0
         || memcmp(view.payload + 136U, token, sizeof(token)) != 0
+        || proc17_qa_status_accept_ready(&ready, &state) != 0
+        || proc17_qa_status_accept_ready(&ready, &state) == 0
         || proc17_qa_phase_authorize_candidate(&state) != 0
         || proc17_qa_phase_authorize_candidate(&state) == 0) {
         return -1;
     }
     if (pipe2(duplicate, O_CLOEXEC) != 0) return -1;
-    if (proc17_qa_phase_emit_started_and_close(&state, &duplicate[1],
+    if (proc17_qa_phase_emit_started_and_close(&writer, &duplicate[1],
             &identity, token, stage) == 0
         || duplicate[1] != -1
         || read(duplicate[0], frame, sizeof(frame)) != 0) {
@@ -92,6 +102,7 @@ static int test_failed_started_never_releases(void)
 {
     struct proc17_qa_phase_identity identity;
     struct proc17_qa_phase_state state;
+    struct proc17_qa_started_writer_state writer;
     unsigned char stage[PROC17_QA_SOURCE_STAGE_V1_BYTES];
     unsigned char token[PROC17_QA_WIRE_DIGEST_BYTES];
     unsigned char fill[4096];
@@ -103,6 +114,7 @@ static int test_failed_started_never_releases(void)
     memset(token, 0x55, sizeof(token));
     memset(fill, 0xa5, sizeof(fill));
     proc17_qa_phase_init(&state);
+    proc17_qa_started_writer_init(&writer);
     if (pipe2(descriptors, O_CLOEXEC | O_NONBLOCK) != 0) return -1;
     for (;;) {
         ssize_t written = write(descriptors[1], fill, sizeof(fill));
@@ -113,11 +125,11 @@ static int test_failed_started_never_releases(void)
         close(descriptors[1]);
         return -1;
     }
-    flags = proc17_qa_phase_emit_started_and_close(&state, &descriptors[1],
+    flags = proc17_qa_phase_emit_started_and_close(&writer, &descriptors[1],
         &identity, token, stage);
     close(descriptors[0]);
-    if (flags == 0 || descriptors[1] != -1 || state.started_emitted != 0U
-        || state.result_descriptor_closed != 0U
+    if (flags == 0 || descriptors[1] != -1 || writer.started_emitted != 0U
+        || writer.result_descriptor_closed != 0U
         || state.candidate_release_authorized != 0U
         || state.finality_mask != 0U
         || proc17_qa_phase_candidate_result_ready(&state)
@@ -131,6 +143,10 @@ static int test_first_cause_and_finality(void)
 {
     struct proc17_qa_phase_state state;
     struct proc17_qa_first_cause first;
+    struct proc17_qa_status_message ready = {
+        .kind = PROC17_QA_STATUS_READY,
+        .sequence = 1U,
+    };
     int member;
 
     proc17_qa_phase_init(&state);
@@ -156,15 +172,18 @@ static int test_first_cause_and_finality(void)
         || proc17_qa_phase_candidate_result_ready(&state)) {
         return -1;
     }
-    state.started_emitted = 1U;
-    state.result_descriptor_closed = 1U;
-    state.candidate_release_authorized = 1U;
-    if (proc17_qa_phase_mark_finality(&state,
+    proc17_qa_phase_init(&state);
+    if (proc17_qa_status_accept_ready(&ready, &state) != 0
+        || proc17_qa_phase_authorize_candidate(&state) != 0
+        || proc17_qa_phase_claim_first_cause(&state,
+            PROC17_QA_RUN_CPU_LIMIT, 20000U) != PROC17_QA_CAUSE_SET
+        || proc17_qa_phase_mark_finality(&state,
             PROC17_QA_FINALITY_COUNT) == 0
-        || state.finality_mask != 0U) {
+        || state.finality_mask != 3U) {
         return -1;
     }
-    for (member = 0; member < PROC17_QA_FINALITY_COUNT; member++) {
+    for (member = PROC17_QA_FINAL_CANDIDATE_TERMINAL;
+            member < PROC17_QA_FINALITY_COUNT; member++) {
         if (proc17_qa_phase_mark_finality(&state,
                 (enum proc17_qa_phase_finality)member) != 0) {
             return -1;
@@ -173,9 +192,14 @@ static int test_first_cause_and_finality(void)
             && proc17_qa_phase_candidate_result_ready(&state)) {
             return -1;
         }
+        if ((member == PROC17_QA_FINAL_SCRATCH_OBSERVED)
+                != proc17_qa_phase_controller_report_ready(&state)) {
+            return -1;
+        }
     }
     if (!proc17_qa_phase_finality_complete(&state)
         || !proc17_qa_phase_candidate_result_ready(&state)
+        || proc17_qa_phase_controller_report_ready(&state)
         || proc17_qa_phase_mark_finality(&state,
             PROC17_QA_FINAL_NAMESPACE_CLEAN) != 0
         || !proc17_qa_phase_candidate_result_ready(&state)) {

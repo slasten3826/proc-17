@@ -14,11 +14,21 @@ WRONG_ABI_MODULE = tests/proc17_repository_fs_wrong_abi.so
 QA_SHARED_ABI_TEST = tests/test_proc17_qa_launcher
 QA_WIRE_TEST = tests/test_proc17_qa_wire
 QA_PHASE_TEST = tests/test_proc17_qa_phase
+QA_STREAM_TEST = tests/test_proc17_qa_stream
+QA_ALLOCATOR_TEST = tests/test_proc17_qa_allocator
+QA_CONTROLLER_TEST = tests/test_proc17_qa_controller
+QA_SCRATCH_TEST = tests/test_proc17_qa_scratch
+QA_REPORT_TEST = tests/test_proc17_qa_report
+QA_EXECUTION_TEST = tests/test_proc17_qa_execution
+QA_LAUNCHER_V1_TEST = tests/test_proc17_qa_launcher_v1
 QA_SUPERVISOR = proc17_qa_supervisor
 QA_LAUNCHER_MODULE = proc17_qa_launcher.so
 QA_SUPERVISOR_TEST = tests/test_proc17_qa_supervisor
 QA_RUN_TEST = tests/test_proc17_qa_run
 QA_WRONG_ABI_MODULE = tests/proc17_qa_launcher_wrong_abi.so
+QA_FAULT_SUPERVISOR = tests/proc17_qa_supervisor_fault_test
+QA_FAULT_LAUNCHER_MODULE = tests/proc17_qa_launcher_fault_test.so
+QA_TRUSTED_FAULT_TEST = tests/test_proc17_qa_trusted_faults
 QA_GENERATED_DIR = generated
 QA_PREBUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_prebuild.h
 QA_BUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_build_identity.h
@@ -32,14 +42,19 @@ QA_STATIC_LDFLAGS ?= -static-pie
 .PHONY: all test test-create test-read clean toolchain-check provider-shell loader-test-fixture \
 	fixture-helper fixture-test contract-test-syntax qa-host-contract-syntax \
 	qa-wire-contract-syntax qa-wire-test qa-shared-abi-test \
-	qa-phase-test \
+	qa-phase-test qa-stream-test qa-allocator-test qa-controller-test \
+		qa-scratch-test \
+		qa-report-test \
+		qa-execution-test \
+		qa-launcher-v1-test \
 	qa-static-closure-test qa-launcher-contract-test \
 	qa-launcher-identity-test qa-launcher-exec-test qa-launcher-fd-test \
 	qa-supervisor-namespace-test qa-supervisor-mount-test \
 	qa-supervisor-lua-test qa-supervisor-seccomp-test \
 	qa-supervisor-limits-test qa-native-probe-test qa-provider-shell \
 	qa-loader-test-fixture qa-run-basic-internal-test \
-	qa-supervisor-basic-fixtures-test
+	qa-supervisor-basic-fixtures-test qa-supervisor-hostile-fixtures-test \
+	qa-supervisor-trusted-fault-test
 
 all: toolchain-check $(MODULE)
 
@@ -71,11 +86,13 @@ $(TEST_CREATE): tests/test_proc17_repository_fs.c proc17_repository_fs.c \
 		tests/test_proc17_repository_fs.c proc17_repository_fs.c $(LDFLAGS) $(LUA_LIBS)
 
 $(QA_SHARED_ABI_TEST): tests/test_proc17_qa_launcher.c proc17_qa_launcher.c \
+		proc17_qa_launcher_v1.c proc17_qa_launcher_v1.h \
 		proc17_qa_launcher_internal.h proc17_repository_fs.c \
 		proc17_repository_handle_abi.h proc17_qa_wire.h proc17_qa_policy.h \
 		proc17_sha256.c proc17_sha256.h $(QA_BUILD_IDENTITY) $(QA_PREBUILD_IDENTITY)
 	$(CC) $(CFLAGS) $(LUA_CFLAGS) -o $@ \
 		tests/test_proc17_qa_launcher.c proc17_qa_launcher.c \
+		proc17_qa_launcher_v1.c \
 		proc17_repository_fs.c proc17_sha256.c $(LDFLAGS) $(LUA_LIBS) -ldl
 
 $(QA_WIRE_TEST): tests/test_proc17_qa_wire.c proc17_qa_wire.h \
@@ -116,16 +133,96 @@ $(QA_PREBUILD_IDENTITY): Makefile proc17_qa_policy.h qa_probe_source/probe.lua \
 	mv $@.tmp $@
 
 $(QA_SUPERVISOR): proc17_qa_supervisor.c proc17_qa_phase.c \
-		proc17_qa_phase.h proc17_qa_wire.h proc17_qa_policy.h \
+		proc17_qa_stream.c proc17_qa_status.c proc17_qa_allocator.c \
+		proc17_qa_controller.c \
+		proc17_qa_scratch.c \
+		proc17_qa_report.c \
+		proc17_qa_phase.h proc17_qa_stream.h proc17_qa_status.h \
+		proc17_qa_phase_internal.h \
+		proc17_qa_allocator.h proc17_qa_controller.h \
+		proc17_qa_scratch.h \
+		proc17_qa_report.h \
+		proc17_qa_wire.h proc17_qa_policy.h \
 		proc17_sha256.c proc17_sha256.h $(QA_PREBUILD_IDENTITY)
 	$(CC) $(CFLAGS) -fPIE $(QA_LUA_STATIC_CFLAGS) -I. \
-		-o $@ proc17_qa_supervisor.c proc17_qa_phase.c proc17_sha256.c \
+		-o $@ proc17_qa_supervisor.c proc17_qa_phase.c \
+		proc17_qa_stream.c proc17_qa_status.c proc17_qa_allocator.c \
+		proc17_qa_controller.c proc17_sha256.c \
+		proc17_qa_scratch.c \
+		proc17_qa_report.c \
 		$(QA_STATIC_LDFLAGS) $(QA_LUA_STATIC_ARCHIVE) -lm -ldl
 
 $(QA_PHASE_TEST): tests/test_proc17_qa_phase.c proc17_qa_phase.c \
-		proc17_qa_phase.h proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
+		proc17_qa_phase.h proc17_qa_phase_internal.h proc17_qa_status.c \
+		proc17_qa_status.h proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
 	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_phase.c \
-		proc17_qa_phase.c proc17_sha256.c $(LDFLAGS)
+		proc17_qa_phase.c proc17_qa_status.c proc17_sha256.c $(LDFLAGS)
+
+$(QA_STREAM_TEST): tests/test_proc17_qa_stream.c proc17_qa_stream.c \
+		proc17_qa_stream.h proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_stream.c \
+		proc17_qa_stream.c proc17_sha256.c $(LDFLAGS)
+
+$(QA_ALLOCATOR_TEST): tests/test_proc17_qa_allocator.c \
+		proc17_qa_allocator.c proc17_qa_allocator.h proc17_qa_status.c \
+		proc17_qa_status.h proc17_qa_phase.c proc17_qa_phase.h \
+		proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_allocator.c \
+		proc17_qa_allocator.c proc17_qa_status.c proc17_qa_phase.c \
+		proc17_sha256.c $(LDFLAGS) -Wl,--wrap=malloc
+
+$(QA_CONTROLLER_TEST): tests/test_proc17_qa_controller.c \
+		proc17_qa_controller.c proc17_qa_controller.h proc17_qa_phase.c \
+		proc17_qa_phase.h proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_controller.c \
+		proc17_qa_controller.c proc17_qa_phase.c proc17_sha256.c $(LDFLAGS)
+
+$(QA_SCRATCH_TEST): tests/test_proc17_qa_scratch.c \
+		proc17_qa_scratch.c proc17_qa_scratch.h proc17_qa_policy.h \
+		proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_scratch.c \
+		proc17_qa_scratch.c proc17_sha256.c $(LDFLAGS)
+
+$(QA_REPORT_TEST): tests/test_proc17_qa_report.c \
+		proc17_qa_report.c proc17_qa_report.h proc17_qa_controller.c \
+		proc17_qa_controller.h proc17_qa_allocator.c proc17_qa_allocator.h \
+		proc17_qa_stream.c proc17_qa_stream.h proc17_qa_scratch.c \
+		proc17_qa_scratch.h proc17_qa_phase.c proc17_qa_phase.h \
+		proc17_qa_status.c proc17_qa_status.h proc17_qa_phase_internal.h \
+		proc17_qa_policy.h proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_report.c \
+		proc17_qa_report.c proc17_qa_controller.c proc17_qa_allocator.c \
+		proc17_qa_stream.c proc17_qa_scratch.c proc17_qa_phase.c \
+		proc17_qa_status.c \
+		proc17_sha256.c $(LDFLAGS)
+
+$(QA_EXECUTION_TEST): tests/test_proc17_qa_execution.c $(QA_SUPERVISOR) \
+		proc17_qa_launcher_v1.c proc17_qa_launcher_v1.h \
+		proc17_qa_supervisor.c proc17_qa_phase.c proc17_qa_phase.h \
+		proc17_qa_phase_internal.h proc17_qa_status.c proc17_qa_status.h \
+		proc17_qa_stream.c proc17_qa_stream.h proc17_qa_allocator.c \
+		proc17_qa_allocator.h proc17_qa_controller.c proc17_qa_controller.h \
+		proc17_qa_scratch.c proc17_qa_scratch.h proc17_qa_report.c \
+		proc17_qa_report.h proc17_qa_wire.h proc17_qa_policy.h \
+		proc17_sha256.c proc17_sha256.h $(QA_PREBUILD_IDENTITY)
+	$(CC) $(CFLAGS) -fPIE $(QA_LUA_STATIC_CFLAGS) -I. \
+		-o $@ tests/test_proc17_qa_execution.c proc17_qa_phase.c \
+		proc17_qa_launcher_v1.c \
+		proc17_qa_status.c proc17_qa_stream.c proc17_qa_allocator.c \
+		proc17_qa_controller.c proc17_qa_scratch.c proc17_qa_report.c \
+		proc17_sha256.c $(QA_STATIC_LDFLAGS) $(QA_LUA_STATIC_ARCHIVE) -lm -ldl
+
+qa-execution-test: $(QA_EXECUTION_TEST)
+	./$(QA_EXECUTION_TEST)
+
+$(QA_LAUNCHER_V1_TEST): tests/test_proc17_qa_launcher_v1.c \
+		proc17_qa_launcher_v1.c proc17_qa_launcher_v1.h proc17_qa_wire.h \
+		proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_launcher_v1.c \
+		proc17_qa_launcher_v1.c proc17_sha256.c $(LDFLAGS)
+
+qa-launcher-v1-test: $(QA_LAUNCHER_V1_TEST)
+	./$(QA_LAUNCHER_V1_TEST)
 
 $(QA_BUILD_IDENTITY): $(QA_SUPERVISOR) $(QA_PREBUILD_IDENTITY) | $(QA_GENERATED_DIR)
 	@supervisor_digest=$$(sha256sum $(QA_SUPERVISOR) | cut -d' ' -f1); \
@@ -138,12 +235,49 @@ $(QA_BUILD_IDENTITY): $(QA_SUPERVISOR) $(QA_PREBUILD_IDENTITY) | $(QA_GENERATED_
 	mv $@.tmp $@
 
 $(QA_LAUNCHER_MODULE): proc17_qa_launcher.c proc17_qa_launcher_internal.h \
+		proc17_qa_launcher_v1.c proc17_qa_launcher_v1.h \
 		proc17_repository_handle_abi.h proc17_qa_wire.h proc17_qa_policy.h \
 		proc17_sha256.c proc17_sha256.h $(QA_BUILD_IDENTITY) $(QA_PREBUILD_IDENTITY)
 	$(CC) $(CFLAGS) -fPIC -shared $(LUA_CFLAGS) -I. -o $@ \
-		proc17_qa_launcher.c proc17_sha256.c $(LDFLAGS) $(LUA_LIBS) -ldl
+		proc17_qa_launcher.c proc17_qa_launcher_v1.c proc17_sha256.c \
+		$(LDFLAGS) $(LUA_LIBS) -ldl
 
 qa-provider-shell: toolchain-check $(QA_LAUNCHER_MODULE)
+
+$(QA_FAULT_SUPERVISOR): proc17_qa_supervisor.c proc17_qa_phase.c \
+		proc17_qa_stream.c proc17_qa_status.c proc17_qa_allocator.c \
+		proc17_qa_controller.c proc17_qa_scratch.c proc17_qa_report.c \
+		proc17_qa_phase.h proc17_qa_stream.h proc17_qa_status.h \
+		proc17_qa_phase_internal.h proc17_qa_allocator.h \
+		proc17_qa_controller.h proc17_qa_scratch.h proc17_qa_report.h \
+		proc17_qa_wire.h proc17_qa_policy.h proc17_sha256.c proc17_sha256.h \
+		tests/proc17_qa_fault_testing.h $(QA_PREBUILD_IDENTITY)
+	$(CC) $(CFLAGS) -DPROC17_QA_FAULT_TESTING -fPIE \
+		$(QA_LUA_STATIC_CFLAGS) -I. -o $@ \
+		proc17_qa_supervisor.c proc17_qa_phase.c proc17_qa_stream.c \
+		proc17_qa_status.c proc17_qa_allocator.c proc17_qa_controller.c \
+		proc17_qa_scratch.c proc17_qa_report.c proc17_sha256.c \
+		$(QA_STATIC_LDFLAGS) $(QA_LUA_STATIC_ARCHIVE) -lm -ldl
+
+$(QA_FAULT_LAUNCHER_MODULE): proc17_qa_launcher.c \
+		proc17_qa_launcher_internal.h proc17_qa_launcher_v1.c \
+		proc17_qa_launcher_v1.h proc17_repository_handle_abi.h \
+		proc17_qa_wire.h proc17_qa_policy.h proc17_sha256.c proc17_sha256.h \
+		tests/proc17_qa_fault_testing.h $(QA_BUILD_IDENTITY) $(QA_PREBUILD_IDENTITY)
+	$(CC) $(CFLAGS) -DPROC17_QA_FAULT_TESTING -fPIC -shared \
+		$(LUA_CFLAGS) -I. -o $@ proc17_qa_launcher.c \
+		proc17_qa_launcher_v1.c proc17_sha256.c $(LDFLAGS) $(LUA_LIBS) -ldl
+
+$(QA_TRUSTED_FAULT_TEST): tests/test_proc17_qa_trusted_faults.c \
+		proc17_qa_launcher.c proc17_qa_launcher_internal.h \
+		proc17_qa_launcher_v1.c proc17_qa_launcher_v1.h \
+		proc17_repository_handle_abi.h proc17_qa_wire.h proc17_qa_policy.h \
+		proc17_sha256.c proc17_sha256.h tests/proc17_qa_fault_testing.h \
+		$(QA_BUILD_IDENTITY) $(QA_PREBUILD_IDENTITY) $(QA_SUPERVISOR) \
+		$(QA_FAULT_SUPERVISOR)
+	$(CC) $(CFLAGS) -DPROC17_QA_FAULT_TESTING $(LUA_CFLAGS) -I. \
+		-o $@ tests/test_proc17_qa_trusted_faults.c proc17_qa_launcher.c \
+		proc17_qa_launcher_v1.c proc17_sha256.c $(LDFLAGS) $(LUA_LIBS) -ldl
 
 $(QA_WRONG_ABI_MODULE): tests/proc17_qa_launcher_wrong_abi.c
 	$(CC) $(CFLAGS) -fPIC -shared $(LUA_CFLAGS) $(LDFLAGS) \
@@ -165,6 +299,14 @@ qa-run-basic-internal-test: toolchain-check $(QA_RUN_TEST)
 	./$(QA_RUN_TEST)
 
 qa-supervisor-basic-fixtures-test: qa-run-basic-internal-test
+
+qa-supervisor-hostile-fixtures-test: qa-provider-shell fixture-helper
+	cd .. && lua tests/run_qa_hostile_candidate_campaign.lua
+
+qa-supervisor-trusted-fault-test: qa-provider-shell fixture-helper \
+		$(QA_FAULT_SUPERVISOR) $(QA_FAULT_LAUNCHER_MODULE) \
+		$(QA_TRUSTED_FAULT_TEST)
+	cd .. && lua tests/run_qa_trusted_fault_campaign.lua
 
 qa-static-closure-test: $(QA_SUPERVISOR) $(QA_BUILD_IDENTITY)
 	@! readelf -l $(QA_SUPERVISOR) | grep -q 'INTERP'
@@ -220,6 +362,27 @@ qa-wire-test: $(QA_WIRE_TEST)
 qa-phase-test: $(QA_PHASE_TEST)
 	./$(QA_PHASE_TEST)
 
+qa-stream-test: $(QA_STREAM_TEST) $(QA_SUPERVISOR)
+	./$(QA_STREAM_TEST)
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_stream_drain_nonblocking$$'
+
+qa-allocator-test: $(QA_ALLOCATOR_TEST) $(QA_SUPERVISOR)
+	./$(QA_ALLOCATOR_TEST)
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_lua_allocator$$'
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_status_receive$$'
+
+qa-controller-test: $(QA_CONTROLLER_TEST) $(QA_SUPERVISOR)
+	./$(QA_CONTROLLER_TEST)
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_controller_resolve_epoch$$'
+
+qa-scratch-test: $(QA_SCRATCH_TEST) $(QA_SUPERVISOR)
+	./$(QA_SCRATCH_TEST)
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_scratch_measure_final$$'
+
+qa-report-test: $(QA_REPORT_TEST) $(QA_SUPERVISOR)
+	./$(QA_REPORT_TEST)
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_controller_report_finalize$$'
+
 qa-shared-abi-test: toolchain-check $(QA_SHARED_ABI_TEST)
 	./$(QA_SHARED_ABI_TEST)
 
@@ -234,7 +397,10 @@ test-read: test
 clean:
 	rm -f $(MODULE) $(TEST) $(TEST_CREATE) $(FIXTURE_HELPER) \
 		$(WRONG_ABI_MODULE) $(QA_SHARED_ABI_TEST) $(QA_WIRE_TEST) \
-		$(QA_PHASE_TEST) \
+		$(QA_PHASE_TEST) $(QA_STREAM_TEST) $(QA_ALLOCATOR_TEST) \
+		$(QA_CONTROLLER_TEST) $(QA_SCRATCH_TEST) $(QA_REPORT_TEST) \
+		$(QA_EXECUTION_TEST) $(QA_LAUNCHER_V1_TEST) \
 		$(QA_SUPERVISOR) $(QA_LAUNCHER_MODULE) $(QA_SUPERVISOR_TEST) \
-		$(QA_WRONG_ABI_MODULE) $(QA_RUN_TEST)
+		$(QA_WRONG_ABI_MODULE) $(QA_RUN_TEST) $(QA_FAULT_SUPERVISOR) \
+		$(QA_FAULT_LAUNCHER_MODULE) $(QA_TRUSTED_FAULT_TEST)
 	rm -rf $(QA_GENERATED_DIR)

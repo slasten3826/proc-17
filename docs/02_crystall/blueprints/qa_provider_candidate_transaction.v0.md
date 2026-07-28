@@ -1,5 +1,10 @@
 # QA Provider Candidate Transaction Blueprint v0
 
+E6 note 2026-07-28: sections 5.5 and 5.6 preserve the historical v0 witness
+schemas. Their executable successors are the v1 schemas and ordering in
+`qa_hostile_execution_campaign.v0.md` section 18. Body-execution schemas in
+this document are unchanged.
+
 Status:
 
 ```text

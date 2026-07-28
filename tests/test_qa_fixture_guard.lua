@@ -109,6 +109,81 @@ suite:check("QF04 fixture reader has no execution primitive", function()
         H.assert_false(source:find(forbidden, 1, true) ~= nil,
             "fixture reader execution primitive: " .. forbidden)
     end
+
+    local candidate_count = 0
+    local trusted_fault_count = 0
+    for _, item in ipairs(fixtures.items) do
+        if item.class == "candidate" then
+            candidate_count = candidate_count + 1
+        elseif item.class == "trusted_fault" then
+            trusted_fault_count = trusted_fault_count + 1
+        end
+    end
+    H.assert_eq(candidate_count, 17, "closed QN17 candidate count")
+    H.assert_eq(trusted_fault_count, 9, "closed later trusted-fault count")
+
+    local campaign = assert(io.open(
+        "tests/run_qa_hostile_candidate_campaign.lua", "rb"))
+    local campaign_source = assert(campaign:read("*a"))
+    assert(campaign:close())
+    H.assert_contains(campaign_source,
+        'require("tests.support.qa_hostile_fixtures")',
+        "dedicated campaign is the executable fixture reader")
+    H.assert_contains(campaign_source,
+        'require("tests.support.qa_provider_witness")',
+        "campaign crosses the real first-hand witness boundary")
+    for _, forbidden in ipairs({
+        "arg[", "dofile(", "loadfile(", "load(", "os.execute",
+        "io.popen", "package.loadlib",
+    }) do
+        H.assert_false(campaign_source:find(forbidden, 1, true) ~= nil,
+            "campaign selector or direct execution primitive: " .. forbidden)
+    end
+
+    local makefile = assert(io.open("native/Makefile", "rb"))
+    local make_source = assert(makefile:read("*a"))
+    assert(makefile:close())
+    H.assert_contains(make_source,
+        "qa-supervisor-hostile-fixtures-test:",
+        "QN17 owns one named Make target")
+    H.assert_contains(make_source,
+        "lua tests/run_qa_hostile_candidate_campaign.lua",
+        "QN17 target invokes only the dedicated campaign")
+
+    local trusted_campaign = assert(io.open(
+        "tests/run_qa_trusted_fault_campaign.lua", "rb"))
+    local trusted_source = assert(trusted_campaign:read("*a"))
+    assert(trusted_campaign:close())
+    H.assert_contains(trusted_source,
+        'require("tests.support.qa_hostile_fixtures")',
+        "QN18 campaign reads the same inert manifest")
+    H.assert_contains(trusted_source,
+        'require("runtime.qa_provider_witness")',
+        "QN18 campaign crosses real source finality")
+    H.assert_contains(trusted_source,
+        "./tests/test_proc17_qa_trusted_faults",
+        "QN18 campaign invokes one parameterless native driver")
+    for _, forbidden in ipairs({"arg[", "item.pressure", "fault_kind="}) do
+        H.assert_false(trusted_source:find(forbidden, 1, true) ~= nil,
+            "QN18 selector or label authority: " .. forbidden)
+    end
+    H.assert_contains(make_source,
+        "qa-supervisor-trusted-fault-test:",
+        "QN18 owns one named Make target")
+    H.assert_contains(make_source,
+        "lua tests/run_qa_trusted_fault_campaign.lua",
+        "QN18 target invokes only the dedicated campaign")
+
+    local fault_header = assert(io.open(
+        "native/tests/proc17_qa_fault_testing.h", "rb"))
+    local fault_header_source = assert(fault_header:read("*a"))
+    assert(fault_header:close())
+    H.assert_contains(fault_header_source,
+        "#ifndef PROC17_QA_FAULT_TESTING",
+        "fault declarations fail closed outside the test build")
+    H.assert_contains(fault_header_source,
+        "proc17.qa.launcher.lua54.fault-test.v0",
+        "fault launcher has a distinct ABI")
 end)
 
 suite:finish()

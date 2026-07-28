@@ -80,6 +80,43 @@ probes.QN03 = function()
         "native/proc17_qa_phase.c",
         "native/tests/test_proc17_qa_phase.c",
     }, "qa-phase-test")
+    native_witness("QN03-stream", {
+        "native/proc17_qa_stream.h",
+        "native/proc17_qa_stream.c",
+        "native/tests/test_proc17_qa_stream.c",
+    }, "qa-stream-test")
+    native_witness("QN03-allocator", {
+        "native/proc17_qa_status.h",
+        "native/proc17_qa_status.c",
+        "native/proc17_qa_allocator.h",
+        "native/proc17_qa_allocator.c",
+        "native/tests/test_proc17_qa_allocator.c",
+    }, "qa-allocator-test")
+    native_witness("QN03-controller", {
+        "native/proc17_qa_controller.h",
+        "native/proc17_qa_controller.c",
+        "native/tests/test_proc17_qa_controller.c",
+    }, "qa-controller-test")
+    native_witness("QN03-scratch", {
+        "native/proc17_qa_scratch.h",
+        "native/proc17_qa_scratch.c",
+        "native/tests/test_proc17_qa_scratch.c",
+    }, "qa-scratch-test")
+    native_witness("QN03-report", {
+        "native/proc17_qa_report.h",
+        "native/proc17_qa_report.c",
+        "native/tests/test_proc17_qa_report.c",
+    }, "qa-report-test")
+    native_witness("QN03-launcher-v1", {
+        "native/proc17_qa_launcher_v1.h",
+        "native/proc17_qa_launcher_v1.c",
+        "native/tests/test_proc17_qa_launcher_v1.c",
+    }, "qa-launcher-v1-test")
+    native_witness("QN03-execution", {
+        "native/proc17_qa_supervisor.c",
+        "native/proc17_qa_launcher_v1.c",
+        "native/tests/test_proc17_qa_execution.c",
+    }, "qa-execution-test")
 end
 
 probes.QN04 = function()
@@ -206,9 +243,9 @@ for _, control in ipairs(catalog) do
     local id, description = control[1], control[2]
     assert(type(probes[id]) == "function", "missing QA native probe " .. id)
     if not _G.PROC17_QA_RED_BATTERY
-        and (id == "QN17" or id == "QN18" or id == "QN19" or id == "QN20") then
+        and (id == "QN19" or id == "QN20") then
         suite:skip(id .. " " .. description,
-            "explicitly deferred after QN16-only promotion")
+            "explicitly deferred after QN18 promotion")
     else
         suite:check(id .. " " .. description, probes[id])
     end

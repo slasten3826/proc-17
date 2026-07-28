@@ -71,7 +71,16 @@ suite:check("WA03 pre-inventory mismatch starts no RUN", function()
         local report, err = witness.execute(
             grown.instance, hostile_services, plan)
         H.assert_nil(report)
+        H.assert_eq(err.protocol_version, "qa.provider_witness_error.v1")
         H.assert_eq(err.code, "source_preflight_mismatch")
+        H.assert_eq(err.candidate_start_state, "not_started")
+        H.assert_eq(err.source_disposition, "consumed")
+        H.assert_true(err.source_stable)
+        H.assert_eq(err.cleanup_state, "complete")
+        H.assert_eq(err.launcher_reaped, "complete")
+        H.assert_eq(err.result_eof, "complete")
+        H.assert_nil(err.measured_cost,
+            "no candidate means no fabricated process cost")
         H.assert_eq(runs, 0, "native RUN never starts")
         H.assert_eq(inventories, 1, "only pre-inventory is needed")
         return true
@@ -107,11 +116,78 @@ suite:check("WA05 post-inventory drift quarantines result", function()
         local report, err = witness.execute(
             grown.instance, hostile_services, plan)
         H.assert_nil(report)
+        H.assert_eq(err.protocol_version, "qa.provider_witness_error.v1")
         H.assert_eq(err.code, "source_drift")
         H.assert_eq(err.class, "ambiguous")
         H.assert_false(err.source_stable)
+        H.assert_eq(err.source_disposition, "quarantined")
+        H.assert_eq(err.candidate_start_state, "started")
+        H.assert_eq(err.cleanup_state, "complete")
+        H.assert_eq(err.launcher_reaped, "complete")
+        H.assert_eq(err.result_eof, "complete")
+        H.assert_eq(err.measured_cost.protocol_version, "qa.cost.v1")
         H.assert_eq(runs, 1)
         H.assert_eq(inventories, 2)
+        return true
+    end))
+end)
+
+suite:check("C7 process uncertainty is preserved exactly", function()
+    assert(support.with_candidate("return true\n", function(grown)
+        local qa_provider = {
+            run = function(_, request)
+                return nil, {
+                    protocol_version = "qa.provider_process_error.v1",
+                    operation = "run_lua54_test_suite",
+                    transaction_id = request.transaction_id,
+                    witness_id = request.witness_id,
+                    profile_id = request.profile_id,
+                    environment_id = request.environment_id,
+                    class = "ambiguous",
+                    code = "reap_ambiguous",
+                    stage = "cleanup",
+                    candidate_start_state = "unknown",
+                    cleanup_state = "unknown",
+                    launcher_reaped = "unknown",
+                    result_eof = "unknown",
+                    measured_cost = nil,
+                    event_truth_status = "runtime_confirmed",
+                }
+            end,
+        }
+        local hostile_services = services(grown, nil, qa_provider)
+        local plan = assert(witness.prepare(grown.instance, hostile_services))
+        local report, err = witness.execute(
+            grown.instance, hostile_services, plan)
+        H.assert_nil(report)
+        H.assert_eq(err.protocol_version, "qa.provider_witness_error.v1")
+        H.assert_eq(err.source_disposition, "quarantined")
+        H.assert_eq(err.candidate_start_state, "unknown")
+        H.assert_eq(err.cleanup_state, "unknown")
+        H.assert_eq(err.launcher_reaped, "unknown")
+        H.assert_eq(err.result_eof, "unknown")
+        H.assert_nil(err.measured_cost)
+        return true
+    end))
+end)
+
+suite:check("C7 legacy process witness is rejected loudly", function()
+    assert(support.with_candidate("return true\n", function(grown)
+        local qa_provider = {
+            run = function()
+                return nil, {
+                    protocol_version = "qa.provider_process_error.v0",
+                    cleanup_complete = true,
+                    candidate_started = false,
+                }
+            end,
+        }
+        local hostile_services = services(grown, nil, qa_provider)
+        local plan = assert(witness.prepare(grown.instance, hostile_services))
+        local ok, err = pcall(witness.execute,
+            grown.instance, hostile_services, plan)
+        H.assert_false(ok)
+        H.assert_contains(err, "callback failed")
         return true
     end))
 end)
@@ -160,6 +236,10 @@ suite:check("WA08 witness cannot enter Packet QA writer", function()
         local qa_request = require("runtime.qa_request")
         local ok = qa_request.verify(grown.instance, report)
         H.assert_nil(ok, "witness protocol is not a body request")
+        local legacy = H.copy(report)
+        legacy.protocol_version = "qa.provider_witness_report.v0"
+        local legacy_ok = qa_request.verify(grown.instance, legacy)
+        H.assert_nil(legacy_ok, "legacy witness is not a body request alias")
         return true
     end))
 end)

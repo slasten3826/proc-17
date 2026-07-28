@@ -1,5 +1,10 @@
 # QA Provider Candidate Transaction Yellowprint v0
 
+E6 note 2026-07-28: the Step-D v0 report/error records below are archaeology.
+The executable witness schemas are superseded by
+`qa_hostile_execution_campaign_yellowprint.v0.md` section 24. No body QA
+authority is promoted by that amendment.
+
 Status:
 
 ```text
