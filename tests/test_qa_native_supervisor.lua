@@ -75,6 +75,11 @@ probes.QN03 = function()
         "native/proc17_qa_wire.h",
         "native/tests/test_proc17_qa_wire.c",
     }, "qa-wire-test")
+    native_witness("QN03-phase", {
+        "native/proc17_qa_phase.h",
+        "native/proc17_qa_phase.c",
+        "native/tests/test_proc17_qa_phase.c",
+    }, "qa-phase-test")
 end
 
 probes.QN04 = function()

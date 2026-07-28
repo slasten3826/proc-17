@@ -65,7 +65,8 @@ Implementation continuation 2026-07-28:
 ```text
 8.5.5E E1 wire v1 and strict Lua schemas                   complete
 8.5.5E E2 measured environment identity rotation           complete
-8.5.5E E3-E10                                               not implemented
+8.5.5E E3 supervisor STARTED/cause/finality physics         complete, unrouted
+8.5.5E E4-E10                                               not implemented
 current production execution                               RUN v0
 QA control matrix                                          40 green / 44 red
 ```
@@ -76,6 +77,11 @@ recorded in `docs/03_manifest/qa_hostile_execution_e1.v0.md`.
 E2 also produced zero execution/color delta while making environment v1 the
 only active identity. See
 `docs/03_manifest/qa_environment_rotation_e2.v0.md`.
+
+E3 produced zero execution/color delta while linking the private STARTED,
+first-cause and finality mechanism into the production supervisor. RUN v0 does
+not route through it; C5 measurements remain the next dependency. See
+`docs/03_manifest/qa_supervisor_phase_e3.v0.md`.
 
 The latest completed implementation evidence is:
 

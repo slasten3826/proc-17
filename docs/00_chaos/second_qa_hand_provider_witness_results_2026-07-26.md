@@ -34,6 +34,14 @@ Measured environment v1 is now active and historical v0 is unavailable for
 new contracts. Production execution remains RUN v0; E3-E10 remain pending.
 See `docs/03_manifest/qa_environment_rotation_e2.v0.md`.
 
+E3 continuation 2026-07-28:
+
+The production supervisor now contains the independently tested private
+STARTED, first-cause and monotonic-finality mechanism. It remains deliberately
+unrouted: production execution is still RUN v0, E4-E10 remain pending,
+QN17-QN20 remain deferred and body QA authority remains absent. See
+`docs/03_manifest/qa_supervisor_phase_e3.v0.md`.
+
 ## 1. Proven Claim
 
 The implemented slice proves one bounded physical statement:

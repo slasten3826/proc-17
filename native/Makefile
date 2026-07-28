@@ -13,6 +13,7 @@ FIXTURE_HELPER = tests/proc17_fixture_guard
 WRONG_ABI_MODULE = tests/proc17_repository_fs_wrong_abi.so
 QA_SHARED_ABI_TEST = tests/test_proc17_qa_launcher
 QA_WIRE_TEST = tests/test_proc17_qa_wire
+QA_PHASE_TEST = tests/test_proc17_qa_phase
 QA_SUPERVISOR = proc17_qa_supervisor
 QA_LAUNCHER_MODULE = proc17_qa_launcher.so
 QA_SUPERVISOR_TEST = tests/test_proc17_qa_supervisor
@@ -31,6 +32,7 @@ QA_STATIC_LDFLAGS ?= -static-pie
 .PHONY: all test test-create test-read clean toolchain-check provider-shell loader-test-fixture \
 	fixture-helper fixture-test contract-test-syntax qa-host-contract-syntax \
 	qa-wire-contract-syntax qa-wire-test qa-shared-abi-test \
+	qa-phase-test \
 	qa-static-closure-test qa-launcher-contract-test \
 	qa-launcher-identity-test qa-launcher-exec-test qa-launcher-fd-test \
 	qa-supervisor-namespace-test qa-supervisor-mount-test \
@@ -113,11 +115,17 @@ $(QA_PREBUILD_IDENTITY): Makefile proc17_qa_policy.h qa_probe_source/probe.lua \
 	} > $@.tmp
 	mv $@.tmp $@
 
-$(QA_SUPERVISOR): proc17_qa_supervisor.c proc17_qa_wire.h proc17_qa_policy.h \
+$(QA_SUPERVISOR): proc17_qa_supervisor.c proc17_qa_phase.c \
+		proc17_qa_phase.h proc17_qa_wire.h proc17_qa_policy.h \
 		proc17_sha256.c proc17_sha256.h $(QA_PREBUILD_IDENTITY)
 	$(CC) $(CFLAGS) -fPIE $(QA_LUA_STATIC_CFLAGS) -I. \
-		-o $@ proc17_qa_supervisor.c proc17_sha256.c \
+		-o $@ proc17_qa_supervisor.c proc17_qa_phase.c proc17_sha256.c \
 		$(QA_STATIC_LDFLAGS) $(QA_LUA_STATIC_ARCHIVE) -lm -ldl
+
+$(QA_PHASE_TEST): tests/test_proc17_qa_phase.c proc17_qa_phase.c \
+		proc17_qa_phase.h proc17_qa_wire.h proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -o $@ tests/test_proc17_qa_phase.c \
+		proc17_qa_phase.c proc17_sha256.c $(LDFLAGS)
 
 $(QA_BUILD_IDENTITY): $(QA_SUPERVISOR) $(QA_PREBUILD_IDENTITY) | $(QA_GENERATED_DIR)
 	@supervisor_digest=$$(sha256sum $(QA_SUPERVISOR) | cut -d' ' -f1); \
@@ -209,6 +217,9 @@ qa-wire-contract-syntax: proc17_qa_wire.h tests/test_proc17_qa_wire.c
 qa-wire-test: $(QA_WIRE_TEST)
 	./$(QA_WIRE_TEST)
 
+qa-phase-test: $(QA_PHASE_TEST)
+	./$(QA_PHASE_TEST)
+
 qa-shared-abi-test: toolchain-check $(QA_SHARED_ABI_TEST)
 	./$(QA_SHARED_ABI_TEST)
 
@@ -223,6 +234,7 @@ test-read: test
 clean:
 	rm -f $(MODULE) $(TEST) $(TEST_CREATE) $(FIXTURE_HELPER) \
 		$(WRONG_ABI_MODULE) $(QA_SHARED_ABI_TEST) $(QA_WIRE_TEST) \
+		$(QA_PHASE_TEST) \
 		$(QA_SUPERVISOR) $(QA_LAUNCHER_MODULE) $(QA_SUPERVISOR_TEST) \
 		$(QA_WRONG_ABI_MODULE) $(QA_RUN_TEST)
 	rm -rf $(QA_GENERATED_DIR)
