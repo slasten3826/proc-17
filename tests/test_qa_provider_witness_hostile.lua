@@ -49,27 +49,28 @@ suite:check("WA03 pre-inventory mismatch starts no RUN", function()
     assert(support.with_candidate("return true\n", function(grown)
         local inventories = 0
         local runs = 0
-        local repository_provider = {
-            provider_id = grown.repository_provider.provider_id,
-            inventory_tree = function(handle, bounds)
-                inventories = inventories + 1
-                local raw, err = grown.repository_provider.inventory_tree(
-                    handle, bounds)
-                if not raw then return nil, err end
-                return corrupt_inventory(raw)
-            end,
-        }
+        local exact_inventory = grown.repository_provider.inventory_tree
+        local function hostile_inventory(handle, bounds)
+            inventories = inventories + 1
+            local raw, err = exact_inventory(handle, bounds)
+            if not raw then return nil, err end
+            return corrupt_inventory(raw)
+        end
         local qa_provider = {
             run = function(handle, request)
                 runs = runs + 1
                 return grown.qa_provider.run(handle, request)
             end,
         }
-        local hostile_services = services(
-            grown, repository_provider, qa_provider)
+        local hostile_services = services(grown, nil, qa_provider)
         local plan = assert(witness.prepare(grown.instance, hostile_services))
-        local report, err = witness.execute(
-            grown.instance, hostile_services, plan)
+        local report, err = support.with_root_bound_inventory(
+            grown,
+            hostile_inventory,
+            function()
+                return witness.execute(grown.instance, hostile_services, plan)
+            end
+        )
         H.assert_nil(report)
         H.assert_eq(err.protocol_version, "qa.provider_witness_error.v1")
         H.assert_eq(err.code, "source_preflight_mismatch")
@@ -91,30 +92,31 @@ suite:check("WA05 post-inventory drift quarantines result", function()
     assert(support.with_candidate("return true\n", function(grown)
         local inventories = 0
         local runs = 0
-        local repository_provider = {
-            provider_id = grown.repository_provider.provider_id,
-            inventory_tree = function(handle, bounds)
-                inventories = inventories + 1
-                local raw, err = grown.repository_provider.inventory_tree(
-                    handle, bounds)
-                if not raw then return nil, err end
-                if inventories == 2 then
-                    raw = corrupt_inventory(raw)
-                end
-                return raw
-            end,
-        }
+        local exact_inventory = grown.repository_provider.inventory_tree
+        local function hostile_inventory(handle, bounds)
+            inventories = inventories + 1
+            local raw, err = exact_inventory(handle, bounds)
+            if not raw then return nil, err end
+            if inventories == 2 then
+                raw = corrupt_inventory(raw)
+            end
+            return raw
+        end
         local qa_provider = {
             run = function(handle, request)
                 runs = runs + 1
                 return grown.qa_provider.run(handle, request)
             end,
         }
-        local hostile_services = services(
-            grown, repository_provider, qa_provider)
+        local hostile_services = services(grown, nil, qa_provider)
         local plan = assert(witness.prepare(grown.instance, hostile_services))
-        local report, err = witness.execute(
-            grown.instance, hostile_services, plan)
+        local report, err = support.with_root_bound_inventory(
+            grown,
+            hostile_inventory,
+            function()
+                return witness.execute(grown.instance, hostile_services, plan)
+            end
+        )
         H.assert_nil(report)
         H.assert_eq(err.protocol_version, "qa.provider_witness_error.v1")
         H.assert_eq(err.code, "source_drift")
@@ -236,27 +238,29 @@ end)
 suite:check("AB04 malformed trusted inventory is loud after finality", function()
     assert(support.with_candidate("return true\n", function(grown)
         local runs = 0
-        local repository_provider = {
-            provider_id = grown.repository_provider.provider_id,
-            inventory_tree = function(handle, bounds)
-                local raw, err = grown.repository_provider.inventory_tree(
-                    handle, bounds)
-                if not raw then return nil, err end
-                raw.unknown_trusted_field = true
-                return raw
-            end,
-        }
+        local exact_inventory = grown.repository_provider.inventory_tree
+        local function hostile_inventory(handle, bounds)
+            local raw, err = exact_inventory(handle, bounds)
+            if not raw then return nil, err end
+            raw.unknown_trusted_field = true
+            return raw
+        end
         local qa_provider = {
             run = function(handle, request)
                 runs = runs + 1
                 return grown.qa_provider.run(handle, request)
             end,
         }
-        local hostile_services = services(
-            grown, repository_provider, qa_provider)
+        local hostile_services = services(grown, nil, qa_provider)
         local plan = assert(witness.prepare(grown.instance, hostile_services))
-        local ok, err = pcall(witness.execute,
-            grown.instance, hostile_services, plan)
+        local ok, err = pcall(
+            support.with_root_bound_inventory,
+            grown,
+            hostile_inventory,
+            function()
+                return witness.execute(grown.instance, hostile_services, plan)
+            end
+        )
         H.assert_false(ok, "trusted malformed result is not normalized")
         H.assert_contains(err, "trusted contradiction after finality")
         H.assert_eq(runs, 0, "trusted preflight contradiction starts no RUN")

@@ -21,6 +21,28 @@ local function validate_identity(path, device, inode, mount_id)
     return true
 end
 
+local function validate_sentinel(identity)
+    if type(identity) ~= "table"
+        or identity.protocol_version ~= "qa.test_sentinel_identity.v0"
+        or type(identity.path) ~= "string"
+        or not identity.path:match(
+            "^/tmp/proc17%-qa%-sentinel%-[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9]$")
+        or type(identity.device) ~= "string"
+        or not identity.device:match("^%d+$")
+        or type(identity.inode) ~= "string"
+        or not identity.inode:match("^%d+$")
+        or type(identity.mount_id) ~= "string"
+        or not identity.mount_id:match("^%d+$")
+        or type(identity.size) ~= "string"
+        or not identity.size:match("^%d+$")
+        or type(identity.sha256) ~= "string"
+        or not identity.sha256:match("^[0-9a-f]+$")
+        or #identity.sha256 ~= 64 then
+        return nil, "fixture guard returned malformed sentinel identity"
+    end
+    return true
+end
+
 function owned_temp_root.ensure_helper()
     if built then
         return true
@@ -60,6 +82,62 @@ function owned_temp_root.use_prebuilt_helper()
         return nil, err
     end
     prebuilt = true
+    return true
+end
+
+function owned_temp_root.create_sentinel()
+    local ready, ready_err = require_helper()
+    if not ready then return nil, ready_err end
+    local stream, stream_err = io.popen(helper_path .. " sentinel-create", "r")
+    if not stream then return nil, stream_err end
+    local output = stream:read("*a")
+    local closed, why, code = stream:close()
+    if closed ~= true or (code ~= nil and code ~= 0) then
+        return nil, "fixture helper sentinel create failed: "
+            .. tostring(why) .. ":" .. tostring(code)
+    end
+    local path, device, inode, mount_id, size, sha256 = output:match(
+        "^([^\t\n]+)\t(%d+)\t(%d+)\t(%d+)\t(%d+)\t([0-9a-f]+)\n?$"
+    )
+    local identity = {
+        protocol_version = "qa.test_sentinel_identity.v0",
+        path = path,
+        device = device,
+        inode = inode,
+        mount_id = mount_id,
+        size = size,
+        sha256 = sha256,
+    }
+    local valid, valid_err = validate_sentinel(identity)
+    if not valid then return nil, valid_err end
+    return identity
+end
+
+function owned_temp_root.probe_sentinel(identity)
+    local valid, valid_err = validate_sentinel(identity)
+    if not valid then return nil, valid_err end
+    local ok, why, code = command_ok(table.concat({
+        helper_path, "sentinel-probe", identity.path, identity.device,
+        identity.inode, identity.mount_id, identity.size, identity.sha256,
+    }, " "))
+    if not ok then
+        return nil, "fixture helper sentinel probe failed: "
+            .. tostring(why) .. ":" .. tostring(code)
+    end
+    return true
+end
+
+function owned_temp_root.cleanup_sentinel(identity)
+    local valid, valid_err = validate_sentinel(identity)
+    if not valid then return nil, valid_err end
+    local ok, why, code = command_ok(table.concat({
+        helper_path, "sentinel-cleanup", identity.path, identity.device,
+        identity.inode, identity.mount_id,
+    }, " "))
+    if not ok then
+        return nil, "fixture helper sentinel cleanup failed: "
+            .. tostring(why) .. ":" .. tostring(code)
+    end
     return true
 end
 

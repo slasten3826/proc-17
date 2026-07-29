@@ -64,6 +64,36 @@ local environment_lease = assert(qa_environment.resolve(
     environment.profile_id
 ))
 assert(environment_lease.environment_id == environment.environment_id)
+local validated_environment = assert(qa_environment.validate_lease(
+    environment_registry, environment_lease))
+assert(qa_schema.same(validated_environment, environment))
+local callback_projection = assert(qa_environment.with_environment(
+    environment_registry,
+    environment_lease,
+    function(exact_adapter, measured)
+        assert(exact_adapter == adapter)
+        return {
+            environment_id = measured.environment_id,
+            provider_id = exact_adapter.provider_id,
+        }
+    end
+))
+assert(callback_projection.environment_id == environment.environment_id)
+assert(callback_projection.provider_id == environment.provider_id)
+callback_projection.environment_id = "mutated"
+assert(qa_environment.validate_lease(
+    environment_registry, environment_lease).environment_id
+    == environment.environment_id)
+local leaked_environment, leaked_environment_err =
+    qa_environment.with_environment(
+        environment_registry,
+        environment_lease,
+        function(exact_adapter)
+            return {borrowed = exact_adapter}
+        end
+    )
+assert(leaked_environment == nil)
+assert(tostring(leaked_environment_err):find("private authority", 1, true))
 assert(qa_environment.resolve(
     environment,
     environment.environment_id,

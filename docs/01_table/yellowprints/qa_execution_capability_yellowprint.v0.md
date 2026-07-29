@@ -16,6 +16,32 @@ amendment cross-audit: satisfied 2026-07-26
 amendment gate record: docs/00_chaos/qa_first_candidate_table_cross_audit_2026-07-26.md
 ```
 
+## 2026-07-29 Post-QN20 Treatment Boundary
+
+This document remains architecture and threat-model archaeology, but its
+unimplemented body-transaction details are partially superseded by:
+
+```text
+qa_body_execution_after_qn20_yellowprint.v0.md
+qa_body_transaction_reconciliation_yellowprint.v0.md
+```
+
+Keep the command-free request, private-authority ceiling, isolation laws,
+source immutability, split-brain rule and named trust boundaries. Do not
+implement sections 5, 7, 13, 14 or 16 directly where they still claim:
+
+```text
+atomic grant mint plus source reservation across two registries
+qa.provider_candidate_report.v0 / qa.provider_error.v0
+qa.execution_receipt.v0 as the final body transaction vocabulary
+one body-specific implementation of physics now promoted by QN16-QN20
+```
+
+The post-QN20 treatment selects sticky grant begin before source reservation,
+one shared private physical engine, request-causal body source identity and
+full RUN v1 cause/finality. Runtime implementation remains unauthorized until
+that treatment is crystallized.
+
 Primary chaos source:
 
 [`../../00_chaos/second_qa_hand_threat_model_2026-07-23.md`](../../00_chaos/second_qa_hand_threat_model_2026-07-23.md)

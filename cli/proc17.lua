@@ -236,7 +236,8 @@ local function prompt_contract(mode, task)
         lines[#lines + 1] = "Set items to exactly one object with exactly key, kind, value, source_keys."
         lines[#lines + 1] = "Set kind to repository.create_text_file.v0 and source_keys to an empty array."
         lines[#lines + 1] = "Set value to an object with exactly path and content."
-        lines[#lines + 1] = "Choose one new relative file path and provide its complete UTF-8 content."
+        lines[#lines + 1] = "Set path to one new root-level file name without a slash; this v0 body cannot create parent directories."
+        lines[#lines + 1] = "Provide the file's complete UTF-8 content."
     end
     return table.concat(lines, "\n")
 end

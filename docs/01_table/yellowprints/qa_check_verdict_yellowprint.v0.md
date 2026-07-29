@@ -13,6 +13,26 @@ crystallization authorized: yes; QA TABLE cross-audit 2026-07-23
 gate record: docs/00_chaos/qa_table_cross_audit_2026-07-23.md
 ```
 
+## 2026-07-29 Post-QN20 Treatment Boundary
+
+This document remains the original body-evidence policy, but its unimplemented
+record schemas and handoff details are partially superseded by:
+
+```text
+qa_body_evidence_verdict_v1_yellowprint.v0.md
+qa_body_transaction_reconciliation_yellowprint.v0.md
+```
+
+Keep the dedicated-writer, deterministic-verdict, subject-ceiling,
+split-brain, completion/economics and terminal-retention laws. Do not implement
+sections 3-7 from the old payload shapes: `cleanup="complete"`, the v0 provider
+error projection and caller-shaped report handoff are archaeology. The
+post-QN20 treatment preserves exact RUN v1 cause/finality and admits body
+evidence only through a strict private receipt/result join.
+
+Runtime implementation remains unauthorized until the post-QN20 treatment is
+crystallized.
+
 Primary chaos source:
 
 [`../../00_chaos/second_qa_hand_threat_model_2026-07-23.md`](../../00_chaos/second_qa_hand_threat_model_2026-07-23.md)

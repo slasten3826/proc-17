@@ -1,5 +1,18 @@
 # QA Execution Capability Blueprint v0
 
+PARTIALLY SUPERSEDED 2026-07-29 by:
+
+```text
+docs/02_crystall/blueprints/qa_body_execution_after_qn20.v0.md
+docs/02_crystall/blueprints/qa_body_transaction_reconciliation.v0.md
+```
+
+QN16-QN20 promoted the physical candidate transaction after this blueprint was
+written. Do not implement sections 3-18 as an independent body-specific
+physical engine. Keep this document as architecture history and use the
+post-QN20 crystall for grant ordering, paired private providers, RUN v1
+finality, signed not-acquired evidence, receipt and implementation slices.
+
 Status:
 
 ```text

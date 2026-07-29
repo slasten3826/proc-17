@@ -6,6 +6,10 @@ local candidate_seal = require("runtime.candidate_seal")
 local repository_action = require("runtime.repository_action")
 local repository_intent = require("runtime.repository_intent")
 local work_completion = require("runtime.work_completion")
+local qa_capability = require("runtime.qa_capability")
+local qa_environment = require("runtime.qa_environment")
+local qa_schema = require("core.qa_schema")
+local json = require("core.json")
 
 local qa_fixture = {}
 local counter = 0
@@ -110,6 +114,9 @@ end
 
 function qa_fixture.native_adapter(options)
     options = options or {}
+    local measured_environment = copy(
+        options.environment or qa_fixture.environment_input("probe")
+    )
     local state = {
         probes = 0,
         runs = 0,
@@ -121,9 +128,9 @@ function qa_fixture.native_adapter(options)
         abi_version = "proc17.qa.launcher.lua54.v0",
         provider_id = "linux.qa_supervisor.lua54.v0",
         supervisor_abi = "proc17.qa_supervisor.v0",
-        expected_supervisor_build_id = sha("supervisor"),
-        runtime_build_id = sha("runtime"),
-        policy_digest = sha("policy"),
+        expected_supervisor_build_id = measured_environment.supervisor_build_id,
+        runtime_build_id = measured_environment.runtime_build_id,
+        policy_digest = measured_environment.isolation_policy_digest,
         limits = qa_fixture.hard_limits(),
     }
 
@@ -132,19 +139,192 @@ function qa_fixture.native_adapter(options)
         if options.probe_error then
             return nil, copy(options.probe_error)
         end
-        return copy(options.environment or qa_fixture.environment_input("probe"))
+        return copy(measured_environment)
     end
 
-    function adapter.run_lua54_test_suite(_, request)
+    local function stream(limit)
+        return {
+            protocol_version = "qa.stream_measurement.v1",
+            observed_bytes = 0,
+            hashed_bytes = 0,
+            sha256 = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            limit_bytes = limit,
+            limit_reached = false,
+            eof_observed = true,
+            raw_retained = false,
+        }
+    end
+
+    local function default_report(request)
+        local limits = qa_fixture.hard_limits()
+        local reason = options.reason or "expected_exit"
+        local exit_code = reason == "expected_exit" and 0
+            or (options.exit_code or 70)
+        local termination_kind = options.termination_kind or "exit"
+        local termination = {kind = termination_kind}
+        if termination_kind == "exit" then
+            termination.exit_code = exit_code
+        elseif termination_kind == "signal" then
+            termination.signal = options.signal or 9
+        end
+        return {
+            protocol_version = "qa.provider_process_observation.v1",
+            operation = "run_lua54_test_suite",
+            transaction_id = request.transaction_id,
+            witness_id = request.witness_id,
+            profile_id = request.profile_id,
+            environment_id = request.environment_id,
+            outcome = reason,
+            candidate_started = true,
+            source_staging_policy = "qa.source_staging.detached_mount.v0",
+            source_staging_complete = true,
+            termination = termination,
+            cause = {
+                protocol_version = "qa.first_cause.v1",
+                kind = reason,
+                monotonic_sequence = 1,
+                observed_value = termination.exit_code
+                    or termination.signal or 0,
+            },
+            finality = {
+                source_staging_complete = true,
+                candidate_started = true,
+                candidate_terminal_observed = true,
+                process_tree_reaped = true,
+                stdout_eof_observed = true,
+                stderr_eof_observed = true,
+                scratch_observation_complete = true,
+                namespace_cleanup_complete = true,
+            },
+            stdout = stream(limits.stdout_bytes),
+            stderr = stream(limits.stderr_bytes),
+            resources = {
+                protocol_version = "qa.resource_measurement.v1",
+                wall_time_ms = options.wall_time_ms or 2,
+                cpu_user_ms = 1,
+                cpu_system_ms = 1,
+                max_rss_bytes = 4096,
+                address_space_limit_bytes = limits.address_space_bytes,
+                runtime_heap_peak_bytes = 1024,
+                runtime_heap_limit_bytes = qa_schema.runtime_heap_limit_bytes,
+                runtime_heap_denied = false,
+                max_processes = limits.max_processes,
+                max_open_files = limits.max_open_files,
+                max_file_bytes = limits.max_file_bytes,
+            },
+            scratch = {
+                protocol_version = "qa.scratch_measurement.v1",
+                stored_regular_bytes = 0,
+                stored_entries = 0,
+                limit_bytes = limits.scratch_bytes,
+                limit_entries = limits.scratch_entries,
+                byte_capacity_exhausted = false,
+                entry_capacity_exhausted = false,
+                inventory_complete = true,
+            },
+            cleanup_complete = true,
+            cost = {
+                protocol_version = "qa.cost.v1",
+                tool_calls = 1,
+                qa_executions = 1,
+                wall_time_ms = options.wall_time_ms or 2,
+                cpu_time_ms = 2,
+                scratch_written_bytes = 0,
+                stdout_observed_bytes = 0,
+                stderr_observed_bytes = 0,
+            },
+            event_truth_status = "runtime_confirmed",
+        }
+    end
+
+    function adapter.run(_, request)
         state.runs = state.runs + 1
         state.last_request = copy(request)
+        if options.run_error then
+            error(options.run_error, 0)
+        end
+        if options.error_code then
+            return nil, {
+                protocol_version = "qa.provider_process_error.v1",
+                operation = "run_lua54_test_suite",
+                transaction_id = request.transaction_id,
+                witness_id = request.witness_id,
+                profile_id = request.profile_id,
+                environment_id = request.environment_id,
+                class = options.error_class or "unavailable",
+                code = options.error_code,
+                stage = options.error_stage or "preflight",
+                candidate_start_state = options.candidate_start_state
+                    or "not_started",
+                cleanup_state = options.cleanup_state or "complete",
+                launcher_reaped = options.launcher_reaped or "complete",
+                result_eof = options.result_eof or "complete",
+                measured_cost = copy(options.measured_cost),
+                event_truth_status = "runtime_confirmed",
+            }
+        end
         if state.error then
             return nil, copy(state.error)
         end
-        return copy(state.report)
+        return copy(state.report or default_report(request))
     end
 
+    adapter.run_lua54_test_suite = adapter.run
+
     return adapter, state
+end
+
+function qa_fixture.grow_body(options)
+    options = options or {}
+    counter = counter + 1
+    local label = options.label or ("qa-body-" .. tostring(counter))
+    local session_id = options.session_id or ("session-" .. label)
+    local lineage_id = options.lineage_id or ("lineage-" .. label)
+    local stage_id = options.stage_id or ("stage:" .. lineage_id .. ":1:build")
+    local environment_input = copy(
+        options.environment or qa_fixture.environment_input(label)
+    )
+    local adapter_options = copy(options.adapter_options or {})
+    adapter_options.environment = environment_input
+    local adapter, adapter_state = qa_fixture.native_adapter(adapter_options)
+    local environment_registry = assert(qa_environment.new(session_id, adapter))
+    local environment = assert(qa_environment.probe(environment_registry))
+    local contract = assert(qa_schema.normalize_contract(
+        qa_fixture.contract_input(environment, {
+            lineage_id = lineage_id,
+            stage_id = stage_id,
+            process_contract_id = options.process_contract_id,
+            entrypoint = options.entrypoint,
+        })
+    ))
+    local grown = qa_fixture.grow_sealed({
+        label = label,
+        session_id = session_id,
+        lineage_id = lineage_id,
+        repository_id = options.repository_id,
+        process_contract_id = contract.process_contract_id,
+        stage_id = stage_id,
+        qa_contract = contract,
+        items = options.items,
+        provider_options = options.provider_options,
+    })
+    local qa_registry = assert(qa_capability.new(
+        session_id,
+        environment_registry,
+        grown.repository_registry
+    ))
+    grown.qa_adapter = adapter
+    grown.qa_adapter_state = adapter_state
+    grown.qa_environment_registry = environment_registry
+    grown.qa_environment = environment
+    grown.qa_contract = contract
+    grown.qa_registry = qa_registry
+    grown.body_services = {
+        qa_enabled = options.qa_enabled ~= false,
+        qa_capabilities = qa_registry,
+        qa_environment = copy(environment),
+    }
+    return grown
 end
 
 function qa_fixture.grow_sealed(options)
@@ -244,10 +424,146 @@ end
 function qa_fixture.snapshot(instance)
     return {
         trace_count = #(instance.trace or {}),
-        budget = copy(instance.tension and instance.tension.budget),
+        budget = copy(instance.physis and instance.physis.budget),
         loss_remaining = instance.tension and instance.tension.loss_remaining,
         revisions = copy(instance.revisions),
     }
+end
+
+function qa_fixture.run_alignment_split_case()
+    local execution = require("runtime.qa_execution")
+    local grown = qa_fixture.grow_body({label = "qa-alignment-split"})
+    local original_commit = qa_capability.commit
+    local mutated = false
+    qa_capability.commit = function(...)
+        local receipt, receipt_err = original_commit(...)
+        if receipt and not mutated then
+            local artifact = assert(grown.seal.artifacts[1])
+            local unit = assert(
+                grown.instance.field.units[artifact.work_unit_id]
+            )
+            unit.version = unit.version + 1
+            mutated = true
+        end
+        return receipt, receipt_err
+    end
+    local ok, value = pcall(
+        execution.execute,
+        grown.instance,
+        grown.body_services
+    )
+    qa_capability.commit = original_commit
+    return {
+        loud = not ok,
+        detail = value,
+        check_count = #qa_fixture.events(grown.instance, "qa_check"),
+        failure_count = #qa_fixture.events(
+            grown.instance,
+            "qa_execution_failure"
+        ),
+        qa_runs = grown.qa_adapter_state.runs,
+        alignment_mutated = mutated,
+    }
+end
+
+function qa_fixture.run_timeout_cleanup_pair()
+    local execution = require("runtime.qa_execution")
+    local timeout = qa_fixture.grow_body({
+        label = "qa-contained-timeout",
+        adapter_options = {
+            reason = "wall_timeout",
+            termination_kind = "supervisor_kill",
+        },
+    })
+    assert(execution.execute(timeout.instance, timeout.body_services))
+    local cleanup = qa_fixture.grow_body({
+        label = "qa-cleanup-ambiguity",
+        adapter_options = {
+            error_code = "namespace_cleanup_incomplete",
+            error_class = "ambiguous",
+            error_stage = "cleanup",
+            candidate_start_state = "started",
+            cleanup_state = "incomplete",
+            launcher_reaped = "complete",
+            result_eof = "complete",
+        },
+    })
+    local cleanup_outcome, cleanup_effect = execution.execute(
+        cleanup.instance,
+        cleanup.body_services
+    )
+    return {
+        timeout = {
+            check_outcome = qa_fixture.events(
+                timeout.instance,
+                "qa_check"
+            )[1].payload.outcome,
+            execution_failure = qa_fixture.events(
+                timeout.instance,
+                "qa_execution_failure"
+            )[1],
+        },
+        cleanup = {
+            outcome = cleanup_outcome,
+            effect = cleanup_effect,
+            check = qa_fixture.events(cleanup.instance, "qa_check")[1],
+            execution_failure = qa_fixture.events(
+                cleanup.instance,
+                "qa_execution_failure"
+            )[1].payload,
+        },
+    }
+end
+
+function qa_fixture.run_qa_execution_tick(options)
+    options = options or {}
+    local tension_runner = require("runtime.tension_runner")
+    local grown = qa_fixture.grow_body(options)
+    qa_fixture.move_to(grown.instance, "☱")
+    qa_fixture.move_to(grown.instance, "☶")
+    local spent_before = copy(grown.instance.runtime.budget.spent or {})
+    local loss_before = grown.instance.tension.loss_remaining
+    local instance, result = assert(tension_runner.execute_qa_tick(
+        grown.instance,
+        grown.body_services
+    ))
+    local spent_after = instance.runtime.budget.spent or {}
+    return {
+        instance = instance,
+        result = result,
+        grown = grown,
+        qa_runs = grown.qa_adapter_state.runs,
+        step_delta = (spent_after.steps or 0) - (spent_before.steps or 0),
+        test_run_delta = (spent_after.test_runs or 0)
+            - (spent_before.test_runs or 0),
+        tool_call_delta = (spent_after.tool_calls or 0)
+            - (spent_before.tool_calls or 0),
+        loss_delta = grown.instance.tension.loss_remaining - loss_before,
+    }
+end
+
+function qa_fixture.run_repeated_body_campaign()
+    local stream, stream_err = io.popen(
+        "lua tests/run_qa_body_repeated_residue_campaign.lua 2>&1",
+        "r"
+    )
+    if not stream then return nil, stream_err end
+    local output = stream:read("*a")
+    local closed, why, code = stream:close()
+    if closed ~= true or (code ~= nil and code ~= 0) then
+        return nil, "body residue campaign failed: " .. tostring(why)
+            .. ":" .. tostring(code) .. "\n" .. output
+    end
+    local encoded = output:match("PROC17_QA_BODY_RESIDUE_V0 ([^\n]+)")
+    if not encoded then
+        return nil, "body residue campaign emitted no result\n" .. output
+    end
+    return json.decode(encoded)
+end
+
+function qa_fixture.move_to(instance, operator)
+    fixture.move_to(instance, operator)
+    return instance
 end
 
 qa_fixture.copy = copy

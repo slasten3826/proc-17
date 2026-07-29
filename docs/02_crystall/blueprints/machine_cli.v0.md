@@ -77,6 +77,10 @@ No session/grave write occurs for CLI parse errors or loud runner failures.
 Build additionally receives exact `repository_hands` and
 `host_services.repository_capabilities`.
 
+The build receiver prompt requires a root-level basename without `/`. This is a
+capability declaration, not a filename preference: CLI v0 grants no `mkdir` and
+cannot establish nested-parent existence before Packet birth.
+
 ## 4. Cleanup Law
 
 After successful mint, every branch calls `repository_capability.revoke`.

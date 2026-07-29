@@ -9,6 +9,7 @@
 #define PROC17_QA_RESIDUE_ID_BYTES 96U
 #define PROC17_QA_RESIDUE_PATH_BYTES 96U
 #define PROC17_QA_RESIDUE_ERROR_BYTES 64U
+#define PROC17_QA_RESIDUE_COMM_BYTES 128U
 #define PROC17_QA_RESIDUE_SUPERVISOR_COMM "proc17_qa_super"
 #define PROC17_QA_RESIDUE_PROTOCOL "qa.residue_observer.c.v0"
 #define PROC17_QA_RESIDUE_GET_API_SYMBOL \
@@ -84,7 +85,7 @@ struct proc17_qa_residue_process_record {
     int64_t ppid;
     uint64_t starttime;
     char state;
-    char comm[32];
+    char comm[PROC17_QA_RESIDUE_COMM_BYTES];
 };
 
 struct proc17_qa_residue_api {

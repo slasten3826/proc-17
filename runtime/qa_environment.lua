@@ -194,6 +194,150 @@ function qa_environment.resolve(registry, environment_id, profile_id)
     return lease
 end
 
+local function lease_state(registry, lease)
+    local state, state_err = registry_state(registry)
+    if not state then
+        return nil, diagnostic("private_registry_required", state_err)
+    end
+    local retained = leases[lease]
+    if not retained or retained.registry ~= registry then
+        return nil, diagnostic("environment_lease_invalid",
+            "exact private QA environment lease required")
+    end
+    local record = retained.record
+    local projection = record and record.public_projection
+    local adapter = record and record.native_adapter
+    if state.record ~= record or record.revision ~= retained.revision
+        or record.state ~= "available"
+        or type(projection) ~= "table"
+        or projection.environment_id ~= lease.environment_id
+        or projection.profile_id ~= lease.profile_id
+        or projection.profile_id ~= qa_schema.profile_id
+        or projection.provider_id ~= qa_schema.provider_id
+        or projection.supervisor_abi ~= qa_schema.supervisor_abi
+        or adapter ~= state.native_adapter
+        or type(adapter) ~= "table"
+        or adapter.provider_id ~= projection.provider_id
+        or adapter.supervisor_abi ~= projection.supervisor_abi
+        or type(adapter.run) ~= "function" then
+        return nil, diagnostic("environment_lease_stale",
+            "measured QA environment lease no longer names one exact provider")
+    end
+    if adapter.expected_supervisor_build_id ~= nil
+        and adapter.expected_supervisor_build_id
+            ~= projection.supervisor_build_id then
+        return nil, diagnostic("environment_lease_stale",
+            "QA supervisor identity changed after measurement")
+    end
+    if adapter.runtime_build_id ~= nil
+        and adapter.runtime_build_id ~= projection.runtime_build_id then
+        return nil, diagnostic("environment_lease_stale",
+            "QA runtime identity changed after measurement")
+    end
+    if adapter.policy_digest ~= nil
+        and adapter.policy_digest ~= projection.isolation_policy_digest then
+        return nil, diagnostic("environment_lease_stale",
+            "QA isolation policy changed after measurement")
+    end
+    return retained, state
+end
+
+function qa_environment.validate_lease(registry, lease)
+    local retained, retained_err = lease_state(registry, lease)
+    if not retained then
+        return nil, retained_err
+    end
+    return copy_value(retained.record.public_projection)
+end
+
+local forbidden_environment_keys = {
+    adapter = true,
+    provider = true,
+    native_adapter = true,
+    run = true,
+    probe = true,
+    probe_environment = true,
+    fd = true,
+    descriptor = true,
+    handle = true,
+    host_path = true,
+    userdata = true,
+}
+
+local function detach_environment_result(value, forbidden_adapter, seen)
+    local kind = type(value)
+    if kind == "nil" or kind == "boolean" or kind == "number"
+        or kind == "string" then
+        return value
+    end
+    if kind ~= "table" or value == forbidden_adapter
+        or getmetatable(value) ~= nil then
+        return nil, "QA environment consumer returned private authority"
+    end
+    seen = seen or {}
+    if seen[value] then
+        return nil, "QA environment consumer returned cyclic data"
+    end
+    seen[value] = true
+    local result = {}
+    for key, child in pairs(value) do
+        if type(key) ~= "string" and type(key) ~= "number" then
+            return nil, "QA environment consumer returned invalid key"
+        end
+        if type(key) == "string" and forbidden_environment_keys[key] then
+            return nil, "QA environment consumer returned forbidden field: "
+                .. key
+        end
+        local detached, detached_err = detach_environment_result(
+            child,
+            forbidden_adapter,
+            seen
+        )
+        if detached_err then
+            return nil, detached_err
+        end
+        result[key] = detached
+    end
+    seen[value] = nil
+    return result
+end
+
+function qa_environment.with_environment(registry, lease, consumer)
+    local retained, retained_err = lease_state(registry, lease)
+    if not retained then
+        return nil, retained_err
+    end
+    if type(consumer) ~= "function" then
+        return nil, "QA environment consumer must be function"
+    end
+    local adapter = retained.record.native_adapter
+    local returned = table.pack(pcall(
+        consumer,
+        adapter,
+        copy_value(retained.record.public_projection)
+    ))
+    if returned[1] ~= true then
+        return nil, "QA environment consumer failed: " .. tostring(returned[2])
+    end
+    if returned.n > 3 then
+        return nil, "QA environment consumer returned too many values"
+    end
+    if returned[2] == nil then
+        local detached_failure, failure_err = detach_environment_result(
+            returned[3], adapter)
+        if failure_err then
+            return nil, failure_err
+        end
+        return nil, detached_failure or "QA environment consumer failed"
+    end
+    local detached, detached_err = detach_environment_result(
+        returned[2], adapter)
+    if detached_err then
+        return nil, detached_err
+    end
+    return detached
+end
+
 function qa_environment.quarantine(registry, environment_id, reason)
     local state, state_err = registry_state(registry)
     if not state then

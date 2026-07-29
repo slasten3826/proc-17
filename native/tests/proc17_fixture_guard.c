@@ -273,6 +273,7 @@ static int create_directory_tree(int root_fd)
 {
     int projects_fd;
     int repository_fd;
+    int candidate_fd;
     int result = 0;
 
     if (mkdirat(root_fd, "projects", 0700) != 0) {
@@ -294,6 +295,24 @@ static int create_directory_tree(int root_fd)
         }
         close(projects_fd);
         return -1;
+    }
+    if (mkdirat(projects_fd, "candidate", 0700) != 0) {
+        close(repository_fd);
+        close(projects_fd);
+        return -1;
+    }
+    candidate_fd = openat(projects_fd, "candidate",
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (candidate_fd < 0 || mkdirat(candidate_fd, "tests", 0700) != 0) {
+        if (candidate_fd >= 0) {
+            close(candidate_fd);
+        }
+        close(repository_fd);
+        close(projects_fd);
+        return -1;
+    }
+    if (close(candidate_fd) != 0) {
+        result = -1;
     }
     if (close(repository_fd) != 0) {
         result = -1;

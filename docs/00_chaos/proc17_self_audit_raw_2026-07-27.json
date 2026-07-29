@@ -1,0 +1,143 @@
+{
+  "protocol_version": "proc17.self_audit.v0",
+  "receiver_contract_id": "audit.manifest.v0",
+  "shape": "artifact_set",
+  "items": [
+    {
+      "key": "body_definition",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "proc-17 is the first executable body of procesis. It is not a chatbot. The LLM is a replaceable semantic current inside OBSERVE; the body owns packet state, routing, runtime truth, cost, death, inheritance, and manifestation.",
+        "evidence": [
+          "README.md: 'proc-17 is the first executable body of procesis. It is not a chatbot and the LLM is not its controller.'",
+          "current_state.md: 'proc-17 already controls packet movement, operator position, cost, truth status, terminal death, and inheritance.'",
+          "proc17_assembly_map.md: 'substrate current vs body split; the LLM is demoted to semantic_proposal emitter by system prompt'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "body_architecture",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "The body is a ProcessLang body owning runtime truth, trace, permissions, and final manifestation. It operates through ten operators (FLOW, CONNECT, OBSERVE, ENCODE, CHOOSE, CYCLE, LOGIC, RUNTIME, DISSOLVE, MANIFEST) connected by 22 canonical edges. A replaceable substrate supplies semantic current; the body owns all other state.",
+        "evidence": [
+          "operator_tree_physics.v0.md: 'operator count = 10, unique undirected edges = 22'",
+          "current_state.md: 'runtime/operator_registry.lua contains exactly ten descriptors in canonical ProcessLang order.'",
+          "core/topology.lua (inventory): canonical adjacency"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "honest_capability",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "proc-17 can run one bounded plan or build task through the Packet body. A plan Packet can manifest one structured plan result. A build Packet can create one previously absent UTF-8 text file inside one explicitly granted repository root, independently read it back, account for the effect and manifest one exact repository result. The run exposes its trace, budget, terminal state and identities as structured machine data.",
+        "evidence": [
+          "proc17_v0_release_closure_notes_2026-07-27.md: 'proc-17 can run one bounded plan or build task through the Packet body; ... a build Packet can create one previously absent UTF-8 text file inside one explicitly granted repository root'",
+          "machine_cli.v0.md: 'Each invocation runs one mortal Packet under the fixed qualified tree policy.'",
+          "repository_delivery.v0.md: 'Proc-17 now owns one complete repository work life: ▽ -> ☴ -> ☵ -> ☱ -> ☶ -> ☱ -> △ -> dead/complete'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "strongest_mechanisms",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "The strongest mechanisms are: (1) Body Integrity Gate enforcing owned records, current-visit authority, honest economics, and causal truth rent. (2) The revision-based two-eye freshness system with immutable per-tick camera frames and explicit reconciliation. (3) The qualified pressure system with route-to-effect authority, action plans, and scope verification. (4) The capability-safe repository hand with private registry, detached grant projections, and one-use leases. (5) The lineage runner with immutable corpses, deterministic recovery carriers, and separated completion/continuation.",
+        "evidence": [
+          "body_integrity_gate.v0.md: 'The existing body now owns the mutable records that it claims as runtime_confirmed.'",
+          "current_state.md: 'The runner captures one immutable runtime_frame after each completed tick's cost and loss physics without adding another tick or charge.'",
+          "pressure_need_and_action_composition_treatment.v0.md: 'A qualified pressure witness is no longer only a positive number on an edge. It is one current body fact joined to one bounded executable action.'",
+          "repository_capability_boundary.v0.md: 'The body now has the complete authority boundary immediately before its first repository hand'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "contradictions",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "Contradictions and tensions: (1) The default router mode is 'shadow' where tree observes but does not move the Packet, yet the README and current_state describe tree mode as having executed a confirmed build life. The default authority is not tree, but the body claims tree works. (2) The release closure notes say 'no retry is required for v0' for self-hosting, but the self-hosting experiment produced a malformed patch that git apply rejected. The body claims artifact delivery, not failed self-hosting. (3) The qualified pressure treatment is accepted inside qualified_need_v0, but default router authority promotion remains blocked. The body has two pressure languages that may disagree. (4) The edge evidence matrix shows only 6/22 edges complete in every legal direction, yet the body claims a complete build life through tree authority.",
+        "evidence": [
+          "current_state.md: 'Default remains shadow during development only after field and missing organs exist' vs 'Explicit router_mode=tree now grants live authority'",
+          "proc17_v0_release_closure_notes_2026-07-27.md: 'the patch aliased QN17 to the old basic target ... git apply --check rejected the malformed patch' and 'The external rejection is not Packet truth.'",
+          "qualified_encode_choose_treatment.v0.md: 'default router authority change: BLOCKED / NOT REQUESTED'",
+          "full_tree_edge_evidence.v0.md: 'complete directional coverage: 6 edges'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "missing_readers",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "Missing readers: (1) Bequests enter unresolved pressure, but ENCODE does not consume them. (2) Compost patterns are stored but do not yet affect router or foundation. (3) The grave generation experiment has a control line but no general named readers beyond direct newborn grave attachment. (4) Several modules are standalone or partially integrated: runtime/pressure_snapshot.lua, runtime/trace_store.lua, runtime/packet_memory.lua, tools/fs.lua, logic/repo_selection.lua, logic/trace_validator.lua.",
+        "evidence": [
+          "current_state.md: 'Memory has writers without readers. Bequests enter unresolved pressure, but ENCODE does not consume it. Compost patterns are stored but do not yet affect router or foundation.'",
+          "proc17_assembly_map.md: 'bequest reader pressure seeded, nobody routes on it; compost pattern reader patterns written, nobody consumes them'",
+          "current_state.md: 'Several modules are currently standalone or partially integrated'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "false_claims",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "Potentially false or misleading claims: (1) The README says '107 Lua test suites plus mortality, expected-red QA, and live-substrate smoke programs.' The current_state.md says 'lua tests/run.lua 107 suites passed.' But the release closure notes say 'ordinary Lua suite is green' without specifying count. The inventory shows ~90 production modules; 107 test suites may include duplicates or legacy tests. (2) The README claims 'full-tree route authority with legacy retained only as read-only instrumentation' but the edge evidence shows only 6/22 edges executed. 'Full-tree' is misleading when 15 edges have no executed direction. (3) The current_state.md claims 'The first repository hand chapter is complete' but the hand can only create one absent UTF-8 text file. It cannot patch, overwrite, delete, rename, mkdir, search/read arbitrary files, run tests or git, or coordinate a multi-file transaction.",
+        "evidence": [
+          "README.md: '107 Lua test suites plus mortality, expected-red QA, and live-substrate smoke programs.'",
+          "current_state.md: 'lua tests/run.lua 107 suites passed'",
+          "full_tree_edge_evidence.v0.md: 'complete directional coverage: 6 edges; no executed direction: 15 edges'",
+          "current_state.md: 'Repository work width is one artifact and one operation.'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "unsafe_authority_boundaries",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "Unsafe authority boundaries: (1) The command sandbox must become capability-based before arbitrary hands are connected. (2) The CLI can widen authority if hostile arguments are not properly filtered. (3) The default legacy router cannot select CONNECT or DISSOLVE, but tree mode can. If tree mode becomes default before all 22 edges are tested, the body could make unsafe routing decisions. (4) The qualified pressure system has uncalibrated coefficients (all 1) and is marked vibed_control. If promoted to default without calibration, it could make incorrect routing decisions.",
+        "evidence": [
+          "README.md: 'The command sandbox must become capability-based before arbitrary hands are connected.'",
+          "proc17_v0_release_closure_notes_2026-07-27.md: 'CLI can widen authority: hostile argument and capability non-leak tests'",
+          "current_state.md: 'The default legacy router cannot select CONNECT or DISSOLVE.'",
+          "operator_tree_physics.v0.md: 'This policy is deliberately uncalibrated and marked vibed_control.'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "smallest_remaining_work",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "The smallest remaining work to make v0 genuinely usable: (1) Close the 9 release blockers (R0-R9) from the release closure notes. (2) Build one CLI TABLE round for R1-R3 and R6-R7. (3) Crystallize the CLI adapter and release battery. (4) Implement the Lua machine CLI without new body authority. (5) Grow fake plan and real create-only build lives through CLI. (6) Test session default/load isolation and structured exits. (7) Update README and current_state to the measured baseline. (8) Run the clean-checkout release battery. (9) Fix only reproduced R0-R9 blockers. (10) Commit, push and tag v0.1.0.",
+        "evidence": [
+          "proc17_v0_release_closure_notes_2026-07-27.md: 'Ordered Closure Plan: C0 write this release closure decision complete; C1 build one CLI TABLE round for R1-R3 and R6-R7 next; C2 crystallize the CLI adapter and release battery; ... C9 commit, push and tag v0.1.0'",
+          "proc17_v0_release_closure_notes_2026-07-27.md: 'Release Blockers: R0-R9'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    },
+    {
+      "key": "implemented_vs_document",
+      "kind": "audit.claim.v0",
+      "value": {
+        "claim": "Distinction between implemented/runtime-confirmed claims and document decisions/deferred designs/mythic interpretation: (1) The packet_body_physics.v0.md blueprint is a crystall document, not runtime code. Its Phase A-E implementation order is a plan, not a claim. (2) The operator_tree_physics.v0.md blueprint is also crystall. Its 22-edge witness set is a design target, not runtime evidence. (3) The proc17_assembly_map.md is explicitly 'the crystall of what flows from which timeline into proc-17' and contains mythic interpretation ('the religion', 'the kabbalah fork', 'the Doom phantom'). These are not runtime facts. (4) The vertical_packet_life.v0.md manifest is runtime-confirmed for opt-in lives A-F, but its 'fixture-selected routes carry authority=harness_override and are ineligible for router promotion.' (5) The lineage_in_memory_slice.v0.md manifest is runtime-confirmed for linear in-memory ancestry, but 'persistent lineage or crash recovery' and 'automatic resume' are explicitly deferred.",
+        "evidence": [
+          "packet_body_physics.v0.md: 'Status: crystall ... code not changed by this document'",
+          "operator_tree_physics.v0.md: 'Status: crystall ... code not changed by this document'",
+          "proc17_assembly_map.md: 'Status: manifest ... the crystall of what flows from which timeline into proc-17'",
+          "vertical_packet_life.v0.md: 'routes are harness_override, not tree-authority evidence'",
+          "lineage_in_memory_slice.v0.md: 'Deliberate Limits: persistent lineage or crash recovery ... automatic resume'"
+        ],
+        "truth_status": "runtime_confirmed"
+      }
+    }
+  ],
+  "edges": []
+}

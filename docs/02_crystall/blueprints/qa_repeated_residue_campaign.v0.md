@@ -1012,3 +1012,32 @@ C10.1-C10.3 implement the test-only observer, native self-tests and fixture
 phase support against the frozen red contracts; no Packet/body or
 production-runtime semantic change
 ```
+
+## 30. Implementation Amendment - 2026-07-29
+
+The authorized sequence C10.1-C10.7 has now executed in full.
+
+```text
+C10.1 test-only native observer                  complete
+C10.2 observer native/Lua falsifiers             complete
+C10.3 exact absence and sentinel fixture support complete
+C10.4 one-load frozen provider context           complete
+C10.5 fixed 32-transaction campaign              complete
+C10.6 QN20 and exact matrix wiring               complete
+C10.7 focused/full/analyzer/exclusion closure    complete
+
+ordinary native QA: 20 green / 0 red / 0 deferred
+expected-red QA matrix: 44 green / 40 red
+QN20: green
+Packet/body QA authority: absent
+```
+
+Runtime evidence and the defects found during execution are recorded in:
+
+```text
+docs/00_chaos/qa_e10_qn20_campaign_implementation_2026-07-29.md
+docs/03_manifest/qa_qn20_repeated_residue_e10.v0.md
+```
+
+The earlier red-first checkpoint and `Next action` above remain archaeology of
+the implementation order; they no longer describe the active frontier.

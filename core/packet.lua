@@ -1,4 +1,5 @@
 local qa_schema = require("core.qa_schema")
+local qa_evidence_schema = require("core.qa_evidence_schema")
 local topology = require("core.topology")
 
 local packet = {}
@@ -49,6 +50,10 @@ packet.event_types = {
     repository_verification = true,
     work_completion = true,
     candidate_seal = true,
+    qa_check_request = true,
+    qa_check = true,
+    qa_execution_failure = true,
+    qa_candidate_verdict = true,
     cycle = true,
     runtime_frame = true,
     runtime_reconciliation = true,
@@ -86,6 +91,10 @@ local dedicated_event_types = {
     repository_verification = true,
     work_completion = true,
     candidate_seal = true,
+    qa_check_request = true,
+    qa_check = true,
+    qa_execution_failure = true,
+    qa_candidate_verdict = true,
 }
 
 local repository_body_event_types = {
@@ -95,6 +104,13 @@ local repository_body_event_types = {
     repository_verification = true,
     work_completion = true,
     candidate_seal = true,
+}
+
+local qa_body_event_types = {
+    qa_check_request = true,
+    qa_check = true,
+    qa_execution_failure = true,
+    qa_candidate_verdict = true,
 }
 
 local event_actor_rights = {
@@ -112,6 +128,10 @@ local event_actor_rights = {
     repository_verification = {['☶'] = true},
     work_completion = {['☱'] = true},
     candidate_seal = {['☶'] = true},
+    qa_check_request = {['☶'] = true},
+    qa_check = {['☶'] = true},
+    qa_execution_failure = {['☶'] = true},
+    qa_candidate_verdict = {['☱'] = true},
     cycle = {['☲'] = true},
     runtime_reconciliation = {['☱'] = true},
     plan_completion_assessment = {['☱'] = true},
@@ -1281,6 +1301,104 @@ function packet.append_repository_event(instance, event)
         return nil, "repository body event required"
     end
     return append_actor_event(instance, event)
+end
+
+function packet.append_qa_event(instance, event)
+    local mutable, mutable_err = packet.assert_mutable(
+        instance,
+        "append QA evidence"
+    )
+    if not mutable then
+        return nil, mutable_err
+    end
+    if type(event) ~= "table" or getmetatable(event) ~= nil then
+        return nil, "QA evidence event must be a plain table"
+    end
+    local event_keys = {
+        type = true,
+        operator = true,
+        truth_status = true,
+        payload = true,
+        cost = true,
+    }
+    for key in pairs(event) do
+        if not event_keys[key] then
+            return nil, "QA evidence event contains unknown key: "
+                .. tostring(key)
+        end
+    end
+    for key in pairs(event_keys) do
+        if event[key] == nil then
+            return nil, "QA evidence event is missing key: " .. key
+        end
+    end
+    if not qa_body_event_types[event.type] then
+        return nil, "dedicated QA evidence event required"
+    end
+    local actor = topology.resolve(event.operator)
+    local rights = event_actor_rights[event.type]
+    if not rights or not rights[actor] then
+        return nil, "event actor has no right for QA evidence type"
+    end
+    local lease, lease_err = packet.assert_actor_tick(
+        instance,
+        actor,
+        "append QA evidence"
+    )
+    if not lease then
+        return nil, lease_err
+    end
+    if event.truth_status ~= "runtime_confirmed" then
+        return nil, "QA evidence event must be runtime_confirmed"
+    end
+    local cost_ok, cost_err = qa_evidence_schema.validate_cost(
+        event.type,
+        event.cost
+    )
+    if not cost_ok then
+        return nil, cost_err
+    end
+    local normalized, normalized_err = qa_evidence_schema.normalize_payload(
+        event.type,
+        event.payload
+    )
+    if not normalized then
+        return nil, normalized_err
+    end
+    if not qa_evidence_schema.same(event.payload, normalized) then
+        return nil, "QA evidence payload is not normalized"
+    end
+    local copied_payload = deep_copy(normalized)
+    local copied_cost = deep_copy(event.cost)
+    local copied_normalized, copied_err = qa_evidence_schema.normalize_payload(
+        event.type,
+        copied_payload
+    )
+    if not copied_normalized then
+        return nil, copied_err
+    end
+    if not qa_evidence_schema.same(copied_payload, copied_normalized) then
+        return nil, "copied QA evidence payload is not normalized"
+    end
+    local copied_cost_ok, copied_cost_err = qa_evidence_schema.validate_cost(
+        event.type,
+        copied_cost
+    )
+    if not copied_cost_ok then
+        return nil, copied_cost_err
+    end
+    local appended, append_err = append_actor_event(instance, {
+        type = event.type,
+        operator = actor,
+        truth_status = "runtime_confirmed",
+        payload = copied_payload,
+        cost = copied_cost,
+    })
+    if not appended then
+        return nil, append_err
+    end
+    instance.revisions.evidence = instance.revisions.evidence + 1
+    return appended
 end
 
 packet.append_event = packet.append_trace

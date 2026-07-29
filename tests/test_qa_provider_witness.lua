@@ -60,6 +60,58 @@ suite:check("WA09 runtime error is candidate rejection", function()
     end))
 end)
 
+suite:check("EX23 inventory provider is root-bound, not host-selected", function()
+    assert(support.with_candidate("return true\n", function(grown)
+        local substituted_calls = 0
+        local substituted = {
+            provider_id = "linux.openat2.renameat2.v0",
+            inventory_tree = function()
+                substituted_calls = substituted_calls + 1
+                error("substituted inventory provider entered", 0)
+            end,
+        }
+        local services = {
+            repository_capabilities = grown.registry,
+            repository_provider = substituted,
+            qa_provider = grown.qa_provider,
+            qa_environment = grown.environment,
+        }
+        local plan = assert(witness.prepare(grown.instance, services))
+        local report = assert(witness.execute(grown.instance, services, plan))
+        H.assert_eq(report.outcome, "accepted")
+        H.assert_eq(substituted_calls, 0,
+            "host-selected inventory provider has zero authority")
+        return true
+    end))
+end)
+
+suite:check("EX18 source callback cannot export handle or provider", function()
+    assert(support.with_candidate("return true\n", function(grown)
+        local capabilities = require("runtime.repository_capability")
+        local plan = assert(witness.prepare(grown.instance, grown.services))
+        local lease = assert(capabilities.reserve_qa_source(
+            grown.registry, plan.binding))
+        local exported, exported_err = capabilities.with_qa_source(
+            grown.registry,
+            lease,
+            function(handle, provider)
+                return {borrowed_handle = handle, borrowed_provider = provider}
+            end
+        )
+        H.assert_nil(exported, "private source authority crossed callback")
+        H.assert_contains(exported_err, "private authority",
+            "identity-based detacher rejected callback export")
+        assert(capabilities.finish_qa_source(grown.registry, lease, {
+            protocol_version = "repository.qa_source_disposition.v0",
+            transaction_id = plan.witness.transaction_id,
+            state = "quarantined",
+            reason = "fixture_authority_export_denied",
+            event_truth_status = "runtime_confirmed",
+        }))
+        return true
+    end))
+end)
+
 suite:check("WA05/WA07 report exists only after source finality", function()
     assert(support.with_candidate("return true\n", function(grown)
         local plan = assert(witness.prepare(grown.instance, grown.services))
@@ -103,6 +155,35 @@ suite:check("C7 returned mutation has no body or root authority", function()
             })), root_before))
         return true
     end))
+end)
+
+suite:check("C10.4 one-load context detects table and callable drift", function()
+    local denied, denied_err = support.open_campaign()
+    H.assert_nil(denied, "one-load context accepted preloaded providers")
+    H.assert_contains(denied_err, "absent", "preloaded denial names boundary")
+
+    package.loaded["runtime.repository_provider"] = nil
+    package.loaded["runtime.qa_provider"] = nil
+    local context = assert(support.open_campaign())
+    local projection = assert(support.inspect_campaign(context))
+    H.assert_eq(projection.protocol_version, "qa.provider_campaign_context.v0")
+    H.assert_eq(projection.event_truth_status, "runtime_confirmed")
+
+    local qa_provider = assert(package.loaded["runtime.qa_provider"])
+    local original_run = qa_provider.run
+    qa_provider.run = function() error("must not run", 0) end
+    local callable_ok, callable_err = support.verify_campaign(context)
+    H.assert_nil(callable_ok, "campaign accepted callable drift")
+    H.assert_contains(callable_err, "callable identity", "callable drift reason")
+    qa_provider.run = original_run
+    assert(support.verify_campaign(context))
+
+    package.loaded["runtime.qa_provider"] = {}
+    local table_ok, table_err = support.verify_campaign(context)
+    H.assert_nil(table_ok, "campaign accepted package.loaded drift")
+    H.assert_contains(table_err, "table identity", "table drift reason")
+    package.loaded["runtime.qa_provider"] = qa_provider
+    assert(support.verify_campaign(context))
 end)
 
 suite:finish()

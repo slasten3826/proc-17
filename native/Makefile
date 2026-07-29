@@ -352,6 +352,9 @@ qa-residue-observer-contract-syntax: toolchain-check
 		tests/proc17_qa_residue_observer.c \
 		tests/proc17_qa_residue_observer_lua.c
 	cd .. && luac -p tests/test_qa_repeated_residue_observer.lua
+	cd .. && luac -p tests/support/qa_provider_witness.lua \
+		tests/support/qa_repeated_residue.lua \
+		tests/run_qa_repeated_residue_campaign.lua
 
 qa-residue-observer-test: qa-residue-observer-contract-syntax \
 		$(QA_RESIDUE_OBSERVER_MODULE) $(QA_RESIDUE_OBSERVER_TEST) \
@@ -362,7 +365,10 @@ qa-residue-observer-test: qa-residue-observer-contract-syntax \
 	exit $$status
 
 qa-supervisor-leak-loop-test: provider-shell qa-provider-shell fixture-helper \
-		qa-report-test qa-residue-observer-test
+		qa-report-test qa-residue-observer-test \
+		../tests/support/qa_provider_witness.lua \
+		../tests/support/qa_repeated_residue.lua \
+		../tests/run_qa_repeated_residue_campaign.lua
 	cd .. && lua tests/run_qa_repeated_residue_campaign.lua
 
 qa-static-closure-test: $(QA_SUPERVISOR) $(QA_BUILD_IDENTITY)

@@ -1,5 +1,6 @@
 local cycle = require("logic.cycle")
 local packet_core = require("core.packet")
+local qa_evidence_schema = require("core.qa_evidence_schema")
 local field = require("runtime.field")
 local object_coverage = require("runtime.object_coverage")
 local digest = require("core.digest")
@@ -390,6 +391,49 @@ local function record_repository_event(instance, actor, event_type, payload,
     end
     if revision_axis and instance.revisions then
         instance.revisions[revision_axis] = (instance.revisions[revision_axis] or 0) + 1
+    end
+    return copy_value(stored), event
+end
+
+local function record_qa_event(instance, actor, event_type, payload, cost)
+    local lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        actor,
+        "record " .. event_type
+    )
+    if not lease then
+        return nil, lease_err
+    end
+    local normalized, normalized_err = qa_evidence_schema.normalize_payload(
+        event_type,
+        payload
+    )
+    if not normalized then
+        return nil, normalized_err
+    end
+    if not qa_evidence_schema.same(payload, normalized) then
+        return nil, "QA evidence payload is not normalized"
+    end
+    local stored = copy_value(normalized)
+    local copied, copied_err = qa_evidence_schema.normalize_payload(
+        event_type,
+        stored
+    )
+    if not copied then
+        return nil, copied_err
+    end
+    if not qa_evidence_schema.same(stored, copied) then
+        return nil, "copied QA evidence payload is not normalized"
+    end
+    local event, event_err = packet_core.append_qa_event(instance, {
+        type = event_type,
+        operator = actor,
+        truth_status = "runtime_confirmed",
+        payload = stored,
+        cost = copy_value(cost or {}),
+    })
+    if not event then
+        return nil, event_err
     end
     return copy_value(stored), event
 end
@@ -929,6 +973,45 @@ function body.record_candidate_seal(instance, payload, registry, closure)
         function(value)
             return candidate_seal.validate_seal(instance, value)
         end, "evidence")
+end
+
+function body.record_qa_request(instance, payload)
+    return record_qa_event(
+        instance,
+        "☶",
+        "qa_check_request",
+        payload,
+        {}
+    )
+end
+
+local function qa_runtime_cost_projection(cost)
+    cost = cost or {}
+    return {
+        tool_calls = cost.tool_calls or 0,
+        test_runs = cost.qa_executions or 0,
+        time_ms = cost.wall_time_ms or 0,
+    }
+end
+
+function body.record_qa_check(instance, payload)
+    return record_qa_event(
+        instance,
+        "☶",
+        "qa_check",
+        payload,
+        qa_runtime_cost_projection(payload and payload.runtime_cost)
+    )
+end
+
+function body.record_qa_execution_failure(instance, payload)
+    return record_qa_event(
+        instance,
+        "☶",
+        "qa_execution_failure",
+        payload,
+        qa_runtime_cost_projection(payload and payload.measured_cost)
+    )
 end
 
 function body.record_choice(instance, choice_payload)

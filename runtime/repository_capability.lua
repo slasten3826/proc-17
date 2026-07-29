@@ -1581,6 +1581,33 @@ local function validate_qa_source_binding(binding)
         if request_err then
             return nil, request_err
         end
+        local seed = {
+            protocol_version = "qa.body_source_transaction_seed.v0",
+            transaction_kind = binding.transaction_kind,
+            session_id = binding.session_id,
+            lineage_id = binding.lineage_id,
+            generation = binding.generation,
+            repository_id = binding.repository_id,
+            root_authority_id = binding.root_authority_id,
+            lifecycle_id = binding.lifecycle_id,
+            root_fingerprint = binding.root_fingerprint,
+            closure_id = binding.closure_id,
+            closure_request_id = binding.closure_request_id,
+            candidate_seal_id = binding.candidate_seal_id,
+            candidate_seal_event_ref = binding.candidate_seal_event_ref,
+            qa_request_id = binding.qa_request_id,
+            inventory_id = binding.inventory_id,
+            inventory_digest = binding.inventory_digest,
+            inventory_bounds = bounds,
+        }
+        local transaction_digest, transaction_err = digest.record(seed)
+        if not transaction_digest then
+            return nil, transaction_err
+        end
+        if binding.transaction_id ~= "qa-provider-transaction:"
+            .. transaction_digest then
+            return nil, "body execution transaction identity mismatch"
+        end
     else
         return nil, "QA source transaction_kind is invalid"
     end
@@ -1605,6 +1632,8 @@ local function qa_source_lease_state(registry, lease, allow_finished)
         or root.closure_projection == nil
         or source ~= lease_value.source
         or source.handle == nil
+        or type(source.provider) ~= "table"
+        or type(source.provider.inventory_tree) ~= "function"
         or source.transaction_id ~= lease_value.transaction_id then
         return nil, "repository QA source private state changed"
     end
@@ -1643,8 +1672,7 @@ function capability.reserve_qa_source(registry, binding)
     end
     local closure = root.closure_projection
     local source = root.qa_source
-    if not root.claim or type(closure) ~= "table" or type(source) ~= "table"
-        or source.handle == nil then
+    if not root.claim or type(closure) ~= "table" or type(source) ~= "table" then
         return nil, "sealed repository root lacks private QA source"
     end
     if state.session_id ~= binding.session_id
@@ -1669,7 +1697,42 @@ function capability.reserve_qa_source(registry, binding)
         return nil, diagnostic("repository_qa_source_binding_mismatch")
     end
     if source.state ~= "available" or source.transaction_id ~= nil then
+        if binding.transaction_kind == "body_execution" then
+            local denial = {
+                protocol_version = "repository.qa_source_reservation_denial.v0",
+                denial_id = nil,
+                transaction_kind = "body_execution",
+                transaction_id = binding.transaction_id,
+                qa_request_id = binding.qa_request_id,
+                session_id = binding.session_id,
+                lineage_id = binding.lineage_id,
+                generation = binding.generation,
+                repository_id = binding.repository_id,
+                root_authority_id = binding.root_authority_id,
+                lifecycle_id = binding.lifecycle_id,
+                root_fingerprint = binding.root_fingerprint,
+                closure_id = binding.closure_id,
+                closure_request_id = binding.closure_request_id,
+                candidate_seal_id = binding.candidate_seal_id,
+                candidate_seal_event_ref = binding.candidate_seal_event_ref,
+                inventory_id = binding.inventory_id,
+                inventory_digest = binding.inventory_digest,
+                inventory_bounds = copy_value(normalized_bounds),
+                code = "source_reservation_unavailable",
+                source_acquisition = "not_acquired",
+                source_lease_created = false,
+                provider_entry_observed = false,
+                event_truth_status = "runtime_confirmed",
+            }
+            local denial_digest, denial_err = digest.record(denial)
+            if not denial_digest then return nil, denial_err end
+            denial.denial_id = "repository-qa-source-denial:" .. denial_digest
+            return nil, copy_value(denial)
+        end
         return nil, diagnostic("repository_qa_source_already_reserved")
+    end
+    if source.handle == nil then
+        return nil, "available repository QA source lacks private handle"
     end
 
     local lease = setmetatable({}, {
@@ -1708,13 +1771,15 @@ local forbidden_detached_keys = {
     userdata = true,
 }
 
-local function detach_qa_source_result(value, forbidden, seen)
+local function detach_qa_source_result(value, forbidden_handle,
+        forbidden_provider, seen)
     local kind = type(value)
     if kind == "nil" or kind == "boolean" or kind == "number"
         or kind == "string" then
         return value
     end
-    if kind ~= "table" or value == forbidden or getmetatable(value) ~= nil then
+    if kind ~= "table" or value == forbidden_handle
+        or value == forbidden_provider or getmetatable(value) ~= nil then
         return nil, "QA source consumer returned private authority"
     end
     seen = seen or {}
@@ -1732,7 +1797,8 @@ local function detach_qa_source_result(value, forbidden, seen)
         end
         local detached, detached_err = detach_qa_source_result(
             child,
-            forbidden,
+            forbidden_handle,
+            forbidden_provider,
             seen
         )
         if detached_err then
@@ -1758,7 +1824,11 @@ function capability.with_qa_source(registry, lease, consumer)
 
     lease_value.attempted = true
     lease_value.source.state = "in_use"
-    local returned = table.pack(pcall(consumer, lease_value.source.handle))
+    local returned = table.pack(pcall(
+        consumer,
+        lease_value.source.handle,
+        lease_value.source.provider
+    ))
     lease_value.source.state = "used"
     if returned[1] ~= true then
         return nil, "repository QA source consumer failed: "
@@ -1770,7 +1840,8 @@ function capability.with_qa_source(registry, lease, consumer)
     if returned[2] == nil then
         local detached_failure, failure_err = detach_qa_source_result(
             returned[3],
-            lease_value.source.handle
+            lease_value.source.handle,
+            lease_value.source.provider
         )
         if failure_err then
             return nil, failure_err
@@ -1779,7 +1850,8 @@ function capability.with_qa_source(registry, lease, consumer)
     end
     local detached, detached_err = detach_qa_source_result(
         returned[2],
-        lease_value.source.handle
+        lease_value.source.handle,
+        lease_value.source.provider
     )
     if detached_err then
         return nil, detached_err

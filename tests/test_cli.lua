@@ -149,16 +149,25 @@ local build_substrate = fixture.substrate(fixture.proposal({
         value = {path = "hello.lua", content = "return 'hello'\n"},
     },
 }, "artifact_set"))
+local observed_build_prompt
+local build_contract_substrate = {
+    ask = function(call, options)
+        observed_build_prompt = call.prompt_payload or call.task
+        return build_substrate.ask(call, options)
+    end,
+}
 local build_code, build_result, build_json = run({
     "build",
     "create one hello module",
     "--project-base", "/trusted/proc17-cli-tests",
     "--repository", "fresh-project",
-}, nil, deps(build_substrate, fake_provider))
+}, nil, deps(build_contract_substrate, fake_provider))
 assert_eq(build_code, 0, "CL07 fake build exit")
 assert_true(build_result.ok, "CL07 fake build completes")
 assert_eq(build_result.manifest.mode, "repository_delivery", "CL07 repository delivery")
 assert_eq(provider_state.files["hello.lua"], "return 'hello'\n", "CL07 exact create effect")
+assert_true(observed_build_prompt:find("root-level file name without a slash", 1, true),
+    "CL14 prompt states the no-mkdir path boundary")
 for _, forbidden in ipairs({"grant_id", "repository_handle", "host_path", "userdata"}) do
     assert_true(not build_json:find(forbidden, 1, true),
         "CL10 output excludes " .. forbidden)

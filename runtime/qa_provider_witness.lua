@@ -1,9 +1,9 @@
 local digest = require("core.digest")
 local qa_schema = require("core.qa_schema")
-local qa_process = require("runtime.qa_process")
 local candidate_seal = require("runtime.candidate_seal")
 local capabilities = require("runtime.repository_capability")
 local repository_inventory = require("runtime.repository_inventory")
+local candidate_transaction = require("runtime.qa_candidate_transaction")
 
 local witness = {
     protocol_version = "qa.provider_witness_runtime.v1",
@@ -246,57 +246,6 @@ function witness.prepare(instance, host_services, options)
     })
 end
 
-local function inventory_observation(provider, handle, registry, lease, value)
-    local raw, provider_err = provider.inventory_tree(
-        handle, copy_value(value.inventory_bounds))
-    if not raw then
-        return nil, provider_err or "repository inventory failed", "provider"
-    end
-    local root_ok, root_err = capabilities.qa_source_inventory_root_matches(
-        registry, lease, raw.root_before, raw.root_after)
-    if root_ok ~= true then
-        return nil, root_err or "QA source inventory root changed",
-            root_ok == nil and "trusted" or "identity"
-    end
-    local normalized, normalize_err, normalize_class =
-        repository_inventory.normalize_provider_result(
-        raw,
-        {
-            request_id = value.closure_request_id,
-            root_fingerprint = value.root_fingerprint,
-            inventory_bounds = value.inventory_bounds,
-            root_continuity = "proven",
-        }
-    )
-    if not normalized then
-        return nil, normalize_err,
-            normalize_class == "malformed" and "trusted" or normalize_class
-    end
-    if normalized.status ~= "observed" or not normalized.inventory then
-        return nil, "QA source inventory is not an exact observation", "world"
-    end
-    return normalized
-end
-
-local function matches_seal(observation, value)
-    local inventory = observation and observation.inventory
-    return type(inventory) == "table"
-        and inventory.inventory_id == value.inventory_id
-        and inventory.inventory_digest == value.inventory_digest
-        and repository_inventory.same(
-            inventory.inventory_bounds, value.inventory_bounds)
-end
-
-local function disposition(transaction_id, state, reason)
-    return {
-        protocol_version = "repository.qa_source_disposition.v0",
-        transaction_id = transaction_id,
-        state = state,
-        reason = reason,
-        event_truth_status = "runtime_confirmed",
-    }
-end
-
 local function report_from_pending(value, pending)
     local process = pending.process
     if pending.disposition ~= "consumed"
@@ -392,7 +341,6 @@ function witness.execute(instance, host_services, plan)
         return nil, diagnostic("witness_plan_changed")
     end
     local registry = host_services.repository_capabilities
-    local provider = host_services.repository_provider
     local process_provider = host_services.qa_provider
     local value = current.witness
     local packet_before = packet_snapshot(instance)
@@ -405,112 +353,46 @@ function witness.execute(instance, host_services, plan)
         return nil, lease_err
     end
 
-    local pending, callback_err = capabilities.with_qa_source(
+    local physical_plan = {
+        protocol_version = "qa.candidate_transaction_plan.v0",
+        transaction_kind = "provider_witness",
+        physical_transaction_id = value.transaction_id,
+        physical_witness_id = value.witness_id,
+        profile_id = value.profile_id,
+        environment_id = value.environment_id,
+        repository_id = value.repository_id,
+        root_authority_id = value.root_authority_id,
+        lifecycle_id = value.lifecycle_id,
+        root_fingerprint = value.root_fingerprint,
+        closure_id = value.closure_id,
+        closure_request_id = value.closure_request_id,
+        candidate_seal_id = value.candidate_seal_id,
+        candidate_seal_event_ref = value.candidate_seal_event_ref,
+        inventory_id = value.inventory_id,
+        inventory_digest = value.inventory_digest,
+        inventory_bounds = copy_value(value.inventory_bounds),
+        native_request = copy_value(current.native_request),
+    }
+    local function with_environment(consumer)
+        local returned = table.pack(pcall(
+            consumer,
+            process_provider,
+            copy_value(current.environment)
+        ))
+        if returned[1] ~= true then
+            return nil, tostring(returned[2])
+        end
+        return returned[2], returned[3]
+    end
+    local pending, callback_err = candidate_transaction.execute(
         registry,
         lease,
-        function(handle)
-            local pre, pre_err, pre_class = inventory_observation(
-                provider, handle, registry, lease, value)
-            if not pre then
-                local trusted = pre_class == "trusted" or pre_class == "identity"
-                return {
-                    kind = "error",
-                    disposition = trusted and "quarantined" or "consumed",
-                    loud = trusted,
-                    code = trusted and "trusted_inventory_contradiction"
-                        or "source_preflight_unavailable",
-                    class = trusted and "ambiguous" or "world",
-                    stage = "preflight",
-                    process = nil,
-                    source_stable = false,
-                    detail = pre_err,
-                }
-            end
-            if not matches_seal(pre, value) then
-                return {
-                    kind = "error",
-                    disposition = "consumed",
-                    code = "source_preflight_mismatch",
-                    class = "world",
-                    stage = "preflight",
-                    process = nil,
-                    source_stable = true,
-                }
-            end
-            local process, process_err = process_provider.run(
-                handle, current.native_request)
-            local post, post_err, post_class = inventory_observation(
-                provider, handle, registry, lease, value)
-            if not post or not repository_inventory.same(
-                pre.inventory, post.inventory) then
-                local trusted = post_class == "trusted" or post_class == "identity"
-                return {
-                    kind = "error",
-                    disposition = "quarantined",
-                    loud = trusted,
-                    code = trusted and "trusted_inventory_contradiction"
-                        or "source_drift",
-                    class = "ambiguous",
-                    stage = "postflight",
-                    process = process or process_err,
-                    source_stable = false,
-                    detail = post_err,
-                }
-            end
-            if process then
-                return {
-                    kind = "report",
-                    disposition = "consumed",
-                    process = process,
-                    pre_inventory_id = pre.inventory.inventory_id,
-                    post_inventory_id = post.inventory.inventory_id,
-                }
-            end
-            if type(process_err) ~= "table"
-                or process_err.protocol_version
-                    ~= "qa.provider_process_error.v1" then
-                error("QA provider returned an invalid process error", 0)
-            end
-            local reuse_class, topology_err =
-                qa_process.error_reuse_class_v1(process_err)
-            if reuse_class == nil then
-                error("QA provider returned an invalid process error topology: "
-                    .. tostring(topology_err), 0)
-            end
-            return {
-                kind = "error",
-                disposition = reuse_class == "clean_prestart"
-                    and "consumed" or "quarantined",
-                code = process_err.code,
-                class = process_err.class,
-                stage = process_err.stage,
-                process = process_err,
-                source_stable = true,
-            }
-        end
+        physical_plan,
+        with_environment
     )
     if not pending then
-        local finished, finish_err = capabilities.finish_qa_source(
-            registry, lease,
-            disposition(value.transaction_id, "quarantined",
-                "provider_witness_callback_failed"))
-        if not finished then
-            error("QA provider witness cleanup failed: " .. tostring(finish_err), 0)
-        end
-        error("QA provider witness callback failed: " .. tostring(callback_err), 0)
-    end
-    local finish_reason = pending.disposition == "quarantined"
-        and (pending.code or "provider_witness_ambiguous")
-        or nil
-    local finished, finish_err = capabilities.finish_qa_source(
-        registry, lease,
-        disposition(value.transaction_id, pending.disposition, finish_reason))
-    if not finished then
-        error("QA provider witness source finality failed: " .. tostring(finish_err), 0)
-    end
-    if pending.loud then
-        error("QA provider witness trusted contradiction after finality: "
-            .. tostring(pending.detail or pending.code), 0)
+        error("QA provider witness shared transaction failed: "
+            .. tostring(callback_err), 0)
     end
     local final_report
     local final_error

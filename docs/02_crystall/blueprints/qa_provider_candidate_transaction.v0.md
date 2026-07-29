@@ -5,6 +5,13 @@ schemas. Their executable successors are the v1 schemas and ordering in
 `qa_hostile_execution_campaign.v0.md` section 18. Body-execution schemas in
 this document are unchanged.
 
+Post-QN20 amendment 2026-07-29: the physical pre-inventory/RUN/post-inventory
+block becomes the shared engine specified by
+`qa_body_execution_after_qn20.v0.md`. Provider-witness authority, ids, public
+v1 report/error protocols, QN outputs and residue remain exact; no Packet body
+reader is added. Audit:
+`docs/00_chaos/qa_body_transaction_crystall_cross_audit_2026-07-29.md`.
+
 Status:
 
 ```text

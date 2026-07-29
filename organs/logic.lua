@@ -4,6 +4,7 @@ local spells = require("logic.spells")
 local foundation = require("runtime.foundation")
 local freshness = require("runtime.freshness")
 local repository_inspection = require("runtime.repository_inspection")
+local substrate_contract = require("substrates.contract")
 
 local logic_organ = {}
 
@@ -46,8 +47,76 @@ local function record(instance, payload)
     return instance, recorded
 end
 
+local function exact_qa_action(value)
+    if type(value) ~= "table" or getmetatable(value) ~= nil
+        or value.action ~= "execute_current_candidate" then
+        return nil, "QA execution requires execute_current_candidate"
+    end
+    for key in pairs(value) do
+        if key ~= "action" then
+            return nil, "QA execution action contains unknown key: "
+                .. tostring(key)
+        end
+    end
+    return true
+end
+
+local function qa_action_conflict(options)
+    return options.repository_effect ~= nil
+        or options.qualified_action ~= nil
+        or (type(options.logic) == "table"
+            and type(options.logic.spells) == "table"
+            and #options.logic.spells > 0)
+end
+
 function logic_organ.readiness(instance, options, host_services)
     options = options or {}
+    if options.qa_execution ~= nil then
+        if qa_action_conflict(options) then
+            return {
+                operator = "☶",
+                ready = false,
+                reason = "QA execution is exclusive with other LOGIC actions",
+                source_refs = {},
+                required_capabilities = {},
+                missing_capabilities = {},
+                event_truth_status = "runtime_confirmed",
+            }
+        end
+        local exact, exact_err = exact_qa_action(options.qa_execution)
+        if not exact then
+            return {
+                operator = "☶",
+                ready = false,
+                reason = exact_err,
+                source_refs = {},
+                required_capabilities = {},
+                missing_capabilities = {},
+                event_truth_status = "runtime_confirmed",
+            }
+        end
+        local qa_execution = require("runtime.qa_execution")
+        local current, current_err = qa_execution.inspect(
+            instance,
+            host_services
+        )
+        local refs = {}
+        if current and current.request then
+            refs = copy_value(current.request.source_refs or {})
+            refs[#refs + 1] = current.request.request_id
+        end
+        return {
+            operator = "☶",
+            ready = current ~= nil,
+            reason = current and "qa_execution_ready"
+                or tostring(type(current_err) == "table"
+                    and current_err.code or current_err),
+            source_refs = refs,
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     if options.repository_effect ~= nil and options.qualified_action ~= nil then
         local current, current_err = repository_inspection.effect_candidate(
             instance,
@@ -94,6 +163,34 @@ function logic_organ.run(instance, options, host_services)
         return nil, mutable_err
     end
     options = options or {}
+
+    if options.qa_execution ~= nil then
+        if qa_action_conflict(options) then
+            return nil, "QA execution is exclusive with other LOGIC actions"
+        end
+        local exact, exact_err = exact_qa_action(options.qa_execution)
+        if not exact then return nil, exact_err end
+        local qa_execution = require("runtime.qa_execution")
+        local outcome, effect_or_err, effect_cost = qa_execution.execute(
+            instance,
+            host_services
+        )
+        if not outcome then
+            if substrate_contract.is_effect_failure(effect_or_err) then
+                return nil, effect_or_err
+            end
+            return nil, effect_or_err
+        end
+        return instance, {
+            kind = "qa_execution_payload",
+            mode = "qa_execution",
+            outcome_kind = "check",
+            request_id = outcome.request_id,
+            evidence_id = outcome.qa_check_id,
+            effect_cost = copy_value(effect_cost),
+            truth_status = "runtime_confirmed",
+        }
+    end
 
     if options.repository_effect ~= nil then
         if options.work_mode ~= "build" then

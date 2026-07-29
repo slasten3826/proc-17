@@ -96,7 +96,13 @@ receiver = calm.work_structure.v0
 shape = artifact_set
 exactly one repository.create_text_file.v0 item
 value = {path, content}
+path = one root-level basename without `/`
 ```
+
+The underlying hand can address a nested path only when every parent already
+exists, but CLI v0 cannot inspect or create those parents. Its substrate
+contract therefore selects one root-level basename and cannot propose a path
+that deterministically requires unavailable `mkdir` authority.
 
 The receiver contract is body plumbing, not user text and not runtime truth.
 
@@ -179,4 +185,5 @@ CL10 stdout result contains no private repository authority
 CL11 unknown/router/QA/command flags reject
 CL12 session is saved after a terminal Packet
 CL13 positional, stdin and task-file sources each run successfully
+CL14 build prompt requires one root-level basename because CLI v0 cannot mkdir
 ```

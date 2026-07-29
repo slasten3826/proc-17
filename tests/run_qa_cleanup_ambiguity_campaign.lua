@@ -180,17 +180,14 @@ do
         owned_paths[#owned_paths + 1] = grown.root.path
         local inventories = 0
         local runs = 0
-        local repository_provider = {
-            provider_id = grown.repository_provider.provider_id,
-            inventory_tree = function(handle, bounds)
-                inventories = inventories + 1
-                local raw, err = grown.repository_provider.inventory_tree(
-                    handle, bounds)
-                if not raw then return nil, err end
-                if inventories == 2 then raw = corrupt_inventory(raw) end
-                return raw
-            end,
-        }
+        local exact_inventory = grown.repository_provider.inventory_tree
+        local function hostile_inventory(handle, bounds)
+            inventories = inventories + 1
+            local raw, err = exact_inventory(handle, bounds)
+            if not raw then return nil, err end
+            if inventories == 2 then raw = corrupt_inventory(raw) end
+            return raw
+        end
         local qa_provider = {
             run = function(handle, request)
                 runs = runs + 1
@@ -199,12 +196,18 @@ do
         }
         local services = {
             repository_capabilities = grown.registry,
-            repository_provider = repository_provider,
+            repository_provider = grown.repository_provider,
             qa_provider = qa_provider,
             qa_environment = grown.environment,
         }
         local plan = assert(witness.prepare(grown.instance, services))
-        local report, err = witness.execute(grown.instance, services, plan)
+        local report, err = support.with_root_bound_inventory(
+            grown,
+            hostile_inventory,
+            function()
+                return witness.execute(grown.instance, services, plan)
+            end
+        )
         if report ~= nil then candidate_outcomes = candidate_outcomes + 1 end
         H.assert_nil(report, "postflight drift produced a candidate witness")
         H.assert_eq(err.class, row.class)

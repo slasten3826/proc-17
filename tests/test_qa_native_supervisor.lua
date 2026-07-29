@@ -289,18 +289,15 @@ probes.QN20 = function()
         "native/tests/proc17_qa_residue_observer_lua.c",
         "native/tests/test_proc17_qa_residue_observer.c",
         "tests/test_qa_repeated_residue_observer.lua",
+        "tests/support/qa_repeated_residue.lua",
+        "tests/run_qa_repeated_residue_campaign.lua",
     }, "qa-supervisor-leak-loop-test")
 end
 
 for _, control in ipairs(catalog) do
     local id, description = control[1], control[2]
     assert(type(probes[id]) == "function", "missing QA native probe " .. id)
-    if not _G.PROC17_QA_RED_BATTERY and id == "QN20" then
-        suite:skip(id .. " " .. description,
-            "explicitly deferred after QN19 promotion")
-    else
-        suite:check(id .. " " .. description, probes[id])
-    end
+    suite:check(id .. " " .. description, probes[id])
 end
 
 suite:finish()

@@ -80,6 +80,12 @@ The first live plan exposed a renderer defect: successful Packets carried an
 The result builder now adds `error` only on non-complete terminals, and CL06/
 CL08 pin both sides of that contract.
 
+The first architecture-audit build exposed a second adapter defect: the model
+selected a nested path in an empty repository, but CLI v0 has no `mkdir` hand.
+The provider correctly returned `parent_missing` before mutation. The build
+receiver now requires one root-level basename, and CL14 pins that capability
+boundary.
+
 The live build created only `sum.lua`, 38 bytes, with SHA-256
 `f234abd894607549cc0ccedd9b39b6e56c0e2d2f90a6c422d9f94a17f0ffec56`.
 Independent filesystem inspection and Lua execution confirmed the bytes and

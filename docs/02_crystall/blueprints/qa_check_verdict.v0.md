@@ -1,5 +1,17 @@
 # QA Check And Verdict Blueprint v0
 
+PARTIALLY SUPERSEDED 2026-07-29 by:
+
+```text
+docs/02_crystall/blueprints/qa_body_evidence_verdict_v1.v0.md
+docs/02_crystall/blueprints/qa_body_transaction_reconciliation.v0.md
+```
+
+Do not implement the older cleanup/check/failure schemas or milestone order.
+The replacement preserves exact RUN v1 cause/finality, uses the private receipt
+join, keeps accepted/rejected phase depth symmetric and retains QA evidence
+outside `trace_tail`. This document remains archaeology.
+
 Status:
 
 ```text

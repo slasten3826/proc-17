@@ -460,6 +460,142 @@ static int read_process_stat(
     return result;
 }
 
+static int parse_decimal_bytes(
+    const char *bytes,
+    size_t length,
+    int64_t *value)
+{
+    uint64_t current = 0U;
+    size_t index;
+
+    if (length == 0U) return -1;
+    for (index = 0U; index < length; index++) {
+        unsigned char byte = (unsigned char)bytes[index];
+        if (byte < '0' || byte > '9'
+            || current > ((uint64_t)INT64_MAX - (uint64_t)(byte - '0')) / 10U) {
+            return -1;
+        }
+        current = current * 10U + (uint64_t)(byte - '0');
+    }
+    *value = (int64_t)current;
+    return 0;
+}
+
+static int parse_process_status_bytes(
+    pid_t pid,
+    const char *bytes,
+    size_t length,
+    struct proc17_qa_residue_process_record *record)
+{
+    size_t offset = 0U;
+    int have_name = 0;
+    int have_state = 0;
+    int have_ppid = 0;
+
+    if (bytes == NULL || length == 0U || record == NULL) return -1;
+    memset(record, 0, sizeof(*record));
+    record->pid = (int64_t)pid;
+    while (offset < length) {
+        const char *line = bytes + offset;
+        const char *newline = memchr(line, '\n', length - offset);
+        size_t line_length;
+        const char *value;
+        size_t value_length;
+
+        if (newline == NULL) return -1;
+        line_length = (size_t)(newline - line);
+        if (line_length >= 5U && memcmp(line, "Name:", 5U) == 0) {
+            if (have_name) return -1;
+            value = line + 5U;
+            value_length = line_length - 5U;
+            while (value_length > 0U
+                    && (*value == ' ' || *value == '\t')) {
+                value++;
+                value_length--;
+            }
+            if (value_length == 0U || value_length >= sizeof(record->comm)) {
+                return -1;
+            }
+            memcpy(record->comm, value, value_length);
+            record->comm[value_length] = '\0';
+            have_name = 1;
+        } else if (line_length >= 6U
+                && memcmp(line, "State:", 6U) == 0) {
+            if (have_state) return -1;
+            value = line + 6U;
+            value_length = line_length - 6U;
+            while (value_length > 0U
+                    && (*value == ' ' || *value == '\t')) {
+                value++;
+                value_length--;
+            }
+            if (value_length == 0U) return -1;
+            record->state = *value;
+            have_state = 1;
+        } else if (line_length >= 5U
+                && memcmp(line, "PPid:", 5U) == 0) {
+            int64_t parsed;
+            if (have_ppid) return -1;
+            value = line + 5U;
+            value_length = line_length - 5U;
+            while (value_length > 0U
+                    && (*value == ' ' || *value == '\t')) {
+                value++;
+                value_length--;
+            }
+            while (value_length > 0U
+                    && (value[value_length - 1U] == ' '
+                        || value[value_length - 1U] == '\t')) {
+                value_length--;
+            }
+            if (parse_decimal_bytes(value, value_length, &parsed) != 0) {
+                return -1;
+            }
+            record->ppid = parsed;
+            have_ppid = 1;
+        }
+        offset += line_length + 1U;
+    }
+    return have_name && have_state && have_ppid ? 0 : -1;
+}
+
+static int read_process_status(
+    pid_t pid,
+    struct proc17_qa_residue_process_record *record)
+{
+    char path[64];
+    char *bytes = NULL;
+    size_t length = 0U;
+    int result = -1;
+
+    if (snprintf(path, sizeof(path), "/proc/%ld/status", (long)pid) <= 0) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    if (read_bounded_file(path, 16384U, &bytes, &length) != 0) {
+        return -1;
+    }
+    if (parse_process_status_bytes(pid, bytes, length, record) == 0) result = 0;
+    else {
+        errno = EPROTO;
+    }
+    free(bytes);
+    return result;
+}
+
+static int read_process_stat_stable(
+    pid_t pid,
+    struct proc17_qa_residue_process_record *record)
+{
+    unsigned int attempt;
+
+    for (attempt = 0U; attempt < 3U; attempt++) {
+        if (read_process_stat(pid, record) == 0) return 0;
+        if (errno != EPROTO) return -1;
+    }
+    return read_process_status(pid, record);
+}
+
 static int mount_id_at(
     int directory_fd,
     const char *path,
@@ -762,7 +898,7 @@ static int scan_processes(
             errno = EOVERFLOW;
             goto cleanup;
         }
-        if (read_process_stat(pid, &record) != 0) {
+        if (read_process_stat_stable(pid, &record) != 0) {
             if (errno == ENOENT || errno == ESRCH) {
                 errno = 0;
                 continue;

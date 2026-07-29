@@ -220,8 +220,8 @@ local descriptors = {
         module = logic,
         required_capabilities = {},
         loss_profile = "conditional",
-        reads = {"calm", "constraints", "runtime.evidence", "sandbox.capabilities"},
-        writes = {"boundary.validations", "constraints", "runtime.evidence", "runtime.foundation"},
+        reads = {"calm", "constraints", "runtime.evidence", "sandbox.capabilities", "candidate.seal", "qa.contract", "qa.private_receipt"},
+        writes = {"boundary.validations", "constraints", "runtime.evidence", "runtime.foundation", "qa.request", "qa.check", "qa.execution_failure"},
         readiness = function(instance, context)
             return logic.readiness(
                 instance,

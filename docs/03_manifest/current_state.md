@@ -9,7 +9,7 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> qualified relation/upper witnesses -> exact structure/choice actions
 -> exact plan assessment/delivery -> in-memory lineage -> build hands
 -> first complete capability-safe repository life
--> private QA RUN v1 witness + QN17/QN18/QN19 containment campaigns
+-> private QA RUN v1 witness + QN17-QN20 containment campaigns
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -30,9 +30,11 @@ capability-safe repository hand through exact review, effect evidence and
 body-owned completion, then projects one bounded `repository.result.v0` through
 △ and freezes a `dead/complete` Packet. The production QA execution closure now
 owns one exact RUN v1, complete process finality and terminal source disposition.
-Its 17 hostile-candidate, nine trusted-runtime fault and six cleanup-ambiguity
-campaign cases are promoted, but the closure remains private: no Packet request,
-check evidence, verdict or software acceptance reader exists yet.
+Its 17 hostile-candidate, nine trusted-runtime fault, six cleanup-ambiguity and
+32 repeated-residue campaign cases are promoted. The first body adapter binds
+that closure to one exact Packet request, private receipt and strict
+`qa.check.v0` or `qa.execution_failure.v0` writer. Runner-owned QA charging,
+deterministic candidate verdict and software acceptance remain closed.
 
 ## Runtime Shape
 
@@ -363,18 +365,22 @@ The private QA provider executes only a sealed `tests/run.lua` candidate under
 the exact static supervisor identity. RUN v1 preserves candidate start, cause,
 measurements, cleanup, reap and EOF facts; provider witness v1 joins those facts
 to pre/post source inventories and terminal consumed/quarantined disposition.
-The QN17/QN18/QN19 campaigns prove the named candidate, trusted-fault and
-cleanup-ambiguity boundaries without exporting a fault selector or giving this
-evidence Packet authority. Controller terminal v2 carries either exact result
-evidence or one named internal observation failure; a closed causal topology
-decides source reuse, and only exact clean pre-start failures are reusable.
+The QN17-QN20 campaigns prove the named candidate, trusted-fault,
+cleanup-ambiguity and repeated-residue boundaries without exporting a fault
+selector. The body adapter grants Packet authority only after an exact private
+receipt/result join, producing one check or execution failure. QN20 executes 32 fresh
+transactions in one long-lived Lua process with providers loaded and probed
+once; every named residue channel returns to its exact baseline per iteration.
+Controller terminal v2 carries either exact result evidence or one named
+internal observation failure; a closed causal topology decides source reuse,
+and only exact clean pre-start failures are reusable.
 
 ## Measured Evidence
 
 Current local audit results:
 
 ```text
-lua tests/run.lua                   107 suites passed
+lua tests/run.lua                   111 listed suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -403,10 +409,14 @@ tests/test_repository_progress.lua    9/9 passed
 tests/test_repository_effect_linux.lua 3/3 real-provider lives passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
 tests/test_cli.lua                   passed plan/build/session/native-provider/hostile cases
-tests/test_qa_native_supervisor.lua  19 green / 0 red / 1 deferred
+tests/test_qa_native_supervisor.lua  20 green / 0 red / 0 deferred
+tests/test_qa_body_join.lua          9 green / 0 red
+tests/test_qa_runner_tick.lua        7 green / 0 red
 lua tests/run_qa_trusted_fault_campaign.lua 9/9, zero candidate outcomes
 lua tests/run_qa_cleanup_ambiguity_campaign.lua 6/6, zero candidate outcomes, six quarantines
-lua tests/red_qa_hand.lua            expected red: 43 green / 41 red
+lua tests/run_qa_repeated_residue_campaign.lua 32/32, all named residue deltas zero/exact
+lua tests/run_qa_body_repeated_residue_campaign.lua 32/32, all named residue deltas zero/exact
+lua tests/red_qa_hand.lua            expected red: 69 green / 15 red
 live CLI plan                        complete, 1 DeepSeek call, 373 tokens
 live CLI build                       complete, 1 DeepSeek call, 408 tokens, one verified file
 live CLI overwrite attempt           effect_failure, original file unchanged
@@ -607,12 +617,15 @@ completion and repository manifestation inside the body.
    plan or one exact create-only build Packet, starts fresh sessions by default,
    and resumes only an explicitly named session. It does not provide persistent
    lineage recovery, QA acceptance, general repository work or a human TUI.
-10. **The QA execution engine is not yet the body QA hand.** Production RUN v1,
-    source finality and QN17/QN18/QN19 containment are implemented. The
-    test-only QN20 host observer, exact root absence and sentinel fixture phases
-    are also implemented, but the one-load 32-transaction residue campaign is
-    still absent and QN20 remains deferred. Packet-owned request/receipt, check
-    evidence, verdict, QA economics and completion readers remain expected-red.
+10. **The QA body hand has a runner-owned manual tick but is not routed.** Production RUN v1,
+    source finality and QN17-QN20 containment are implemented. One exact Packet
+    request now mints private authority; its receipt can append exactly one
+    accepted/rejected check or one typed execution failure. Replay, drift,
+    malformed trusted evidence and receipt/body split are closed. One explicit
+    actor-valid `☶` action now settles an ordinary body tick and exactly one
+    external QA debit in the runner; infrastructure failure enters the existing
+    `effect_failure` death. Automatic routing, deterministic verdict, terminal
+    QA projection and lineage transport remain expected-red.
 
 Several modules are currently standalone or partially integrated, including
 `runtime/pressure_snapshot.lua`, `runtime/trace_store.lua`,
@@ -641,8 +654,13 @@ The active roadmap is deliberately ordered so new power follows owned facts:
    - qualified suite/route promotion                           complete
    - first exact repository manifest                           complete
 8. expose a machine CLI                                        complete (v0)
-9. close the v0 release boundary and run real CLI probes         next
-10. expose a Go TUI                                             deferred
+9. finish the body QA hand                                      in progress
+   - shared physical engine and private receipt                   complete
+   - strict Packet request/check/failure join                     complete
+   - runner-owned QA tick and one-time debit                      complete
+   - deterministic verdict and terminal lineage projection        pending
+10. close the v0 release boundary and run real CLI probes        pending
+11. expose a Go TUI                                             deferred
 ```
 
 Step 4 implemented those contracts in ten bounded substeps and proved grown

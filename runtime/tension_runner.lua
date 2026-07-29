@@ -236,6 +236,26 @@ local function charge_substrate_usage(instance, observe_payload)
     return true
 end
 
+local function find_budget_charge(instance, source, event_id)
+    for _, event in ipairs(instance.runtime and instance.runtime.budget
+            and instance.runtime.budget.events or {}) do
+        if event.source == source and event.event_id == event_id then
+            return event
+        end
+    end
+    return nil
+end
+
+local function same_cost(left, right)
+    for key, value in pairs(left or {}) do
+        if right[key] ~= value then return false end
+    end
+    for key, value in pairs(right or {}) do
+        if left[key] ~= value then return false end
+    end
+    return true
+end
+
 local function apply_operator_physics(instance, operator, payload)
     if operator == "☴" then
         return charge_substrate_usage(instance, payload)
@@ -282,6 +302,35 @@ local function apply_operator_physics(instance, operator, payload)
             event_id = payload.trace_event_id,
             cost = effect_cost,
             source = "repository_effect",
+            truth_status = "runtime_confirmed",
+        })
+        if not charged then
+            return nil, charge_err
+        end
+    end
+    if operator == "☶" and payload.mode == "qa_execution" then
+        local effect_cost, cost_err = budget.validate_cost(payload.effect_cost)
+        if not effect_cost then
+            return nil, cost_err
+        end
+        local prior = find_budget_charge(
+            instance,
+            "qa_execution",
+            payload.evidence_id
+        )
+        if prior then
+            local prior_cost, prior_cost_err = budget.validate_cost(prior.cost)
+            if not prior_cost then return nil, prior_cost_err end
+            if not same_cost(prior_cost, effect_cost) then
+                return nil, "QA execution budget replay cost mismatch"
+            end
+            return true
+        end
+        local charged, charge_err = budget.charge(instance, {
+            operator = "☶",
+            event_id = payload.evidence_id,
+            cost = effect_cost,
+            source = "qa_execution",
             truth_status = "runtime_confirmed",
         })
         if not charged then
@@ -429,6 +478,175 @@ local function failed_effect_residue(instance, operator, failure, pending_arriva
         progress = body.progress(instance),
         do_not_repeat = "repeat only after external effect failure pressure changes",
     }
+end
+
+local function current_tick_was_charged(instance, tick_event_id)
+    return find_budget_charge(instance, "body_tick", tick_event_id) ~= nil
+end
+
+-- Manual/grown corpus entrance for the exact QA action. Routing remains unchanged.
+function tension_runner.execute_qa_tick(instance, host_services)
+    local tick_lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        "☶",
+        "execute runner-owned QA tick"
+    )
+    if not tick_lease then return nil, stage_error("qa_tick", lease_err) end
+    if current_tick_was_charged(instance, tick_lease.id) then
+        return nil, stage_error("qa_tick", "current_tick_already_settled")
+    end
+
+    local revisions_before, revisions_err = camera.revision_snapshot(instance)
+    if not revisions_before then return nil, stage_error("camera", revisions_err) end
+    local budget_before = budget.snapshot(instance)
+    local loss_before = loss.snapshot(instance)
+    local progress_before = body.progress(instance)
+    local evidence_fingerprint_before = freshness.evidence_fingerprint(instance)
+    local trace_start = #instance.trace + 1
+    local budget_event_start = #(instance.runtime and instance.runtime.budget
+        and instance.runtime.budget.events or {}) + 1
+    local loss_event_start = #(instance.tension and instance.tension.loss_events or {}) + 1
+    local options = {
+        work_mode = "build",
+        logic = {
+            qa_execution = {action = "execute_current_candidate"},
+        },
+        host_services = host_services,
+    }
+    local result = {
+        kind = "tension_runner_manual_tick_result",
+        operator = "☶",
+        status = nil,
+        final_status = instance.status,
+    }
+    local execution, execution_err = operator_registry.execute(
+        "☶",
+        instance,
+        operator_context(nil, options, {ticks = {}})
+    )
+    if not execution then return nil, stage_error("☶", execution_err) end
+    if execution.status == "not_ready" then
+        return nil, stage_error("☶",
+            "committed_operator_not_ready:" .. tostring(execution.readiness.reason))
+    end
+
+    local clock = instance.physis and instance.physis.clock
+    if clock then clock.ticks = (clock.ticks or 0) + 1 end
+
+    if execution.status == "effect_failure" then
+        local failure = execution.failure
+        local failure_event, failure_event_err = packet_core.append_trace(instance, {
+            type = "operator_failure",
+            operator = "☶",
+            truth_status = "runtime_confirmed",
+            payload = {
+                kind = "operator_failure",
+                operator = "☶",
+                failure = failure,
+                committed_route_ref = nil,
+            },
+            cost = {},
+        })
+        if not failure_event then
+            return nil, stage_error("operator_failure", failure_event_err)
+        end
+        local tick_charge, tick_charge_err = budget.charge(instance, {
+            operator = "☶",
+            event_id = tick_lease.id,
+            cost = {steps = 1},
+            source = "body_tick",
+            truth_status = "runtime_confirmed",
+        })
+        if not tick_charge then return nil, stage_error("budget", tick_charge_err) end
+        if next(failure.cost or {}) ~= nil then
+            local failure_charge, failure_charge_err = budget.charge(instance, {
+                operator = "☶",
+                event_id = failure_event.id,
+                cost = failure.cost,
+                source = "failed_external_effect",
+                truth_status = "runtime_confirmed",
+            })
+            if not failure_charge then
+                return nil, stage_error("budget", failure_charge_err)
+            end
+        end
+        local source_event_refs = event_refs(instance, trace_start)
+        table.insert(source_event_refs, 1, tick_lease.id)
+        local runtime_frame, frame_err = camera.capture(instance, {
+            operator = "☶",
+            revisions_before = revisions_before,
+            source_event_refs = source_event_refs,
+            effect_refs = {failure_event.id},
+            budget_event_refs = ledger_refs(
+                "budget:event:", budget_event_start,
+                #(instance.runtime and instance.runtime.budget
+                    and instance.runtime.budget.events or {})
+            ),
+            loss_event_refs = ledger_refs(
+                "loss:event:", loss_event_start,
+                #(instance.tension and instance.tension.loss_events or {})
+            ),
+            budget_before = budget_before,
+            loss_before = loss_before,
+            progress_before = progress_before,
+            evidence_fingerprint_before = evidence_fingerprint_before,
+        })
+        if not runtime_frame then return nil, stage_error("camera", frame_err) end
+        local dead, death_err = packet_core.die(
+            instance,
+            "effect_failure",
+            failed_effect_residue(instance, "☶", failure, nil, failure_event)
+        )
+        if not dead then return nil, stage_error("effect_failure", death_err) end
+        result.status = "effect_failure"
+        result.failure = copy_value(failure)
+        result.runtime_frame_ref = runtime_frame.trace_event_id
+        result.final_status = instance.status
+        return instance, result
+    end
+
+    local payload = execution.payload
+    local tick_charge, tick_charge_err = budget.charge(instance, {
+        operator = "☶",
+        event_id = tick_lease.id,
+        cost = {steps = 1},
+        source = "body_tick",
+        truth_status = "runtime_confirmed",
+    })
+    if not tick_charge then return nil, stage_error("budget", tick_charge_err) end
+    local physics_ok, physics_err = apply_operator_physics(instance, "☶", payload)
+    if not physics_ok then return nil, stage_error("physics", physics_err) end
+    local source_event_refs = event_refs(instance, trace_start)
+    table.insert(source_event_refs, 1, tick_lease.id)
+    local runtime_frame, frame_err = camera.capture(instance, {
+        operator = "☶",
+        revisions_before = revisions_before,
+        source_event_refs = source_event_refs,
+        effect_refs = source_event_refs,
+        budget_event_refs = ledger_refs(
+            "budget:event:", budget_event_start,
+            #(instance.runtime and instance.runtime.budget
+                and instance.runtime.budget.events or {})
+        ),
+        loss_event_refs = ledger_refs(
+            "loss:event:", loss_event_start,
+            #(instance.tension and instance.tension.loss_events or {})
+        ),
+        budget_before = budget_before,
+        loss_before = loss_before,
+        progress_before = progress_before,
+        evidence_fingerprint_before = evidence_fingerprint_before,
+    })
+    if not runtime_frame then return nil, stage_error("camera", frame_err) end
+    result.status = "applied"
+    result.payload = copy_value(payload)
+    result.readiness = copy_value(execution.readiness)
+    result.runtime_frame_ref = runtime_frame.trace_event_id
+    if die_from_mortality(instance, result, "☶") then
+        result.status = "mortality"
+    end
+    result.final_status = instance.status
+    return instance, result
 end
 
 function tension_runner.run(prompt, substrate, options)
