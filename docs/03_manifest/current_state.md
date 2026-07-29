@@ -1,4 +1,4 @@
-# Current State - 2026-07-29
+# Current State - 2026-07-30
 
 Status: active packet-first body
 
@@ -10,6 +10,7 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> exact plan assessment/delivery -> in-memory lineage -> build hands
 -> first complete capability-safe repository life
 -> private QA RUN v1 witness + QN17-QN20 containment campaigns
+-> deterministic current-candidate QA verdict and shadow work projection
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -33,8 +34,11 @@ owns one exact RUN v1, complete process finality and terminal source disposition
 Its 17 hostile-candidate, nine trusted-runtime fault, six cleanup-ambiguity and
 32 repeated-residue campaign cases are promoted. The first body adapter binds
 that closure to one exact Packet request, private receipt and strict
-`qa.check.v0` or `qa.execution_failure.v0` writer. Runner-owned QA charging,
-deterministic candidate verdict and software acceptance remain closed.
+`qa.check.v0` or `qa.execution_failure.v0` writer. A second actor-valid `☱`
+tick now derives one deterministic current-candidate verdict, preserves the
+ordinary runtime camera and feeds pure completion/work-layer readers.
+Terminal QA projection, corpse retention, descendant historical transport,
+automatic routing and lineage software acceptance remain closed.
 
 ## Runtime Shape
 
@@ -412,11 +416,12 @@ tests/test_cli.lua                   passed plan/build/session/native-provider/h
 tests/test_qa_native_supervisor.lua  20 green / 0 red / 0 deferred
 tests/test_qa_body_join.lua          9 green / 0 red
 tests/test_qa_runner_tick.lua        7 green / 0 red
+tests/test_qa_verdict_tick.lua       7 green / 0 red
 lua tests/run_qa_trusted_fault_campaign.lua 9/9, zero candidate outcomes
 lua tests/run_qa_cleanup_ambiguity_campaign.lua 6/6, zero candidate outcomes, six quarantines
 lua tests/run_qa_repeated_residue_campaign.lua 32/32, all named residue deltas zero/exact
 lua tests/run_qa_body_repeated_residue_campaign.lua 32/32, all named residue deltas zero/exact
-lua tests/red_qa_hand.lua            expected red: 69 green / 15 red
+lua tests/red_qa_hand.lua            expected red: 82 green / 2 red
 live CLI plan                        complete, 1 DeepSeek call, 373 tokens
 live CLI build                       complete, 1 DeepSeek call, 408 tokens, one verified file
 live CLI overwrite attempt           effect_failure, original file unchanged
@@ -617,15 +622,18 @@ completion and repository manifestation inside the body.
    plan or one exact create-only build Packet, starts fresh sessions by default,
    and resumes only an explicitly named session. It does not provide persistent
    lineage recovery, QA acceptance, general repository work or a human TUI.
-10. **The QA body hand has a runner-owned manual tick but is not routed.** Production RUN v1,
+10. **The QA body hand has manual execution and verdict ticks but is not routed.** Production RUN v1,
     source finality and QN17-QN20 containment are implemented. One exact Packet
     request now mints private authority; its receipt can append exactly one
     accepted/rejected check or one typed execution failure. Replay, drift,
     malformed trusted evidence and receipt/body split are closed. One explicit
     actor-valid `☶` action now settles an ordinary body tick and exactly one
     external QA debit in the runner; infrastructure failure enters the existing
-    `effect_failure` death. Automatic routing, deterministic verdict, terminal
-    QA projection and lineage transport remain expected-red.
+    `effect_failure` death. One explicit actor-valid `☱` action now derives an
+    accepted/rejected current-candidate verdict at equal depth and feeds
+    massless completion/work-layer readers. Automatic routing, terminal QA
+    projection, corpse retention and descendant historical transport remain
+    expected-red.
 
 Several modules are currently standalone or partially integrated, including
 `runtime/pressure_snapshot.lua`, `runtime/trace_store.lua`,
@@ -658,7 +666,8 @@ The active roadmap is deliberately ordered so new power follows owned facts:
    - shared physical engine and private receipt                   complete
    - strict Packet request/check/failure join                     complete
    - runner-owned QA tick and one-time debit                      complete
-   - deterministic verdict and terminal lineage projection        pending
+   - deterministic current-candidate verdict                      complete
+   - terminal projection, corpse and historical transport         pending
 10. close the v0 release boundary and run real CLI probes        pending
 11. expose a Go TUI                                             deferred
 ```
@@ -702,9 +711,11 @@ Every line in this selected v0 loop is now runtime-confirmed, including one
 production C-provider life. The first hand chapter is complete. A narrow JSON
 machine CLI now exposes exactly this capability without widening it: one Packet
 per invocation, DeepSeek as the production substrate, fresh session by default,
-explicit resume, and one create-only artifact in build mode. The next ordered
-boundary is release closure and real CLI probing; the Go TUI and operation
-widening remain separate later campaigns.
+explicit resume, and one create-only artifact in build mode. The active bounded
+boundary is QA M4: exact terminal projection, corpse retention outside the
+trace tail and descendant transport as history only. Release closure and real
+CLI probes follow that boundary; the Go TUI and operation widening remain
+separate later campaigns.
 
 The detailed audit and authorship reconstruction are preserved in
 [`../00_chaos/full_project_audit_2026-07-15_notes.md`](../00_chaos/full_project_audit_2026-07-15_notes.md).

@@ -649,6 +649,120 @@ function tension_runner.execute_qa_tick(instance, host_services)
     return instance, result
 end
 
+-- Manual/grown corpus entrance for the deterministic QA verdict action.
+function tension_runner.execute_qa_verdict_tick(instance, qa_contract_id)
+    if type(qa_contract_id) ~= "string" or qa_contract_id == "" then
+        return nil, stage_error("qa_verdict_tick", "qa_contract_id_required")
+    end
+    local tick_lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        "☱",
+        "execute runner-owned QA verdict tick"
+    )
+    if not tick_lease then
+        return nil, stage_error("qa_verdict_tick", lease_err)
+    end
+    if current_tick_was_charged(instance, tick_lease.id) then
+        return nil, stage_error(
+            "qa_verdict_tick",
+            "current_tick_already_settled"
+        )
+    end
+
+    local revisions_before, revisions_err = camera.revision_snapshot(instance)
+    if not revisions_before then return nil, stage_error("camera", revisions_err) end
+    local budget_before = budget.snapshot(instance)
+    local loss_before = loss.snapshot(instance)
+    local progress_before = body.progress(instance)
+    local evidence_fingerprint_before = freshness.evidence_fingerprint(instance)
+    local trace_start = #instance.trace + 1
+    local budget_event_start = #(instance.runtime and instance.runtime.budget
+        and instance.runtime.budget.events or {}) + 1
+    local loss_event_start = #(instance.tension and instance.tension.loss_events or {}) + 1
+    local options = {
+        work_mode = "build",
+        runtime = {
+            qa_verdict = {
+                action = "assemble_current_candidate_verdict",
+                qa_contract_id = qa_contract_id,
+            },
+        },
+    }
+    local result = {
+        kind = "tension_runner_manual_tick_result",
+        operator = "☱",
+        status = nil,
+        final_status = instance.status,
+    }
+    local execution, execution_err = operator_registry.execute(
+        "☱",
+        instance,
+        operator_context(nil, options, {ticks = {}})
+    )
+    if not execution then return nil, stage_error("☱", execution_err) end
+    if execution.status == "not_ready" then
+        return nil, stage_error(
+            "☱",
+            "committed_operator_not_ready:"
+                .. tostring(execution.readiness.reason)
+        )
+    end
+    if execution.status ~= "applied" then
+        return nil, stage_error("☱", "qa_verdict_unexpected_effect_failure")
+    end
+
+    local clock = instance.physis and instance.physis.clock
+    if clock then clock.ticks = (clock.ticks or 0) + 1 end
+    local tick_charge, tick_charge_err = budget.charge(instance, {
+        operator = "☱",
+        event_id = tick_lease.id,
+        cost = {steps = 1},
+        source = "body_tick",
+        truth_status = "runtime_confirmed",
+    })
+    if not tick_charge then return nil, stage_error("budget", tick_charge_err) end
+    local physics_ok, physics_err = apply_operator_physics(
+        instance,
+        "☱",
+        execution.payload
+    )
+    if not physics_ok then return nil, stage_error("physics", physics_err) end
+
+    local source_event_refs = event_refs(instance, trace_start)
+    table.insert(source_event_refs, 1, tick_lease.id)
+    local runtime_frame, frame_err = camera.capture(instance, {
+        operator = "☱",
+        revisions_before = revisions_before,
+        source_event_refs = source_event_refs,
+        effect_refs = source_event_refs,
+        budget_event_refs = ledger_refs(
+            "budget:event:",
+            budget_event_start,
+            #(instance.runtime and instance.runtime.budget
+                and instance.runtime.budget.events or {})
+        ),
+        loss_event_refs = ledger_refs(
+            "loss:event:",
+            loss_event_start,
+            #(instance.tension and instance.tension.loss_events or {})
+        ),
+        budget_before = budget_before,
+        loss_before = loss_before,
+        progress_before = progress_before,
+        evidence_fingerprint_before = evidence_fingerprint_before,
+    })
+    if not runtime_frame then return nil, stage_error("camera", frame_err) end
+    result.status = "applied"
+    result.payload = copy_value(execution.payload)
+    result.readiness = copy_value(execution.readiness)
+    result.runtime_frame_ref = runtime_frame.trace_event_id
+    if die_from_mortality(instance, result, "☱") then
+        result.status = "mortality"
+    end
+    result.final_status = instance.status
+    return instance, result
+end
+
 function tension_runner.run(prompt, substrate, options)
     local prepared_options, options_err = prepare_options(options or {})
     if not prepared_options then

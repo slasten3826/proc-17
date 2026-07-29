@@ -4,6 +4,8 @@ local artifact_set = require("runtime.artifact_set")
 local candidate_seal = require("runtime.candidate_seal")
 local corpse_module = require("runtime.corpse")
 local plan_completion = require("runtime.plan_completion")
+local qa_contract = require("runtime.qa_contract")
+local qa_evidence = require("runtime.qa_evidence")
 local work_completion = require("runtime.work_completion")
 
 local completion_scope = {
@@ -182,6 +184,8 @@ local function empty_components()
             candidate_seal_event_ref = nil,
             artifact_alignment = "not_applicable",
             alignment_ref = nil,
+            qa_check_refs = {},
+            qa_execution_failure_ref = nil,
             qa_verdict_ref = nil,
         },
         generation_state = {
@@ -280,6 +284,79 @@ local function repository_units(instance)
     return result
 end
 
+local function inspect_current_qa(instance, seal, alignment, result)
+    if instance.qa_contract_id == nil then return true end
+    local contract, contract_err = qa_contract.verify_birth(instance)
+    if not contract then
+        return nil, contract_err
+    end
+    local current, current_err = qa_evidence.current(
+        instance,
+        seal.candidate_seal_id,
+        contract.qa_contract_id
+    )
+    if not current then return nil, current_err end
+    if #current.conflicts > 0 then
+        return nil, "current QA evidence is contradictory: "
+            .. table.concat(current.conflicts, ",")
+    end
+    for _, ref in ipairs({
+        current.request_ref,
+        current.check_ref,
+        current.execution_failure_ref,
+        current.verdict_ref,
+    }) do
+        if ref then result.source_refs[#result.source_refs + 1] = ref end
+    end
+    if current.check then
+        result.candidate.qa_check_refs = {current.check_ref}
+        result.source_refs[#result.source_refs + 1] = current.check.qa_check_id
+    end
+    if current.execution_failure then
+        result.candidate.qa_execution_failure_ref =
+            current.execution_failure_ref
+        result.source_refs[#result.source_refs + 1] =
+            current.execution_failure.failure_id
+    end
+    if current.verdict then
+        result.candidate.qa_verdict_ref = current.verdict_ref
+        result.source_refs[#result.source_refs + 1] = current.verdict.verdict_id
+    end
+    if alignment.state ~= "aligned" then return true end
+
+    if current.verdict then
+        if current.verdict.verdict == "accepted" then
+            result.candidate.state = "qa_accepted"
+            result.boundary_candidate.state = "software_acceptance_ready"
+        else
+            result.candidate.state = "qa_rejected"
+            result.boundary_candidate.state =
+                "rejected_generation_recovery_ready"
+        end
+        result.boundary_candidate.terminalized = false
+        result.boundary_candidate.terminal_ref = nil
+        result.boundary_candidate.source_refs = sorted_unique({
+            seal.candidate_seal_id,
+            result.candidate.candidate_seal_event_ref,
+            alignment.alignment_id,
+            current.check_ref,
+            current.verdict_ref,
+            current.verdict.verdict_id,
+        })
+        append_all(result.source_refs, result.boundary_candidate.source_refs)
+    elseif current.execution_failure then
+        result.candidate.state = "qa_infrastructure_incomplete"
+    elseif current.check then
+        result.candidate.state = "qa_check_observed"
+    end
+    if current.request and current.request.content_truth_status == "mixed"
+        or current.check and current.check.content_truth_status == "mixed"
+        or current.verdict and current.verdict.content_truth_status == "mixed" then
+        result.content_truth_status = "mixed"
+    end
+    return true
+end
+
 local function inspect_build_packet(instance, view, result)
     result.candidate.state = "unsealed"
     local progress = work_completion.repository_progress(instance)
@@ -310,12 +387,14 @@ local function inspect_build_packet(instance, view, result)
     end
 
     local seal, seal_event, seal_err = candidate_seal.current(instance)
+    local seal_alignment
     if seal then
         local alignment, alignment_err = candidate_seal.inspect_alignment(
             instance, seal)
         if not alignment then
             return nil, alignment_err
         end
+        seal_alignment = alignment
         result.candidate.state = "sealed"
         result.candidate.candidate_seal_id = seal.candidate_seal_id
         result.candidate.candidate_seal_event_ref = seal_event.id
@@ -386,6 +465,15 @@ local function inspect_build_packet(instance, view, result)
     end
     if result.content_truth_status == "runtime_confirmed" then
         result.content_truth_status = set_view.content_truth_status
+    end
+    if seal then
+        local qa_ok, qa_err = inspect_current_qa(
+            instance,
+            seal,
+            seal_alignment,
+            result
+        )
+        if not qa_ok then return nil, qa_err end
     end
     return true
 end

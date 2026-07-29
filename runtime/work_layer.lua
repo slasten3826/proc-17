@@ -224,6 +224,38 @@ local function derive_build(scope, value)
             "fresh_generation_plan_for:" .. scope.candidate.candidate_seal_id
         return true
     end
+    if scope.candidate.state == "qa_accepted" then
+        value.glyph = "▲"
+        value.state = "boundary"
+        value.reason = "candidate_acceptance_ready"
+        value.missing_requirements[#value.missing_requirements + 1] =
+            "qa_terminal_projection_and_corpse"
+        return true
+    end
+    if scope.candidate.state == "qa_rejected" then
+        value.glyph = "▲"
+        value.state = "boundary"
+        value.reason = "rejected_generation_recovery_ready"
+        value.missing_requirements[#value.missing_requirements + 1] =
+            "qa_rejected_terminal_projection_and_corpse"
+        return true
+    end
+    if scope.candidate.state == "qa_check_observed" then
+        value.glyph = "◈"
+        value.state = "crystallizing_verdict"
+        value.reason = "qa_verdict_incomplete"
+        value.missing_requirements[#value.missing_requirements + 1] =
+            "qa_candidate_verdict_for:" .. scope.candidate.candidate_seal_id
+        return true
+    end
+    if scope.candidate.state == "qa_infrastructure_incomplete" then
+        value.glyph = "⊞"
+        value.state = "checking"
+        value.reason = "qa_infrastructure_incomplete"
+        value.missing_requirements[#value.missing_requirements + 1] =
+            "typed_effect_failure_terminalization"
+        return true
+    end
     if scope.candidate.state == "sealed" then
         value.glyph = "⊞"
         value.state = "checking"

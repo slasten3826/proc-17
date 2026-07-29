@@ -115,6 +115,46 @@ local failure_keys = {
     content_truth_status = true,
 }
 
+local verdict_keys = {
+    protocol_version = true,
+    verdict_id = true,
+    packet_id = true,
+    lineage_id = true,
+    generation = true,
+    process_contract_id = true,
+    context = true,
+    stage_id = true,
+    repository_id = true,
+    candidate_seal_id = true,
+    candidate_seal_event_ref = true,
+    artifact_alignment_id = true,
+    qa_contract_id = true,
+    profile_id = true,
+    environment_id = true,
+    verdict = true,
+    required_checks = true,
+    accepted_checks = true,
+    rejected_checks = true,
+    check_ids = true,
+    check_refs = true,
+    request_refs = true,
+    runtime_cost = true,
+    source_refs = true,
+    event_truth_status = true,
+    content_truth_status = true,
+}
+
+local qa_cost_keys = {
+    protocol_version = true,
+    tool_calls = true,
+    qa_executions = true,
+    wall_time_ms = true,
+    cpu_time_ms = true,
+    scratch_written_bytes = true,
+    stdout_observed_bytes = true,
+    stderr_observed_bytes = true,
+}
+
 local source_keys = {
     pre_inventory_id = true,
     post_inventory_id = true,
@@ -620,6 +660,133 @@ function schema.verify_failure(value)
     return true
 end
 
+local function normalize_qa_cost(value)
+    local exact, exact_err = exact_record(value, qa_cost_keys, "QA verdict cost")
+    if not exact then return nil, exact_err end
+    if value.protocol_version ~= "qa.cost.v1"
+        or value.tool_calls ~= 1
+        or value.qa_executions ~= 1 then
+        return nil, "QA verdict cost authority is invalid"
+    end
+    for key in pairs(qa_cost_keys) do
+        if key ~= "protocol_version"
+            and not non_negative_integer(value[key], "QA verdict cost " .. key) then
+            return nil, "QA verdict cost is invalid"
+        end
+    end
+    return copy_value(value)
+end
+
+local function normalize_one_ref(value, label, prefix)
+    local refs, refs_err = normalize_refs(value, label)
+    if not refs then return nil, refs_err end
+    if #refs ~= 1 or (prefix and not prefixed_digest(refs[1], prefix)) then
+        return nil, label .. " must contain exactly one exact reference"
+    end
+    return refs
+end
+
+local function contains_ref(refs, wanted)
+    for _, ref in ipairs(refs or {}) do
+        if ref == wanted then return true end
+    end
+    return false
+end
+
+function schema.normalize_verdict(value)
+    local plain, plain_err = plain_tree(value, "QA candidate verdict")
+    if not plain then return nil, plain_err end
+    local record_ok, record_err = exact_record(
+        value,
+        verdict_keys,
+        "QA candidate verdict",
+        {verdict_id = true}
+    )
+    if not record_ok then return nil, record_err end
+    if value.protocol_version ~= "qa.candidate_verdict.v0"
+        or (value.verdict ~= "accepted" and value.verdict ~= "rejected")
+        or value.required_checks ~= 1
+        or value.event_truth_status ~= "runtime_confirmed"
+        or (value.content_truth_status ~= "runtime_confirmed"
+            and value.content_truth_status ~= "mixed") then
+        return nil, "QA candidate verdict envelope is invalid"
+    end
+    for _, key in ipairs({
+        "packet_id", "lineage_id", "stage_id", "repository_id",
+        "candidate_seal_event_ref", "artifact_alignment_id",
+    }) do
+        local _, err = non_empty(value[key], "QA verdict " .. key)
+        if err then return nil, err end
+    end
+    if not positive_integer(value.generation, "QA verdict generation")
+        or (value.process_contract_id ~= "build.only.v0"
+            and value.process_contract_id ~= "software.create.v0")
+        or value.context ~= "software_task.v0"
+        or not prefixed_digest(value.candidate_seal_id, "candidate-seal:")
+        or not prefixed_digest(value.qa_contract_id, "qa-contract:")
+        or value.profile_id ~= qa_schema.profile_id
+        or not prefixed_digest(value.environment_id, "qa-environment:") then
+        return nil, "QA candidate verdict identity coordinate is invalid"
+    end
+    local accepted = value.verdict == "accepted" and 1 or 0
+    local rejected = value.verdict == "rejected" and 1 or 0
+    if value.accepted_checks ~= accepted or value.rejected_checks ~= rejected then
+        return nil, "QA candidate verdict counts contradict verdict"
+    end
+    local check_ids, check_ids_err = normalize_one_ref(
+        value.check_ids,
+        "QA verdict check_ids",
+        "qa-check:"
+    )
+    if not check_ids then return nil, check_ids_err end
+    local check_refs, check_refs_err = normalize_one_ref(
+        value.check_refs,
+        "QA verdict check_refs"
+    )
+    if not check_refs then return nil, check_refs_err end
+    local request_refs, request_refs_err = normalize_one_ref(
+        value.request_refs,
+        "QA verdict request_refs"
+    )
+    if not request_refs then return nil, request_refs_err end
+    local runtime_cost, runtime_cost_err = normalize_qa_cost(value.runtime_cost)
+    if not runtime_cost then return nil, runtime_cost_err end
+    local source_refs, source_refs_err = normalize_refs(
+        value.source_refs,
+        "QA candidate verdict"
+    )
+    if not source_refs then return nil, source_refs_err end
+    for _, ref in ipairs({
+        value.candidate_seal_id,
+        value.candidate_seal_event_ref,
+        value.artifact_alignment_id,
+        value.qa_contract_id,
+        check_ids[1],
+        check_refs[1],
+        request_refs[1],
+    }) do
+        if not contains_ref(source_refs, ref) then
+            return nil, "QA candidate verdict omits an identity source"
+        end
+    end
+    local prepared = copy_value(value)
+    prepared.check_ids = check_ids
+    prepared.check_refs = check_refs
+    prepared.request_refs = request_refs
+    prepared.runtime_cost = runtime_cost
+    prepared.source_refs = source_refs
+    return normalize_identity(prepared, "verdict_id", "qa-verdict:")
+end
+
+function schema.verify_verdict(value)
+    local normalized, normalized_err = schema.normalize_verdict(value)
+    if not normalized then return nil, normalized_err end
+    if not qa_schema.same(value, normalized) then
+        return nil, "QA candidate verdict is not normalized"
+    end
+    return true
+end
+
 function schema.normalize_payload(event_type, value)
     if event_type == "qa_check_request" then
         return schema.normalize_request(value)
@@ -629,6 +796,9 @@ function schema.normalize_payload(event_type, value)
     end
     if event_type == "qa_execution_failure" then
         return schema.normalize_failure(value)
+    end
+    if event_type == "qa_candidate_verdict" then
+        return schema.normalize_verdict(value)
     end
     return nil, "QA evidence payload schema is not implemented: "
         .. tostring(event_type)

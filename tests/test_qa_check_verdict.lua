@@ -355,10 +355,10 @@ end
 
 probes.QV23 = function()
     local grown = assert((execute_case({label = "qa-verdict-zero-cost"})))
-    local before = fixture.copy(grown.instance.tension.budget)
+    local before = fixture.copy(grown.instance.runtime.budget.spent)
     commit_current_verdict(grown)
     for key, value in pairs(before) do
-        H.assert_eq(grown.instance.tension.budget[key], value,
+        H.assert_eq(grown.instance.runtime.budget.spent[key], value,
             "verdict assembly cannot debit " .. tostring(key))
     end
     H.assert_eq(grown.qa_adapter_state.runs, 1,

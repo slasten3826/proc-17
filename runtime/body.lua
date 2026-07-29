@@ -1014,6 +1014,16 @@ function body.record_qa_execution_failure(instance, payload)
     )
 end
 
+function body.record_qa_candidate_verdict(instance, payload)
+    return record_qa_event(
+        instance,
+        "☱",
+        "qa_candidate_verdict",
+        payload,
+        {}
+    )
+end
+
 function body.record_choice(instance, choice_payload)
     local lease, lease_err = packet_core.assert_actor_tick(instance, "☳", "record choice")
     if not lease then

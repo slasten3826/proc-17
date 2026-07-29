@@ -190,6 +190,27 @@ local function outcome_event_is_exact(instance, event, event_type)
     return true
 end
 
+local function verdict_event_is_exact(instance, event)
+    if type(event) ~= "table"
+        or event.type ~= "qa_candidate_verdict"
+        or event.operator ~= "☱"
+        or event.truth_status ~= "runtime_confirmed"
+        or event.packet_id ~= instance.id
+        or event.lineage_id ~= instance.lineage_id
+        or event.generation ~= instance.generation then
+        return nil, "QA verdict event envelope is invalid"
+    end
+    local verified, verified_err = evidence_schema.verify_verdict(event.payload)
+    if not verified then return nil, verified_err end
+    if not body_coordinates_match(instance, event.payload) then
+        return nil, "QA verdict is foreign to Packet"
+    end
+    for _, value in pairs(event.cost or {}) do
+        if value ~= 0 then return nil, "QA verdict event has non-zero cost" end
+    end
+    return true
+end
+
 local function verify_outcome(instance, value, event_type)
     local normalized, normalized_err
     if event_type == "qa_check" then
@@ -248,6 +269,7 @@ function evidence.current(instance, candidate_seal_id, qa_contract_id)
         local is_qa_request = event.type == "qa_check_request"
         local is_qa_outcome = event.type == "qa_check"
             or event.type == "qa_execution_failure"
+        local is_qa_verdict = event.type == "qa_candidate_verdict"
         if is_qa_request then
             local exact, exact_err = request_event_is_exact(instance, event)
             if not exact then return nil, exact_err end
@@ -264,6 +286,9 @@ function evidence.current(instance, candidate_seal_id, qa_contract_id)
                 event.type
             )
             if not verified then return nil, verified_err end
+        elseif is_qa_verdict then
+            local exact, exact_err = verdict_event_is_exact(instance, event)
+            if not exact then return nil, exact_err end
         end
         local current = type(payload) == "table"
             and payload.candidate_seal_id == candidate_seal_id
@@ -292,6 +317,13 @@ function evidence.current(instance, candidate_seal_id, qa_contract_id)
                     view.execution_failure_ref = event.id
                 end
             end
+        elseif current and is_qa_verdict then
+            if view.verdict then
+                view.conflicts[#view.conflicts + 1] = "multiple_verdicts"
+            else
+                view.verdict = copy(payload)
+                view.verdict_ref = event.id
+            end
         end
     end
     if view.check and view.execution_failure then
@@ -304,6 +336,27 @@ function evidence.current(instance, candidate_seal_id, qa_contract_id)
     if view.request and view.execution_failure
         and view.request.request_id ~= view.execution_failure.request_id then
         view.conflicts[#view.conflicts + 1] = "failure_request_mismatch"
+    end
+    if view.verdict then
+        if not view.request or not view.check then
+            view.conflicts[#view.conflicts + 1] = "verdict_without_complete_check"
+        else
+            if view.verdict.check_ids[1] ~= view.check.qa_check_id
+                or view.verdict.check_refs[1] ~= view.check_ref
+                or view.verdict.request_refs[1] ~= view.request_ref
+                or view.verdict.verdict ~= view.check.outcome
+                or not qa_schema.same(
+                    view.verdict.runtime_cost,
+                    view.check.runtime_cost
+                ) then
+                view.conflicts[#view.conflicts + 1] =
+                    "verdict_check_mismatch"
+            end
+        end
+        if view.execution_failure then
+            view.conflicts[#view.conflicts + 1] =
+                "verdict_and_execution_failure"
+        end
     end
     view.conflicts = sorted_unique(view.conflicts)
     return copy(view)

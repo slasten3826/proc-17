@@ -32,6 +32,7 @@ local tests = {
     "tests.test_qa_capability_receipt",
     "tests.test_qa_body_join",
     "tests.test_qa_runner_tick",
+    "tests.test_qa_verdict_tick",
     "tests.test_qa_source_bridge",
     "tests.test_qa_provider_loader",
     "tests.test_qa_process",

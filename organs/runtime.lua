@@ -7,6 +7,7 @@ local loss = require("runtime.loss")
 local camera = require("runtime.camera")
 local reconciliation = require("runtime.reconciliation")
 local plan_completion = require("runtime.plan_completion")
+local qa_verdict = require("runtime.qa_verdict")
 local repository_inspection = require("runtime.repository_inspection")
 local work_completion = require("runtime.work_completion")
 
@@ -69,6 +70,31 @@ local function repository_options(main_options, host_services)
     }
 end
 
+local function verdict_action(options)
+    local value = options and options.qa_verdict
+    if value == nil then return nil end
+    if type(value) ~= "table" or getmetatable(value) ~= nil then
+        return nil, "qa_verdict action must be a plain table"
+    end
+    for key in pairs(value) do
+        if key ~= "action" and key ~= "qa_contract_id" then
+            return nil, "qa_verdict action contains unknown key: "
+                .. tostring(key)
+        end
+    end
+    if value.action ~= "assemble_current_candidate_verdict"
+        or type(value.qa_contract_id) ~= "string"
+        or value.qa_contract_id == "" then
+        return nil, "qa_verdict action is invalid"
+    end
+    if options.repository_action_review ~= nil
+        or options.repository_reconcile ~= nil
+        or options.plan_completion_input ~= nil then
+        return nil, "qa_verdict action must be exclusive"
+    end
+    return value
+end
+
 function runtime_organ.readiness(instance, options, host_services, main_options)
     if type(instance) ~= "table" then
         return {
@@ -83,6 +109,37 @@ function runtime_organ.readiness(instance, options, host_services, main_options)
     end
     options = options or {}
     local repository_context = repository_options(main_options, host_services)
+    if options.qa_verdict ~= nil then
+        local action, action_err = verdict_action(options)
+        if not action then
+            return {
+                operator = "☱",
+                ready = false,
+                reason = action_err,
+                source_refs = {},
+                required_capabilities = {},
+                missing_capabilities = {},
+                event_truth_status = "runtime_confirmed",
+            }
+        end
+        local prepared, prepared_err = qa_verdict.prepare(
+            instance,
+            action.qa_contract_id
+        )
+        return {
+            operator = "☱",
+            ready = prepared ~= nil,
+            reason = prepared and "qa_verdict_ready"
+                or tostring(type(prepared_err) == "table"
+                    and prepared_err.code or prepared_err),
+            source_refs = prepared and prepared.source_refs
+                or type(prepared_err) == "table" and prepared_err.source_refs
+                or {},
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     if options.repository_action_review ~= nil then
         local current, current_err = repository_inspection.validate_action_input(
             instance,
@@ -172,6 +229,26 @@ function runtime_organ.run(instance, options, host_services, main_options)
 
     options = options or {}
     local repository_context = repository_options(main_options, host_services)
+    local verdict_record
+    local verdict_event
+    if options.qa_verdict ~= nil then
+        local action, action_err = verdict_action(options)
+        if not action then return nil, action_err end
+        local prepared, prepared_err = qa_verdict.prepare(
+            instance,
+            action.qa_contract_id
+        )
+        if not prepared then
+            return nil, type(prepared_err) == "table"
+                and prepared_err.code or prepared_err
+        end
+        local verdict_err
+        verdict_record, verdict_event, verdict_err = qa_verdict.commit(
+            instance,
+            prepared
+        )
+        if not verdict_record then return nil, verdict_err or verdict_event end
+    end
     local repository_mode
     local repository_record
     local repository_event
@@ -289,6 +366,7 @@ function runtime_organ.run(instance, options, host_services, main_options)
         loss_snapshot = loss_payload,
         reconciliation = reconciliation_record,
         completion_assessment = completion_assessment,
+        qa_verdict = verdict_record,
         truth_status = "runtime_confirmed",
     })
     if not measured then
@@ -312,6 +390,9 @@ function runtime_organ.run(instance, options, host_services, main_options)
     if repository_event then
         source_refs[#source_refs + 1] = repository_event.id
     end
+    if verdict_event then
+        source_refs[#source_refs + 1] = verdict_event.id
+    end
     local observation, observation_err = body.record_observation(instance, "lower", {
         scope_refs = scope_refs,
         read_revisions = read_revisions,
@@ -323,6 +404,7 @@ function runtime_organ.run(instance, options, host_services, main_options)
             loss_snapshot = loss_payload,
             reconciliation = reconciliation_record,
             completion_assessment = completion_assessment,
+            qa_verdict = verdict_record,
         },
         metrics = {
             needed_count = progress.needed_count,
@@ -371,6 +453,13 @@ function runtime_organ.run(instance, options, host_services, main_options)
             payload.work_completion = repository_record
             payload.completion_event_id = repository_event.id
         end
+    end
+    if verdict_record then
+        payload.mode = "qa_verdict"
+        payload.verdict_id = verdict_record.verdict_id
+        payload.verdict = verdict_record.verdict
+        payload.verdict_event_id = verdict_event.id
+        payload.effect_scope_refs = {table.unpack(verdict_record.source_refs)}
     end
     return instance, payload
 end

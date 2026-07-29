@@ -243,8 +243,8 @@ local descriptors = {
         module = runtime_organ,
         required_capabilities = {},
         loss_profile = "conditional",
-        reads = {"calm", "field.relations", "runtime.camera.frames", "budget", "loss", "history", "regime.work"},
-        writes = {"runtime.camera.reconciliations", "runtime.camera.watermark", "boundary.observations.lower", "tension", "field.relations.active", "field.momentum", "plan.completion_assessment"},
+        reads = {"calm", "field.relations", "runtime.camera.frames", "budget", "loss", "history", "regime.work", "candidate.seal", "qa.contract", "qa.check"},
+        writes = {"runtime.camera.reconciliations", "runtime.camera.watermark", "boundary.observations.lower", "tension", "field.relations.active", "field.momentum", "plan.completion_assessment", "qa.candidate_verdict"},
         readiness = function(instance, context)
             return runtime_organ.readiness(
                 instance,
