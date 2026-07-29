@@ -2,6 +2,8 @@ local owned_temp_root = {}
 
 local helper_path = "./native/tests/proc17_fixture_guard"
 local built = false
+local prebuilt = false
+local self_tested = false
 
 local function command_ok(command)
     local ok, why, code = os.execute(command)
@@ -32,21 +34,45 @@ function owned_temp_root.ensure_helper()
     return true
 end
 
-function owned_temp_root.self_test()
-    local ok, err = owned_temp_root.ensure_helper()
-    if not ok then
-        return nil, err
+local function require_helper()
+    if prebuilt or built then
+        return true
+    end
+    return owned_temp_root.ensure_helper()
+end
+
+local function run_helper_self_test()
+    if self_tested then
+        return true
     end
     local passed, why, code = command_ok(helper_path .. " self-test")
     if not passed then
         return nil, "fixture helper self-test failed: "
             .. tostring(why) .. ":" .. tostring(code)
     end
+    self_tested = true
     return true
 end
 
-function owned_temp_root.new()
+function owned_temp_root.use_prebuilt_helper()
+    local ok, err = run_helper_self_test()
+    if not ok then
+        return nil, err
+    end
+    prebuilt = true
+    return true
+end
+
+function owned_temp_root.self_test()
     local ok, err = owned_temp_root.ensure_helper()
+    if not ok then
+        return nil, err
+    end
+    return run_helper_self_test()
+end
+
+function owned_temp_root.new()
+    local ok, err = require_helper()
     if not ok then
         return nil, err
     end
@@ -77,6 +103,46 @@ function owned_temp_root.new()
         repository = path .. "/projects/repo",
         cleaned = false,
     }
+end
+
+function owned_temp_root.identity(root)
+    if type(root) ~= "table" then
+        return nil, "fixture root must be a table"
+    end
+    local valid, valid_err = validate_identity(
+        root.path, root.device, root.inode, root.mount_id)
+    if not valid then
+        return nil, valid_err
+    end
+    return {
+        protocol_version = "repository.test_owned_root_identity.v0",
+        path = root.path,
+        device = root.device,
+        inode = root.inode,
+        mount_id = root.mount_id,
+    }
+end
+
+local function validate_detached_identity(identity)
+    if type(identity) ~= "table"
+        or identity.protocol_version
+            ~= "repository.test_owned_root_identity.v0" then
+        return nil, "fixture identity protocol mismatch"
+    end
+    local allowed = {
+        protocol_version = true,
+        path = true,
+        device = true,
+        inode = true,
+        mount_id = true,
+    }
+    for key in pairs(identity) do
+        if not allowed[key] then
+            return nil, "fixture identity contains undeclared field"
+        end
+    end
+    return validate_identity(identity.path, identity.device,
+        identity.inode, identity.mount_id)
 end
 
 local function invoke(root, operation, device, inode, mount_id)
@@ -125,6 +191,31 @@ function owned_temp_root.cleanup_as(root, device, inode, mount_id)
     return invoke(root, "cleanup", device, inode, mount_id)
 end
 
+function owned_temp_root.absent(prior_identity)
+    local ready, ready_err = require_helper()
+    if not ready then
+        return nil, ready_err
+    end
+    local valid, valid_err = validate_detached_identity(prior_identity)
+    if not valid then
+        return nil, valid_err
+    end
+    local command = table.concat({
+        helper_path,
+        "absent",
+        prior_identity.path,
+        prior_identity.device,
+        prior_identity.inode,
+        prior_identity.mount_id,
+    }, " ")
+    local ok, why, code = command_ok(command)
+    if not ok then
+        return nil, "fixture helper absence check failed: "
+            .. tostring(why) .. ":" .. tostring(code)
+    end
+    return true
+end
+
 function owned_temp_root.assert_owned_path(root, path)
     if type(path) ~= "string"
         or path:sub(1, #root.path + 1) ~= root.path .. "/" then
@@ -147,6 +238,33 @@ function owned_temp_root.with_root(callback)
         error(first, 0)
     end
     return first, second
+end
+
+function owned_temp_root.with_root_phases(body_callback, after_cleanup_callback)
+    if type(body_callback) ~= "function"
+        or type(after_cleanup_callback) ~= "function" then
+        return nil, "fixture phase callbacks must be functions"
+    end
+    local root, root_err = owned_temp_root.new()
+    if not root then
+        return nil, root_err
+    end
+    local prior_identity = assert(owned_temp_root.identity(root))
+    local body_called, body_first, body_second = pcall(body_callback, root)
+    local cleaned, cleanup_err = owned_temp_root.cleanup(root)
+    root = nil
+    local after_called, after_first, after_second = pcall(
+        after_cleanup_callback, prior_identity)
+    if not cleaned then
+        error(cleanup_err, 0)
+    end
+    if not body_called then
+        error(body_first, 0)
+    end
+    if not after_called then
+        error(after_first, 0)
+    end
+    return body_first, body_second, after_first, after_second
 end
 
 return owned_temp_root

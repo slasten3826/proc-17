@@ -227,7 +227,6 @@ local hostile_targets = {
     QN16 = "qa-supervisor-basic-fixtures-test",
     QN17 = "qa-supervisor-hostile-fixtures-test",
     QN18 = "qa-supervisor-trusted-fault-test",
-    QN20 = "qa-supervisor-leak-loop-test",
 }
 
 for id, target in pairs(hostile_targets) do
@@ -280,6 +279,17 @@ probes.QN19 = function()
         "native/tests/test_proc17_qa_cleanup_ambiguity.c",
         "tests/run_qa_cleanup_ambiguity_campaign.lua",
     }, "qa-supervisor-cleanup-ambiguity-test")
+end
+
+probes.QN20 = function()
+    require_provider()
+    native_witness("QN20", {
+        "native/tests/proc17_qa_residue_observer.h",
+        "native/tests/proc17_qa_residue_observer.c",
+        "native/tests/proc17_qa_residue_observer_lua.c",
+        "native/tests/test_proc17_qa_residue_observer.c",
+        "tests/test_qa_repeated_residue_observer.lua",
+    }, "qa-supervisor-leak-loop-test")
 end
 
 for _, control in ipairs(catalog) do

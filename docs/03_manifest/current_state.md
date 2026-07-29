@@ -1,4 +1,4 @@
-# Current State - 2026-07-28
+# Current State - 2026-07-29
 
 Status: active packet-first body
 
@@ -9,7 +9,7 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> qualified relation/upper witnesses -> exact structure/choice actions
 -> exact plan assessment/delivery -> in-memory lineage -> build hands
 -> first complete capability-safe repository life
--> private QA RUN v1 witness + QN17/QN18 containment campaigns
+-> private QA RUN v1 witness + QN17/QN18/QN19 containment campaigns
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -30,9 +30,9 @@ capability-safe repository hand through exact review, effect evidence and
 body-owned completion, then projects one bounded `repository.result.v0` through
 △ and freezes a `dead/complete` Packet. The production QA execution closure now
 owns one exact RUN v1, complete process finality and terminal source disposition.
-Its 17 hostile-candidate and nine trusted-runtime fault campaigns are promoted,
-but the closure remains private: no Packet request, check evidence, verdict or
-software acceptance reader exists yet.
+Its 17 hostile-candidate, nine trusted-runtime fault and six cleanup-ambiguity
+campaign cases are promoted, but the closure remains private: no Packet request,
+check evidence, verdict or software acceptance reader exists yet.
 
 ## Runtime Shape
 
@@ -608,10 +608,11 @@ completion and repository manifestation inside the body.
    and resumes only an explicitly named session. It does not provide persistent
    lineage recovery, QA acceptance, general repository work or a human TUI.
 10. **The QA execution engine is not yet the body QA hand.** Production RUN v1,
-    source finality and QN17/QN18 containment are implemented, but Packet-owned
-    request/receipt, check evidence, verdict, QA economics and completion readers
-    remain expected-red. QN19 cleanup ambiguity and QN20 repeated residue are
-    still deferred native campaigns.
+    source finality and QN17/QN18/QN19 containment are implemented. The
+    test-only QN20 host observer, exact root absence and sentinel fixture phases
+    are also implemented, but the one-load 32-transaction residue campaign is
+    still absent and QN20 remains deferred. Packet-owned request/receipt, check
+    evidence, verdict, QA economics and completion readers remain expected-red.
 
 Several modules are currently standalone or partially integrated, including
 `runtime/pressure_snapshot.lua`, `runtime/trace_store.lua`,

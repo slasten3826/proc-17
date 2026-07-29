@@ -30,9 +30,12 @@ native/tests/test_proc17_qa_report
 native/tests/test_proc17_qa_launcher_v1
 native/tests/test_proc17_qa_execution
 native/tests/test_proc17_qa_trusted_faults
+native/tests/test_proc17_qa_cleanup_ambiguity
 native/tests/proc17_qa_launcher_wrong_abi.so
 native/tests/proc17_qa_launcher_fault_test.so
 native/tests/proc17_qa_supervisor_fault_test
+native/tests/proc17_qa_residue_observer.so
+native/tests/test_proc17_qa_residue_observer
 
 __pycache__/
 *.pyc

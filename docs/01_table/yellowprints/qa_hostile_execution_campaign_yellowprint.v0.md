@@ -616,6 +616,19 @@ No row maps ambiguity to accepted or rejected.
 
 ## 15. QN20 Residue Contract
 
+SUPERSEDED FOR E10 on 2026-07-29 by:
+
+```text
+docs/00_chaos/qa_e10_qn20_repeated_residue_notes_2026-07-29.md
+docs/01_table/yellowprints/qa_repeated_residue_campaign_yellowprint.v0.md
+```
+
+The text below remains the original provisional contract and archaeology. It
+must not drive QN20 implementation directly. In particular, the detailed TABLE
+replaces count-only fd observation, the clean/error alternation and direct host
+mount inference with exact identity sets, a four-case schedule and a joined
+process/fd/mount proof.
+
 The repeated campaign runs 32 transactions over 32 fresh sealed roots,
 alternating clean exit and Lua runtime error. Resource-termination cleanup is
 already exercised in QN17 and is not repeated 32 times.

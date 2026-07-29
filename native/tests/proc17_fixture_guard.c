@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 
+#include "proc17_sha256.h"
+
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -15,20 +17,35 @@
 #define FIXTURE_PARENT "/tmp"
 #define FIXTURE_PREFIX "proc17-repository-hand-"
 #define FIXTURE_TEMPLATE "/tmp/proc17-repository-hand-XXXXXX"
+#define SENTINEL_PREFIX "proc17-qa-sentinel-"
+#define SENTINEL_TEMPLATE "/tmp/proc17-qa-sentinel-XXXXXX"
+#define SENTINEL_MAX_BYTES 4096U
 
-static int valid_fixture_path(const char *path, const char **basename_out)
+static const unsigned char sentinel_bytes[] =
+    "proc17-qa-sentinel.v0\n";
+
+static int valid_generated_path(
+    const char *path,
+    const char *entry_prefix,
+    const char **basename_out)
 {
-    const char *prefix = FIXTURE_PARENT "/" FIXTURE_PREFIX;
-    size_t prefix_length = strlen(prefix);
+    char prefix[128];
+    size_t prefix_length;
     size_t path_length;
     size_t index;
 
+    if (snprintf(prefix, sizeof(prefix), "%s/%s",
+            FIXTURE_PARENT, entry_prefix) <= 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    prefix_length = strlen(prefix);
     if (path == NULL || strncmp(path, prefix, prefix_length) != 0) {
         errno = EINVAL;
         return -1;
     }
     path_length = strlen(path);
-    if (path_length != prefix_length + 6) {
+    if (path_length != prefix_length + 6U) {
         errno = EINVAL;
         return -1;
     }
@@ -41,8 +58,18 @@ static int valid_fixture_path(const char *path, const char **basename_out)
             return -1;
         }
     }
-    *basename_out = path + strlen(FIXTURE_PARENT) + 1;
+    *basename_out = path + strlen(FIXTURE_PARENT) + 1U;
     return 0;
+}
+
+static int valid_fixture_path(const char *path, const char **basename_out)
+{
+    return valid_generated_path(path, FIXTURE_PREFIX, basename_out);
+}
+
+static int valid_sentinel_path(const char *path, const char **basename_out)
+{
+    return valid_generated_path(path, SENTINEL_PREFIX, basename_out);
 }
 
 static int parse_identity(const char *text, uintmax_t *result)
@@ -352,6 +379,254 @@ static int probe_fixture(
     return close(parent_fd);
 }
 
+static int absent_fixture(
+    const char *path,
+    uintmax_t prior_device,
+    uintmax_t prior_inode,
+    uint64_t prior_mount_id)
+{
+    const char *basename;
+    struct stat status;
+    int parent_fd;
+    int result = -1;
+
+    (void)prior_device;
+    (void)prior_inode;
+    (void)prior_mount_id;
+    if (valid_fixture_path(path, &basename) != 0) return -1;
+    parent_fd = open(FIXTURE_PARENT,
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (parent_fd < 0) return -1;
+    if (fstatat(parent_fd, basename, &status, AT_SYMLINK_NOFOLLOW) != 0) {
+        if (errno == ENOENT) result = 0;
+    } else {
+        errno = EEXIST;
+    }
+    {
+        int saved = errno;
+        if (close(parent_fd) != 0 && result == 0) return -1;
+        errno = saved;
+    }
+    return result;
+}
+
+static int write_all_bytes(
+    int descriptor,
+    const unsigned char *bytes,
+    size_t length)
+{
+    while (length > 0U) {
+        ssize_t written = write(descriptor, bytes, length);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) return -1;
+        bytes += (size_t)written;
+        length -= (size_t)written;
+    }
+    return 0;
+}
+
+static int digest_regular_file(
+    int descriptor,
+    uintmax_t expected_size,
+    unsigned char digest[PROC17_SHA256_BYTES])
+{
+    struct proc17_sha256 context;
+    unsigned char buffer[512];
+    uintmax_t total = 0U;
+
+    if (expected_size > SENTINEL_MAX_BYTES
+        || lseek(descriptor, 0, SEEK_SET) < 0) {
+        if (expected_size > SENTINEL_MAX_BYTES) errno = EFBIG;
+        return -1;
+    }
+    proc17_sha256_init(&context);
+    for (;;) {
+        ssize_t length = read(descriptor, buffer, sizeof(buffer));
+        if (length < 0 && errno == EINTR) continue;
+        if (length < 0) return -1;
+        if (length == 0) break;
+        total += (uintmax_t)length;
+        if (total > expected_size || total > SENTINEL_MAX_BYTES) {
+            errno = EFBIG;
+            return -1;
+        }
+        proc17_sha256_update(&context, buffer, (size_t)length);
+    }
+    if (total != expected_size) {
+        errno = ESTALE;
+        return -1;
+    }
+    proc17_sha256_final(&context, digest);
+    return 0;
+}
+
+static int create_sentinel(
+    char *path,
+    size_t path_size,
+    struct stat *status,
+    uint64_t *mount_id,
+    char digest_hex[PROC17_SHA256_BYTES * 2U + 1U])
+{
+    char template[] = SENTINEL_TEMPLATE;
+    unsigned char digest[PROC17_SHA256_BYTES];
+    mode_t previous_mask;
+    int descriptor = -1;
+    int result = -1;
+
+    if (path_size < sizeof(template)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    previous_mask = umask(0077);
+    descriptor = mkostemp(template, O_CLOEXEC);
+    umask(previous_mask);
+    if (descriptor < 0) return -1;
+    memcpy(path, template, sizeof(template));
+    if (write_all_bytes(descriptor, sentinel_bytes,
+            sizeof(sentinel_bytes) - 1U) != 0
+        || fstat(descriptor, status) != 0
+        || !S_ISREG(status->st_mode)
+        || mount_id_at(descriptor, "", AT_EMPTY_PATH, mount_id) != 0
+        || digest_regular_file(descriptor, (uintmax_t)status->st_size,
+            digest) != 0) {
+        goto cleanup;
+    }
+    proc17_sha256_hex(digest, digest_hex);
+    result = 0;
+
+cleanup:
+    {
+        int saved = errno;
+        if (close(descriptor) != 0 && result == 0) result = -1;
+        if (result != 0) {
+            (void)unlink(template);
+            path[0] = '\0';
+        }
+        errno = saved;
+    }
+    return result;
+}
+
+static int open_owned_sentinel(
+    const char *path,
+    uintmax_t expected_device,
+    uintmax_t expected_inode,
+    uint64_t expected_mount_id,
+    uintmax_t expected_size,
+    const unsigned char expected_digest[PROC17_SHA256_BYTES],
+    int *parent_fd_out,
+    int *file_fd_out,
+    const char **basename_out)
+{
+    const char *basename;
+    struct stat status;
+    unsigned char observed_digest[PROC17_SHA256_BYTES];
+    uint64_t mount_id;
+    int parent_fd = -1;
+    int file_fd = -1;
+
+    if (valid_sentinel_path(path, &basename) != 0
+        || expected_size > SENTINEL_MAX_BYTES) {
+        if (expected_size > SENTINEL_MAX_BYTES) errno = EFBIG;
+        return -1;
+    }
+    parent_fd = open(FIXTURE_PARENT,
+        O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (parent_fd < 0) return -1;
+    file_fd = openat(parent_fd, basename,
+        O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (file_fd < 0
+        || fstat(file_fd, &status) != 0
+        || !S_ISREG(status.st_mode)
+        || status.st_size < 0
+        || mount_id_at(file_fd, "", AT_EMPTY_PATH, &mount_id) != 0
+        || (uintmax_t)status.st_dev != expected_device
+        || (uintmax_t)status.st_ino != expected_inode
+        || mount_id != expected_mount_id
+        || (uintmax_t)status.st_size != expected_size
+        || digest_regular_file(file_fd, expected_size,
+            observed_digest) != 0
+        || memcmp(observed_digest, expected_digest,
+            PROC17_SHA256_BYTES) != 0) {
+        int saved = errno == 0 ? ESTALE : errno;
+        if (file_fd >= 0) (void)close(file_fd);
+        (void)close(parent_fd);
+        errno = saved;
+        return -1;
+    }
+    *parent_fd_out = parent_fd;
+    *file_fd_out = file_fd;
+    *basename_out = basename;
+    return 0;
+}
+
+static int probe_sentinel(
+    const char *path,
+    uintmax_t expected_device,
+    uintmax_t expected_inode,
+    uint64_t expected_mount_id,
+    uintmax_t expected_size,
+    const unsigned char expected_digest[PROC17_SHA256_BYTES])
+{
+    const char *basename;
+    int parent_fd;
+    int file_fd;
+    int result = 0;
+
+    if (open_owned_sentinel(path, expected_device, expected_inode,
+            expected_mount_id, expected_size, expected_digest,
+            &parent_fd, &file_fd, &basename) != 0) {
+        return -1;
+    }
+    (void)basename;
+    if (close(file_fd) != 0) result = -1;
+    if (close(parent_fd) != 0) result = -1;
+    return result;
+}
+
+static int cleanup_sentinel(
+    const char *path,
+    uintmax_t expected_device,
+    uintmax_t expected_inode,
+    uint64_t expected_mount_id,
+    uintmax_t expected_size,
+    const unsigned char expected_digest[PROC17_SHA256_BYTES])
+{
+    const char *basename;
+    struct stat status;
+    int parent_fd;
+    int file_fd;
+    int result = -1;
+
+    if (open_owned_sentinel(path, expected_device, expected_inode,
+            expected_mount_id, expected_size, expected_digest,
+            &parent_fd, &file_fd, &basename) != 0) {
+        return -1;
+    }
+    if (fstatat(parent_fd, basename, &status, AT_SYMLINK_NOFOLLOW) != 0
+        || !S_ISREG(status.st_mode)
+        || (uintmax_t)status.st_dev != expected_device
+        || (uintmax_t)status.st_ino != expected_inode
+        || unlinkat(parent_fd, basename, 0) != 0) {
+        goto cleanup;
+    }
+    if (fstatat(parent_fd, basename, &status, AT_SYMLINK_NOFOLLOW) != 0
+        && errno == ENOENT) {
+        result = 0;
+    } else {
+        errno = EEXIST;
+    }
+
+cleanup:
+    {
+        int saved = errno;
+        if (close(file_fd) != 0 && result == 0) result = -1;
+        if (close(parent_fd) != 0 && result == 0) result = -1;
+        errno = saved;
+    }
+    return result;
+}
+
 static int write_sentinel(const char *directory, const char *name)
 {
     int directory_fd = open(directory,
@@ -385,12 +660,18 @@ static int self_test(void)
     char path[sizeof(FIXTURE_TEMPLATE)] = {0};
     char second_path[sizeof(FIXTURE_TEMPLATE)] = {0};
     char moved_path[sizeof(FIXTURE_TEMPLATE) + 8] = {0};
+    char sentinel[sizeof(SENTINEL_TEMPLATE)] = {0};
+    char sentinel_digest_hex[PROC17_SHA256_BYTES * 2U + 1U] = {0};
     char outside_template[] = "/tmp/proc17-fixture-sentinel-XXXXXX";
     char sentinel_path[sizeof(outside_template) + 16] = {0};
+    unsigned char sentinel_digest[PROC17_SHA256_BYTES];
+    unsigned char wrong_digest[PROC17_SHA256_BYTES];
     struct stat status;
     struct stat second_status;
+    struct stat sentinel_status;
     uint64_t mount_id = 0;
     uint64_t second_mount_id = 0;
+    uint64_t sentinel_mount_id = 0;
     int root_fd = -1;
     int projects_fd = -1;
     int repository_fd = -1;
@@ -422,7 +703,13 @@ static int self_test(void)
         || probe_fixture(path, (uintmax_t)status.st_dev,
             (uintmax_t)status.st_ino, mount_id) != 0
         || cleanup_fixture(path, (uintmax_t)status.st_dev,
-            (uintmax_t)status.st_ino, mount_id) != 0) {
+            (uintmax_t)status.st_ino, mount_id) != 0
+        || absent_fixture(path, (uintmax_t)status.st_dev,
+            (uintmax_t)status.st_ino, mount_id) != 0
+        || symlink(outside_template, path) != 0
+        || absent_fixture(path, (uintmax_t)status.st_dev,
+            (uintmax_t)status.st_ino, mount_id) == 0
+        || unlink(path) != 0) {
         goto done;
     }
     snprintf(sentinel_path, sizeof(sentinel_path), "%s/sentinel", outside_template);
@@ -443,6 +730,28 @@ static int self_test(void)
             (uintmax_t)second_status.st_ino, second_mount_id) != 0) {
         goto done;
     }
+    if (create_sentinel(sentinel, sizeof(sentinel), &sentinel_status,
+            &sentinel_mount_id, sentinel_digest_hex) != 0
+        || proc17_sha256_parse_hex(sentinel_digest_hex, sentinel_digest) != 0) {
+        goto done;
+    }
+    memcpy(wrong_digest, sentinel_digest, sizeof(wrong_digest));
+    wrong_digest[0] ^= 0xffU;
+    if (probe_sentinel(sentinel, (uintmax_t)sentinel_status.st_dev,
+            (uintmax_t)sentinel_status.st_ino, sentinel_mount_id,
+            (uintmax_t)sentinel_status.st_size, sentinel_digest) != 0
+        || probe_sentinel(sentinel, (uintmax_t)sentinel_status.st_dev,
+            (uintmax_t)sentinel_status.st_ino, sentinel_mount_id,
+            (uintmax_t)sentinel_status.st_size, wrong_digest) == 0
+        || cleanup_sentinel(sentinel, (uintmax_t)sentinel_status.st_dev,
+            (uintmax_t)sentinel_status.st_ino, sentinel_mount_id,
+            (uintmax_t)sentinel_status.st_size, sentinel_digest) != 0
+        || probe_sentinel(sentinel, (uintmax_t)sentinel_status.st_dev,
+            (uintmax_t)sentinel_status.st_ino, sentinel_mount_id,
+            (uintmax_t)sentinel_status.st_size, sentinel_digest) == 0) {
+        goto done;
+    }
+    sentinel[0] = '\0';
     result = 0;
 
 done:
@@ -475,6 +784,14 @@ done:
         cleanup_fixture(second_path, (uintmax_t)second_status.st_dev,
             (uintmax_t)second_status.st_ino, second_mount_id);
     }
+    if (sentinel[0] != '\0'
+        && proc17_sha256_parse_hex(sentinel_digest_hex,
+            sentinel_digest) == 0) {
+        (void)cleanup_sentinel(sentinel,
+            (uintmax_t)sentinel_status.st_dev,
+            (uintmax_t)sentinel_status.st_ino, sentinel_mount_id,
+            (uintmax_t)sentinel_status.st_size, sentinel_digest);
+    }
     if (sentinel_path[0] != '\0') {
         unlink(sentinel_path);
     }
@@ -502,9 +819,28 @@ int main(int argc, char **argv)
             fixture_mount_id);
         return 0;
     }
+    if (argc == 2 && strcmp(argv[1], "sentinel-create") == 0) {
+        char path[sizeof(SENTINEL_TEMPLATE)];
+        char digest_hex[PROC17_SHA256_BYTES * 2U + 1U];
+        struct stat status;
+        uint64_t sentinel_mount_id;
+
+        if (create_sentinel(path, sizeof(path), &status,
+                &sentinel_mount_id, digest_hex) != 0) {
+            perror("sentinel create");
+            return 1;
+        }
+        printf("%s\t%" PRIuMAX "\t%" PRIuMAX "\t%" PRIu64
+                "\t%" PRIuMAX "\t%s\n",
+            path, (uintmax_t)status.st_dev, (uintmax_t)status.st_ino,
+            sentinel_mount_id, (uintmax_t)status.st_size, digest_hex);
+        return 0;
+    }
     if (argc == 6
         && (strcmp(argv[1], "probe") == 0
-            || strcmp(argv[1], "cleanup") == 0)) {
+            || strcmp(argv[1], "cleanup") == 0
+            || strcmp(argv[1], "absent") == 0
+            || strcmp(argv[1], "sentinel-cleanup") == 0)) {
         if (parse_identity(argv[3], &device) != 0
             || parse_identity(argv[4], &inode) != 0
             || parse_identity(argv[5], &mount_id) != 0) {
@@ -517,8 +853,48 @@ int main(int argc, char **argv)
             }
             return 0;
         }
+        if (strcmp(argv[1], "absent") == 0) {
+            if (absent_fixture(argv[2], device, inode,
+                    (uint64_t)mount_id) != 0) {
+                perror("fixture absence");
+                return 1;
+            }
+            return 0;
+        }
+        if (strcmp(argv[1], "sentinel-cleanup") == 0) {
+            unsigned char digest[PROC17_SHA256_BYTES];
+
+            proc17_sha256_bytes(sentinel_bytes,
+                sizeof(sentinel_bytes) - 1U, digest);
+            if (cleanup_sentinel(argv[2], device, inode,
+                    (uint64_t)mount_id, sizeof(sentinel_bytes) - 1U,
+                    digest) != 0) {
+                perror("sentinel cleanup");
+                return 1;
+            }
+            return 0;
+        }
         if (cleanup_fixture(argv[2], device, inode, (uint64_t)mount_id) != 0) {
             perror("fixture cleanup");
+            return 1;
+        }
+        return 0;
+    }
+    if (argc == 8 && strcmp(argv[1], "sentinel-probe") == 0) {
+        uintmax_t size;
+        unsigned char digest[PROC17_SHA256_BYTES];
+
+        if (parse_identity(argv[3], &device) != 0
+            || parse_identity(argv[4], &inode) != 0
+            || parse_identity(argv[5], &mount_id) != 0
+            || parse_identity(argv[6], &size) != 0
+            || proc17_sha256_parse_hex(argv[7], digest) != 0) {
+            fputs("sentinel identity is malformed\n", stderr);
+            return 2;
+        }
+        if (probe_sentinel(argv[2], device, inode, (uint64_t)mount_id,
+                size, digest) != 0) {
+            perror("sentinel probe");
             return 1;
         }
         return 0;
@@ -531,7 +907,7 @@ int main(int argc, char **argv)
         puts("proc17_fixture_guard ok");
         return 0;
     }
-    fputs("usage: proc17_fixture_guard create|self-test|probe PATH DEV INO MNT|cleanup PATH DEV INO MNT\n",
+    fputs("usage: proc17_fixture_guard create|self-test|probe PATH DEV INO MNT|cleanup PATH DEV INO MNT|absent PATH DEV INO MNT|sentinel-create|sentinel-probe PATH DEV INO MNT SIZE SHA256|sentinel-cleanup PATH DEV INO MNT\n",
         stderr);
     return 2;
 }

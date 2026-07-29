@@ -25,6 +25,37 @@ E1-E10 implementation authorized in exact order by:
 Packet/body QA authority remains forbidden
 ```
 
+E10 precision hold 2026-07-29:
+
+```text
+C10/QN20 implementation authority is withdrawn pending cross-crystall audit of
+the precision crystall derived from
+docs/01_table/yellowprints/qa_repeated_residue_campaign_yellowprint.v0.md.
+E1-E9 and QN17-QN19 remain promoted and unchanged.
+The provisional section 11 below remains archaeology, not executable authority.
+```
+
+E10 precision crystall assembled 2026-07-29:
+
+```text
+docs/02_crystall/blueprints/qa_repeated_residue_campaign.v0.md
+
+The new crystall replaces provisional section 11 but does not release the E10
+hold by itself. C10/QN20 implementation remains unauthorized until its named
+cross-crystall audit is satisfied.
+```
+
+E10 precision hold released 2026-07-29:
+
+```text
+cross-crystall audit:
+  docs/00_chaos/qa_e10_qn20_crystall_cross_audit_2026-07-29.md
+implementation authority:
+  docs/02_crystall/blueprints/qa_repeated_residue_campaign.v0.md C10.1-C10.7
+The provisional section 11 remains archaeology. QN01-QN19 and Packet/body QA
+authority remain unchanged.
+```
+
 ## 0. Crystall Contract
 
 This blueprint is complete only when:
@@ -736,6 +767,9 @@ Audit production artifacts with exact symbol/string/API tests and attempt to
 load the fault build through the production loader. Any acceptance fails QN18.
 
 ## 11. C10 - QN20 Harness
+
+SUPERSEDED / NOT IMPLEMENTATION AUTHORITY for E10. See the precision crystall
+and hold above.
 
 ### 11.1 Loop
 

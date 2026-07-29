@@ -30,6 +30,8 @@ QA_FAULT_SUPERVISOR = tests/proc17_qa_supervisor_fault_test
 QA_FAULT_LAUNCHER_MODULE = tests/proc17_qa_launcher_fault_test.so
 QA_TRUSTED_FAULT_TEST = tests/test_proc17_qa_trusted_faults
 QA_CLEANUP_AMBIGUITY_TEST = tests/test_proc17_qa_cleanup_ambiguity
+QA_RESIDUE_OBSERVER_MODULE = tests/proc17_qa_residue_observer.so
+QA_RESIDUE_OBSERVER_TEST = tests/test_proc17_qa_residue_observer
 QA_GENERATED_DIR = generated
 QA_PREBUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_prebuild.h
 QA_BUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_build_identity.h
@@ -55,7 +57,9 @@ QA_STATIC_LDFLAGS ?= -static-pie
 	qa-supervisor-limits-test qa-native-probe-test qa-provider-shell \
 	qa-loader-test-fixture qa-run-basic-internal-test \
 	qa-supervisor-basic-fixtures-test qa-supervisor-hostile-fixtures-test \
-	qa-supervisor-trusted-fault-test qa-supervisor-cleanup-ambiguity-test
+	qa-supervisor-trusted-fault-test qa-supervisor-cleanup-ambiguity-test \
+	qa-residue-observer-contract-syntax qa-residue-observer-test \
+	qa-supervisor-leak-loop-test
 
 all: toolchain-check $(MODULE)
 
@@ -294,6 +298,20 @@ $(QA_CLEANUP_AMBIGUITY_TEST): tests/test_proc17_qa_cleanup_ambiguity.c \
 		proc17_qa_stream.c proc17_qa_scratch.c proc17_qa_phase.c \
 		proc17_qa_status.c proc17_sha256.c $(LDFLAGS)
 
+$(QA_RESIDUE_OBSERVER_TEST): tests/test_proc17_qa_residue_observer.c \
+		tests/proc17_qa_residue_observer.h
+	$(CC) $(CFLAGS) -I. -o $@ \
+		tests/test_proc17_qa_residue_observer.c $(LDFLAGS) -ldl
+
+$(QA_RESIDUE_OBSERVER_MODULE): tests/proc17_qa_residue_observer.c \
+		tests/proc17_qa_residue_observer_lua.c \
+		tests/proc17_qa_residue_observer.h proc17_sha256.c proc17_sha256.h \
+		$(QA_SUPERVISOR) $(QA_BUILD_IDENTITY)
+	$(CC) $(CFLAGS) -fPIC -shared $(LUA_CFLAGS) -I. -o $@ \
+		tests/proc17_qa_residue_observer.c \
+		tests/proc17_qa_residue_observer_lua.c proc17_sha256.c \
+		$(LDFLAGS) $(LUA_LIBS) -ldl
+
 $(QA_WRONG_ABI_MODULE): tests/proc17_qa_launcher_wrong_abi.c
 	$(CC) $(CFLAGS) -fPIC -shared $(LUA_CFLAGS) $(LDFLAGS) \
 		-o $@ $< $(LUA_LIBS)
@@ -327,6 +345,26 @@ qa-supervisor-cleanup-ambiguity-test: qa-provider-shell fixture-helper \
 		$(QA_CLEANUP_AMBIGUITY_TEST)
 	cd .. && lua tests/run_qa_cleanup_ambiguity_campaign.lua
 
+qa-residue-observer-contract-syntax: toolchain-check
+	$(CC) $(CFLAGS) -I. -fsyntax-only \
+		tests/test_proc17_qa_residue_observer.c
+	$(CC) $(CFLAGS) -fPIC $(LUA_CFLAGS) -I. -fsyntax-only \
+		tests/proc17_qa_residue_observer.c \
+		tests/proc17_qa_residue_observer_lua.c
+	cd .. && luac -p tests/test_qa_repeated_residue_observer.lua
+
+qa-residue-observer-test: qa-residue-observer-contract-syntax \
+		$(QA_RESIDUE_OBSERVER_MODULE) $(QA_RESIDUE_OBSERVER_TEST) \
+		$(QA_SUPERVISOR) $(QA_BUILD_IDENTITY) fixture-helper
+	@status=0; \
+	./$(QA_RESIDUE_OBSERVER_TEST) || status=1; \
+	(cd .. && lua tests/test_qa_repeated_residue_observer.lua) || status=1; \
+	exit $$status
+
+qa-supervisor-leak-loop-test: provider-shell qa-provider-shell fixture-helper \
+		qa-report-test qa-residue-observer-test
+	cd .. && lua tests/run_qa_repeated_residue_campaign.lua
+
 qa-static-closure-test: $(QA_SUPERVISOR) $(QA_BUILD_IDENTITY)
 	@! readelf -l $(QA_SUPERVISOR) | grep -q 'INTERP'
 	@! readelf -d $(QA_SUPERVISOR) | grep -q 'NEEDED'
@@ -357,8 +395,9 @@ qa-supervisor-seccomp-test: qa-native-probe-test
 
 qa-supervisor-limits-test: qa-native-probe-test
 
-$(FIXTURE_HELPER): tests/proc17_fixture_guard.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
+$(FIXTURE_HELPER): tests/proc17_fixture_guard.c proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -I. $(LDFLAGS) -o $@ \
+		tests/proc17_fixture_guard.c proc17_sha256.c
 
 fixture-helper: $(FIXTURE_HELPER)
 
@@ -424,5 +463,6 @@ clean:
 		$(QA_SUPERVISOR) $(QA_LAUNCHER_MODULE) $(QA_SUPERVISOR_TEST) \
 		$(QA_WRONG_ABI_MODULE) $(QA_RUN_TEST) $(QA_FAULT_SUPERVISOR) \
 		$(QA_FAULT_LAUNCHER_MODULE) $(QA_TRUSTED_FAULT_TEST) \
-		$(QA_CLEANUP_AMBIGUITY_TEST)
+		$(QA_CLEANUP_AMBIGUITY_TEST) $(QA_RESIDUE_OBSERVER_MODULE) \
+		$(QA_RESIDUE_OBSERVER_TEST)
 	rm -rf $(QA_GENERATED_DIR)
