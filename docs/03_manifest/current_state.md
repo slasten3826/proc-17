@@ -363,8 +363,11 @@ The private QA provider executes only a sealed `tests/run.lua` candidate under
 the exact static supervisor identity. RUN v1 preserves candidate start, cause,
 measurements, cleanup, reap and EOF facts; provider witness v1 joins those facts
 to pre/post source inventories and terminal consumed/quarantined disposition.
-The QN17/QN18 campaigns prove the named candidate and trusted-fault boundaries
-without exporting a fault selector or giving this evidence Packet authority.
+The QN17/QN18/QN19 campaigns prove the named candidate, trusted-fault and
+cleanup-ambiguity boundaries without exporting a fault selector or giving this
+evidence Packet authority. Controller terminal v2 carries either exact result
+evidence or one named internal observation failure; a closed causal topology
+decides source reuse, and only exact clean pre-start failures are reusable.
 
 ## Measured Evidence
 
@@ -400,9 +403,10 @@ tests/test_repository_progress.lua    9/9 passed
 tests/test_repository_effect_linux.lua 3/3 real-provider lives passed
 lua tests/smoke_mortality_battery.lua 8/8 cases passed
 tests/test_cli.lua                   passed plan/build/session/native-provider/hostile cases
-tests/test_qa_native_supervisor.lua  18 green / 0 red / 2 deferred
+tests/test_qa_native_supervisor.lua  19 green / 0 red / 1 deferred
 lua tests/run_qa_trusted_fault_campaign.lua 9/9, zero candidate outcomes
-lua tests/red_qa_hand.lua            expected red: 42 green / 42 red
+lua tests/run_qa_cleanup_ambiguity_campaign.lua 6/6, zero candidate outcomes, six quarantines
+lua tests/red_qa_hand.lua            expected red: 43 green / 41 red
 live CLI plan                        complete, 1 DeepSeek call, 373 tokens
 live CLI build                       complete, 1 DeepSeek call, 408 tokens, one verified file
 live CLI overwrite attempt           effect_failure, original file unchanged

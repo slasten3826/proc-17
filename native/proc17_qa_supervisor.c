@@ -1615,6 +1615,7 @@ int proc17_qa_run_namespace_controller_v1(
     struct proc17_qa_allocator_snapshot allocator;
     struct proc17_qa_allocator_snapshot allocator_again;
     struct proc17_qa_controller_report_input report_input;
+    struct proc17_qa_controller_error_input error_input;
     struct proc17_qa_candidate_termination termination;
     struct proc17_qa_status_message status_message;
     unsigned char stage_payload[PROC17_QA_SOURCE_STAGE_V1_BYTES];
@@ -1631,6 +1632,8 @@ int proc17_qa_run_namespace_controller_v1(
     uint8_t status_eof = 0U;
     uint8_t heap_notifications = 0U;
     uint8_t kill_sent = 0U;
+    uint16_t controller_error_code = 0U;
+    uint16_t controller_error_subject = 0U;
     int result = -1;
 
     memset(&stage, 0, sizeof(stage));
@@ -1747,17 +1750,25 @@ int proc17_qa_run_namespace_controller_v1(
     }
 
     while (candidate_reaped == 0U
-            || stdout_observer.eof_observed == 0U
-            || stderr_observer.eof_observed == 0U
+            || (controller_error_subject
+                    != PROC17_QA_CONTROLLER_ERROR_STDOUT
+                && stdout_observer.eof_observed == 0U)
+            || (controller_error_subject
+                    != PROC17_QA_CONTROLLER_ERROR_STDERR
+                && stderr_observer.eof_observed == 0U)
             || status_eof == 0U) {
         struct pollfd descriptors[5];
         struct proc17_qa_observation_epoch epoch;
         int polled;
         int epoch_result;
 
-        descriptors[0] = (struct pollfd){.fd = stdout_descriptors[0],
+        descriptors[0] = (struct pollfd){.fd = controller_error_subject
+                == PROC17_QA_CONTROLLER_ERROR_STDOUT
+            ? -1 : stdout_descriptors[0],
             .events = stdout_observer.eof_observed ? 0 : POLLIN | POLLHUP};
-        descriptors[1] = (struct pollfd){.fd = stderr_descriptors[0],
+        descriptors[1] = (struct pollfd){.fd = controller_error_subject
+                == PROC17_QA_CONTROLLER_ERROR_STDERR
+            ? -1 : stderr_descriptors[0],
             .events = stderr_observer.eof_observed ? 0 : POLLIN | POLLHUP};
         descriptors[2] = (struct pollfd){.fd = candidate_pidfd,
             .events = candidate_reaped ? 0 : POLLIN};
@@ -1770,16 +1781,26 @@ int proc17_qa_run_namespace_controller_v1(
         } while (polled < 0 && errno == EINTR);
         if (polled <= 0) goto cleanup;
         memset(&epoch, 0, sizeof(epoch));
-        if ((descriptors[0].revents & (POLLIN | POLLHUP)) != 0
-            && drain_epoch_stream(&stdout_observer, stdout_descriptors[0],
-                &epoch.stdout_limit_crossed) != 0) {
-            goto cleanup;
+        if ((descriptors[0].revents & (POLLIN | POLLHUP)) != 0) {
+            if (drain_epoch_stream(&stdout_observer, stdout_descriptors[0],
+                    &epoch.stdout_limit_crossed) != 0) {
+                if (controller_error_code != 0U) goto cleanup;
+                controller_error_code
+                    = PROC17_QA_RUN_V1_OUTPUT_OBSERVATION_INCOMPLETE;
+                controller_error_subject
+                    = PROC17_QA_CONTROLLER_ERROR_STDOUT;
+            }
         }
         epoch.stdout_observed_bytes = stdout_observer.observed_bytes;
-        if ((descriptors[1].revents & (POLLIN | POLLHUP)) != 0
-            && drain_epoch_stream(&stderr_observer, stderr_descriptors[0],
-                &epoch.stderr_limit_crossed) != 0) {
-            goto cleanup;
+        if ((descriptors[1].revents & (POLLIN | POLLHUP)) != 0) {
+            if (drain_epoch_stream(&stderr_observer, stderr_descriptors[0],
+                    &epoch.stderr_limit_crossed) != 0) {
+                if (controller_error_code != 0U) goto cleanup;
+                controller_error_code
+                    = PROC17_QA_RUN_V1_OUTPUT_OBSERVATION_INCOMPLETE;
+                controller_error_subject
+                    = PROC17_QA_CONTROLLER_ERROR_STDERR;
+            }
         }
         epoch.stderr_observed_bytes = stderr_observer.observed_bytes;
         if ((descriptors[4].revents & (POLLIN | POLLHUP)) != 0) {
@@ -1826,6 +1847,14 @@ int proc17_qa_run_namespace_controller_v1(
             || epoch_result == PROC17_QA_EPOCH_AMBIGUOUS) {
             goto cleanup;
         }
+        if (controller_error_code != 0U && candidate_reaped == 0U
+            && kill_sent == 0U) {
+            if (syscall(SYS_pidfd_send_signal, candidate_pidfd,
+                    SIGKILL, NULL, 0U) != 0) {
+                goto cleanup;
+            }
+            kill_sent = 1U;
+        }
         if (phase.first_cause.kind != 0U && candidate_reaped == 0U
             && kill_sent == 0U) {
             if (syscall(SYS_pidfd_send_signal, candidate_pidfd,
@@ -1838,46 +1867,90 @@ int proc17_qa_run_namespace_controller_v1(
     if (proc17_qa_phase_mark_finality(
             &phase, PROC17_QA_FINAL_CANDIDATE_TERMINAL) != 0
         || proc17_qa_phase_mark_finality(
-            &phase, PROC17_QA_FINAL_PROCESS_TREE_REAPED) != 0
-        || proc17_qa_phase_mark_finality(
-            &phase, PROC17_QA_FINAL_STDOUT_EOF) != 0
-        || proc17_qa_phase_mark_finality(
-            &phase, PROC17_QA_FINAL_STDERR_EOF) != 0
-        || proc17_qa_stream_snapshot(
-            &stdout_observer, &stdout_measurement) != 0
-        || proc17_qa_stream_snapshot(
-            &stderr_observer, &stderr_measurement) != 0
-        || proc17_qa_candidate_clock_finish(
-            &clock, &usage, &candidate_metrics) != 0
-        || proc17_qa_scratch_measure_final(scratch_descriptor,
-            &scratch_baseline, PROC17_QA_SCRATCH_BYTES,
-            PROC17_QA_SCRATCH_ENTRIES, &scratch_measurement)
-            != PROC17_QA_SCRATCH_COMPLETE
-        || proc17_qa_phase_mark_finality(
-            &phase, PROC17_QA_FINAL_SCRATCH_OBSERVED) != 0
-        || proc17_qa_allocator_snapshot(telemetry, &allocator) != 0
-        || proc17_qa_allocator_snapshot(telemetry, &allocator_again) != 0
-        || !same_allocator_snapshot(&allocator, &allocator_again)
-        || termination_from_wait(wait_status, phase.first_cause.kind,
-            &termination) != 0) {
+            &phase, PROC17_QA_FINAL_PROCESS_TREE_REAPED) != 0) {
         goto cleanup;
     }
-    memset(&report_input, 0, sizeof(report_input));
-    report_input.identity = identity;
-    report_input.process_token = process_token;
-    report_input.phase = &phase;
-    report_input.termination = termination;
-    report_input.stdout_measurement = &stdout_measurement;
-    report_input.stderr_measurement = &stderr_measurement;
-    report_input.candidate_metrics = &candidate_metrics;
-    report_input.allocator = &allocator;
-    report_input.scratch = &scratch_measurement;
-    report_input.source_stage = stage_payload;
-    report_input.status_eof_observed = status_eof;
-    report_input.allocator_observation_stable = 1U;
-    report_input.heap_denied_notifications = heap_notifications;
-    if (proc17_qa_controller_report_build(&report_input, report) != 0
-        || write_exact(private_report_descriptor,
+    if (controller_error_subject != PROC17_QA_CONTROLLER_ERROR_STDOUT
+        && (proc17_qa_phase_mark_finality(
+                &phase, PROC17_QA_FINAL_STDOUT_EOF) != 0
+            || proc17_qa_stream_snapshot(
+                &stdout_observer, &stdout_measurement) != 0)) {
+        goto cleanup;
+    }
+    if (controller_error_subject != PROC17_QA_CONTROLLER_ERROR_STDERR
+        && (proc17_qa_phase_mark_finality(
+                &phase, PROC17_QA_FINAL_STDERR_EOF) != 0
+            || proc17_qa_stream_snapshot(
+                &stderr_observer, &stderr_measurement) != 0)) {
+        goto cleanup;
+    }
+    {
+        int scratch_result = proc17_qa_scratch_measure_final(
+            scratch_descriptor, &scratch_baseline, PROC17_QA_SCRATCH_BYTES,
+            PROC17_QA_SCRATCH_ENTRIES, &scratch_measurement);
+        if (scratch_result == PROC17_QA_SCRATCH_AMBIGUOUS) {
+            if (controller_error_code != 0U) goto cleanup;
+            controller_error_code
+                = PROC17_QA_RUN_V1_SCRATCH_OBSERVATION_INCOMPLETE;
+            controller_error_subject = PROC17_QA_CONTROLLER_ERROR_SCRATCH;
+        } else if (scratch_result != PROC17_QA_SCRATCH_COMPLETE) {
+            goto cleanup;
+        } else if (proc17_qa_phase_mark_finality(
+                &phase, PROC17_QA_FINAL_SCRATCH_OBSERVED) != 0) {
+            goto cleanup;
+        }
+    }
+    if (controller_error_code != 0U) {
+        memset(&error_input, 0, sizeof(error_input));
+        error_input.identity = identity;
+        error_input.process_token = process_token;
+        error_input.source_stage = stage_payload;
+        error_input.error_code = controller_error_code;
+        error_input.subject = controller_error_subject;
+        error_input.candidate_terminal_observed = candidate_reaped;
+        error_input.process_tree_reaped = candidate_reaped;
+        error_input.stdout_eof_observed
+            = controller_error_subject == PROC17_QA_CONTROLLER_ERROR_STDOUT
+            ? 0U : stdout_observer.eof_observed;
+        error_input.stderr_eof_observed
+            = controller_error_subject == PROC17_QA_CONTROLLER_ERROR_STDERR
+            ? 0U : stderr_observer.eof_observed;
+        error_input.scratch_observation_complete
+            = controller_error_subject == PROC17_QA_CONTROLLER_ERROR_SCRATCH
+            ? 0U : scratch_measurement.inventory_complete;
+        error_input.status_eof_observed = status_eof;
+        if (proc17_qa_controller_error_build(&error_input, report) != 0) {
+            goto cleanup;
+        }
+    } else {
+        if (proc17_qa_candidate_clock_finish(
+                &clock, &usage, &candidate_metrics) != 0
+            || proc17_qa_allocator_snapshot(telemetry, &allocator) != 0
+            || proc17_qa_allocator_snapshot(telemetry, &allocator_again) != 0
+            || !same_allocator_snapshot(&allocator, &allocator_again)
+            || termination_from_wait(wait_status, phase.first_cause.kind,
+                &termination) != 0) {
+            goto cleanup;
+        }
+        memset(&report_input, 0, sizeof(report_input));
+        report_input.identity = identity;
+        report_input.process_token = process_token;
+        report_input.phase = &phase;
+        report_input.termination = termination;
+        report_input.stdout_measurement = &stdout_measurement;
+        report_input.stderr_measurement = &stderr_measurement;
+        report_input.candidate_metrics = &candidate_metrics;
+        report_input.allocator = &allocator;
+        report_input.scratch = &scratch_measurement;
+        report_input.source_stage = stage_payload;
+        report_input.status_eof_observed = status_eof;
+        report_input.allocator_observation_stable = 1U;
+        report_input.heap_denied_notifications = heap_notifications;
+        if (proc17_qa_controller_report_build(&report_input, report) != 0) {
+            goto cleanup;
+        }
+    }
+    if (write_exact(private_report_descriptor,
             report, sizeof(report)) != 0
         || close(private_report_descriptor) != 0) {
         private_report_descriptor = -1;
@@ -1940,7 +2013,8 @@ static int collect_controller_report_v1(
     int controller_pidfd,
     int report_descriptor,
     unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES],
-    int *controller_wait_status)
+    int *controller_wait_status,
+    struct proc17_qa_namespace_observation *namespace_observation)
 {
     struct itimerspec watchdog;
     struct pollfd descriptors[3];
@@ -1949,9 +2023,14 @@ static int collect_controller_report_v1(
     int controller_ready = 0;
     int controller_reaped = 0;
     int result = -1;
-    int timer_descriptor = timerfd_create(
-        CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
+    int timer_descriptor = -1;
 
+    if (namespace_observation == NULL) return -1;
+    memset(namespace_observation, 0, sizeof(*namespace_observation));
+    namespace_observation->controller_pidfd_identity_retained
+        = controller_pidfd >= 0 ? 1U : 0U;
+    timer_descriptor = timerfd_create(
+        CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
     if (timer_descriptor < 0 || set_nonblocking(report_descriptor) != 0) {
         goto cleanup;
     }
@@ -2011,7 +2090,12 @@ static int collect_controller_report_v1(
         goto cleanup;
     }
     controller_reaped = 1;
-    if (used == PROC17_QA_CONTROLLER_REPORT_BYTES) result = 0;
+    namespace_observation->terminal_record_complete
+        = used == PROC17_QA_CONTROLLER_REPORT_BYTES ? 1U : 0U;
+    namespace_observation->terminal_record_eof_observed
+        = report_eof != 0 ? 1U : 0U;
+    namespace_observation->controller_reaped = 1U;
+    if (namespace_observation->terminal_record_complete != 0U) result = 0;
 
 cleanup:
     close_if_open(&timer_descriptor);
@@ -2029,7 +2113,8 @@ int proc17_qa_run_namespace_v1_unrouted(
     const struct proc17_qa_phase_identity *identity,
     const unsigned char process_token[PROC17_QA_WIRE_DIGEST_BYTES],
     unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES],
-    int *controller_wait_status)
+    int *controller_wait_status,
+    struct proc17_qa_namespace_observation *namespace_observation)
 {
     struct clone_args arguments;
     int synchronization[2] = {-1, -1};
@@ -2042,6 +2127,7 @@ int proc17_qa_run_namespace_v1_unrouted(
     if (source_descriptor < 0 || public_result_descriptor < 0
         || request == NULL || identity == NULL || process_token == NULL
         || report == NULL || controller_wait_status == NULL
+        || namespace_observation == NULL
         || !proc17_qa_phase_identity_valid(identity)
         || !proc17_qa_wire_digest_nonzero(process_token)
         || pipe2(synchronization, O_CLOEXEC) != 0
@@ -2049,6 +2135,7 @@ int proc17_qa_run_namespace_v1_unrouted(
         goto cleanup;
     }
     memset(report, 0, PROC17_QA_CONTROLLER_REPORT_BYTES);
+    memset(namespace_observation, 0, sizeof(*namespace_observation));
     memset(&arguments, 0, sizeof(arguments));
     arguments.flags = CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWPID
         | CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWUTS | CLONE_PIDFD;
@@ -2083,10 +2170,20 @@ int proc17_qa_run_namespace_v1_unrouted(
     }
     synchronization[1] = -1;
     if (collect_controller_report_v1(controller, controller_pidfd,
-            report_descriptors[0], report, controller_wait_status) != 0) {
+            report_descriptors[0], report, controller_wait_status,
+            namespace_observation) != 0) {
         goto cleanup_controller;
     }
     controller = -1;
+    {
+        int authority_closed = 1;
+        if (close(report_descriptors[0]) != 0) authority_closed = 0;
+        report_descriptors[0] = -1;
+        if (close(controller_pidfd) != 0) authority_closed = 0;
+        controller_pidfd = -1;
+        namespace_observation->controller_authority_closed
+            = authority_closed != 0 ? 1U : 0U;
+    }
     result = 0;
     goto cleanup;
 
@@ -2163,11 +2260,13 @@ static int run_execution_protocol_v1(void)
     struct proc17_qa_root_identity source_identity = {0};
     struct proc17_qa_run_request request;
     struct proc17_qa_phase_identity identity;
+    struct proc17_qa_namespace_observation namespace_observation;
     int controller_wait_status = 0;
     int result = -1;
 
     memset(&request, 0, sizeof(request));
     memset(&identity, 0, sizeof(identity));
+    memset(&namespace_observation, 0, sizeof(namespace_observation));
     memset(process_token, 0, sizeof(process_token));
     memset(report, 0, sizeof(report));
 #define PROC17_QA_V1_PREFLIGHT(condition) \
@@ -2198,14 +2297,14 @@ static int run_execution_protocol_v1(void)
     }
     if (proc17_qa_run_namespace_v1_unrouted(3, 5, &request,
             &identity, process_token, report,
-            &controller_wait_status) != 0) {
+            &controller_wait_status, &namespace_observation) != 0) {
         (void)close(5);
         memset(process_token, 0, sizeof(process_token));
         memset(report, 0, sizeof(report));
         return -1;
     }
     if (proc17_qa_controller_report_finalize(report, &identity,
-            process_token, controller_wait_status, 1U,
+            process_token, controller_wait_status, &namespace_observation,
             terminal_frame, &terminal_bytes) != 0
         || terminal_bytes > PIPE_BUF
         || write_exact(5, terminal_frame, terminal_bytes) != 0

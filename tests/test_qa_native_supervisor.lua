@@ -3,6 +3,8 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local H = require("tests.support.red_contract")
 local catalog = require("tests.support.qa_control_catalog").native
 local fixtures = require("tests.support.qa_hostile_fixtures")
+local qa_process = require("runtime.qa_process")
+local qa_schema = require("core.qa_schema")
 local provider_ready, _, provider_build_code = os.execute(
     "make -C native qa-provider-shell"
 )
@@ -225,7 +227,6 @@ local hostile_targets = {
     QN16 = "qa-supervisor-basic-fixtures-test",
     QN17 = "qa-supervisor-hostile-fixtures-test",
     QN18 = "qa-supervisor-trusted-fault-test",
-    QN19 = "qa-supervisor-cleanup-ambiguity-test",
     QN20 = "qa-supervisor-leak-loop-test",
 }
 
@@ -239,13 +240,54 @@ for id, target in pairs(hostile_targets) do
     end
 end
 
+probes.QN19 = function()
+    local request = {
+        protocol_version = "qa.native_run_request.v1",
+        operation = "run_lua54_test_suite",
+        transaction_id = "qa-provider-transaction:" .. string.rep("a", 64),
+        witness_id = "qa-provider-witness:" .. string.rep("b", 64),
+        profile_id = "qa.profile.lua54_test_suite.v0",
+        environment_id = "qa-environment:" .. string.rep("c", 64),
+        entrypoint_relative_path = "tests/run.lua",
+        expected_exit_code = 0,
+        resource_limits = qa_schema.hard_limits(),
+    }
+    local impossible = {
+        protocol_version = "qa.native_run_error.v1",
+        transaction_id = request.transaction_id,
+        witness_id = request.witness_id,
+        profile_id = request.profile_id,
+        environment_id = request.environment_id,
+        phase_ordinal = 1,
+        class = "ambiguous",
+        code = "reap_ambiguous",
+        stage = "preflight",
+        candidate_start_state = "not_started",
+        cleanup_state = "complete",
+        launcher_reaped = "complete",
+        result_eof = "complete",
+        event_truth_status = "runtime_confirmed",
+    }
+    local accepted, normalize_err = pcall(
+        qa_process.normalize_error_v1, impossible, request)
+    H.assert_false(accepted,
+        "QN19 impossible causal error topology remains accepted")
+    H.assert_contains(normalize_err, "causal topology",
+        "QN19 topology rejection must name the violated boundary")
+
+    require_provider()
+    native_witness("QN19", {
+        "native/tests/test_proc17_qa_cleanup_ambiguity.c",
+        "tests/run_qa_cleanup_ambiguity_campaign.lua",
+    }, "qa-supervisor-cleanup-ambiguity-test")
+end
+
 for _, control in ipairs(catalog) do
     local id, description = control[1], control[2]
     assert(type(probes[id]) == "function", "missing QA native probe " .. id)
-    if not _G.PROC17_QA_RED_BATTERY
-        and (id == "QN19" or id == "QN20") then
+    if not _G.PROC17_QA_RED_BATTERY and id == "QN20" then
         suite:skip(id .. " " .. description,
-            "explicitly deferred after QN18 promotion")
+            "explicitly deferred after QN19 promotion")
     else
         suite:check(id .. " " .. description, probes[id])
     end

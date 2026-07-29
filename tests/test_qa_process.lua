@@ -308,5 +308,108 @@ suite:check("PO13 RUN v1 infrastructure error carries tri-state not verdict", fu
     H.assert_contains(err, "contradicts start state")
 end)
 
+suite:check("PO14 RUN v1 error topology is closed and reusable only pre-start", function()
+    local rows = {
+        {"unavailable", "supervisor_unavailable", "preflight", 1,
+            "not_started", "complete", "complete", "complete",
+            "clean_prestart"},
+        {"unavailable", "supervisor_unavailable", "launch", 1,
+            "not_started", "complete", "complete", "complete",
+            "clean_prestart"},
+        {"world", "source_staging_failed", "source_staging", 1,
+            "not_started", "complete", "complete", "complete",
+            "clean_prestart"},
+        {"unavailable", "supervisor_crashed", "supervision", 1,
+            "not_started", "unknown", "complete", "complete",
+            "non_reusable"},
+        {"unavailable", "supervisor_crashed", "supervision", 2,
+            "started", "unknown", "complete", "complete", "non_reusable"},
+        {"ambiguous", "result_pipe_lost", "supervision", 1,
+            "not_started", "unknown", "complete", "unknown",
+            "non_reusable"},
+        {"ambiguous", "result_pipe_lost", "supervision", 2,
+            "started", "unknown", "complete", "unknown", "non_reusable"},
+        {"ambiguous", "terminal_frame_missing", "postflight", 1,
+            "not_started", "unknown", "complete", "complete",
+            "non_reusable"},
+        {"ambiguous", "terminal_frame_missing", "postflight", 2,
+            "started", "unknown", "complete", "complete", "non_reusable"},
+        {"ambiguous", "reap_ambiguous", "cleanup", 2,
+            "started", "unknown", "unknown", "complete", "non_reusable"},
+        {"ambiguous", "reap_ambiguous", "cleanup", 1,
+            "unknown", "unknown", "unknown", "unknown", "non_reusable"},
+        {"ambiguous", "output_observation_incomplete", "postflight", 2,
+            "started", "incomplete", "complete", "complete",
+            "non_reusable"},
+        {"ambiguous", "scratch_observation_incomplete", "postflight", 2,
+            "started", "incomplete", "complete", "complete",
+            "non_reusable"},
+        {"ambiguous", "namespace_cleanup_incomplete", "cleanup", 2,
+            "started", "incomplete", "complete", "complete",
+            "non_reusable"},
+    }
+    for _, row in ipairs(rows) do
+        local raw_error = {
+            protocol_version = "qa.native_run_error.v1",
+            transaction_id = request_v1.transaction_id,
+            witness_id = request_v1.witness_id,
+            profile_id = request_v1.profile_id,
+            environment_id = request_v1.environment_id,
+            class = row[1],
+            code = row[2],
+            stage = row[3],
+            phase_ordinal = row[4],
+            candidate_start_state = row[5],
+            cleanup_state = row[6],
+            launcher_reaped = row[7],
+            result_eof = row[8],
+            event_truth_status = "runtime_confirmed",
+        }
+        local normalized = qa_process.normalize_error_v1(raw_error, request_v1)
+        local reuse, reuse_err = qa_process.error_reuse_class_v1(normalized)
+        H.assert_eq(reuse, row[9], row[2] .. " reuse class")
+        H.assert_nil(reuse_err, row[2] .. " topology error")
+    end
+end)
+
+suite:check("PO15 impossible RUN v1 causal tuples are loud", function()
+    local probes = {
+        {"ambiguous", "reap_ambiguous", "preflight", 1,
+            "not_started", "complete", "complete", "complete"},
+        {"ambiguous", "terminal_frame_missing", "preflight", 2,
+            "started", "unknown", "complete", "complete"},
+        {"ambiguous", "output_observation_incomplete", "postflight", 2,
+            "started", "complete", "complete", "complete"},
+        {"ambiguous", "scratch_observation_incomplete", "postflight", 1,
+            "not_started", "incomplete", "complete", "complete"},
+        {"ambiguous", "namespace_cleanup_incomplete", "postflight", 2,
+            "started", "incomplete", "complete", "complete"},
+        {"unavailable", "supervisor_unavailable", "launch", 2,
+            "started", "unknown", "complete", "complete"},
+    }
+    for _, row in ipairs(probes) do
+        local raw_error = {
+            protocol_version = "qa.native_run_error.v1",
+            transaction_id = request_v1.transaction_id,
+            witness_id = request_v1.witness_id,
+            profile_id = request_v1.profile_id,
+            environment_id = request_v1.environment_id,
+            class = row[1],
+            code = row[2],
+            stage = row[3],
+            phase_ordinal = row[4],
+            candidate_start_state = row[5],
+            cleanup_state = row[6],
+            launcher_reaped = row[7],
+            result_eof = row[8],
+            event_truth_status = "runtime_confirmed",
+        }
+        local ok, err = pcall(
+            qa_process.normalize_error_v1, raw_error, request_v1)
+        H.assert_false(ok, row[2] .. " laundering probe")
+        H.assert_contains(err, "causal topology", row[2] .. " rejection")
+    end
+end)
+
 suite:finish()
 print("test_qa_process ok")

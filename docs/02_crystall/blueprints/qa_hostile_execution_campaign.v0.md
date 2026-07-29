@@ -1112,3 +1112,164 @@ declared=9 executed=9 matched=9 candidate_outcomes=0
 The expected red battery becomes `42 green / 42 red`. QN19/QN20 and every
 body QE/QV control remain red. E8 authorizes no body execution request,
 check evidence, verdict, completion reader or retry policy.
+
+## 21. E9/C9 QN19 Executable Amendment
+
+Source: `docs/00_chaos/qa_e9_qn19_cleanup_ambiguity_notes_2026-07-28.md` and
+TABLE section 27.
+
+### 21.1 Shared topology validator
+
+`runtime/qa_process.lua` owns one closed data table for every native error code:
+
+```text
+allowed class
+allowed stage
+allowed phase/start
+allowed cleanup/reap/EOF relation
+source reuse class = clean_prestart | non_reusable
+```
+
+`normalize_error_v1` rejects a tuple outside that table. A second exported
+reader validates an already normalized process error and returns its reuse
+class. `runtime/qa_provider_witness.lua` uses that reader; it removes the local
+`cleanup complete && not_started` policy.
+
+The validator must reject at least these laundering probes:
+
+```text
+reap_ambiguous + not_started + complete
+terminal_frame_missing + preflight
+output_observation_incomplete + cleanup complete
+scratch_observation_incomplete + not_started
+namespace_cleanup_incomplete + postflight
+supervisor_unavailable + started
+```
+
+An invalid provider error causes a quarantine attempt before loud failure and
+cannot create a final witness object.
+
+### 21.2 Private controller terminal v2
+
+Keep implementation in `native/proc17_qa_report.[ch]`; do not add a second
+mutable ledger. Replace the report parser/builder with an exact 572-byte v2
+union and these operations:
+
+```c
+build_result(exact complete evidence)
+build_error(exact controller-owned missing witness)
+decode_and_validate(exact identity/token/stage)
+finalize_after_controller_reap(namespace predicate)
+```
+
+The v2 header has an explicit kind. Result and error payload regions are
+mutually exclusive and unused bytes must be zero. The controller error builder
+accepts only stdout/stderr EOF loss and scratch-observation failure. It carries
+the exact subject and internal finality vector but no candidate cause or cost.
+
+The namespace controller writes one private terminal record only after its
+cleanup path has killed/reaped the candidate where ownership remains. The
+top-level supervisor waits for record EOF and exact controller reap before
+projecting RESULT or ERROR. It appends only namespace cleanup. The launcher
+later appends only top-supervisor reap and public result EOF.
+
+### 21.3 Named namespace predicate
+
+Extract the current literal namespace-complete argument into one pure predicate
+over top-level observations:
+
+```text
+exact controller pidfd identity retained
+private terminal record complete and EOF observed
+exact controller wait/reap observed
+controller exit compatible with terminal kind
+no top-level controller authority descriptor left in flight
+```
+
+All true permits namespace cleanup complete. An unavailable member yields
+`ambiguous/namespace_cleanup_incomplete/cleanup`; it does not fabricate RESULT.
+A malformed or contradictory member is loud.
+
+### 21.4 Production routing
+
+Connect actual controller stream-drain/EOF failure and scratch ambiguity to the
+v2 error builder. Connect the top-level namespace predicate to public ERROR.
+Do not map every controller dirty exit to one of these names: absence of a
+valid private error remains `supervisor_crashed` at the launcher.
+
+Public ERROR after STARTED must carry the exact source-stage from the private
+record. The top-level supervisor cannot reconstruct or omit it. ERROR never
+contains launcher reap or result EOF; those are attached after collection.
+
+### 21.5 QN19 native driver
+
+Add:
+
+```text
+native/tests/test_proc17_qa_cleanup_ambiguity.c
+tests/run_qa_cleanup_ambiguity_campaign.lua
+qa-supervisor-cleanup-ambiguity-test
+```
+
+The parameterless native driver uses production collector and controller-
+terminal codecs. Its closed enum grows five host-process rows; output
+observation has stdout and stderr variants. Repository postflight drift is the
+sixth campaign case and is grown only by the Lua inventory writer. The driver
+emits only the fixed `QN19_NATIVE_V0` record and accepts no arguments,
+environment selector, source path or candidate bytes.
+
+The Lua campaign owns the six-case expectation map, rejects
+extra/missing/duplicate native rows, binds each native row through `qa_process`
+to the current request and executes a real provider-witness source transaction.
+It grows postflight drift through two real repository inventories. Every case
+must quarantine, deny replay and produce no candidate witness.
+
+### 21.6 Red-first controls
+
+Before implementation:
+
+```text
+the impossible reap_ambiguous clean-prestart tuple is accepted (red proof)
+the QN19 Make target is absent
+the ordinary native suite remains 18 green / 2 deferred
+the QA matrix remains 42/42
+```
+
+After implementation:
+
+```text
+QN19 campaign 6/6; stream variants 2/2
+source quarantines 6; replayed provider calls 0
+ordinary native suite 19 green / 1 deferred
+QA matrix 43 green / 41 red
+```
+
+No other control may change color.
+
+### 21.7 Production exclusion and verification
+
+Rerun QN18's digest, symbol, string, loader and API exclusions after building
+QN19. Add scans for the QN19 record prefix and case ids. Production artifacts
+may contain the real controller-terminal/error vocabulary, but no test selector
+or campaign id.
+
+Required verification:
+
+```text
+lua tests/run.lua
+lua tests/smoke_mortality_battery.lua
+lua tests/test_qa_native_supervisor.lua
+lua tests/test_qa_provider_witness.lua
+lua tests/red_qa_hand.lua             # exact expected nonzero 43/41
+make -C native qa-supervisor-cleanup-ambiguity-test
+make -C native qa-static-closure-test
+ASan/UBSan focused native driver
+GCC -fanalyzer changed native boundary
+post-run process/root audit
+git diff --check
+```
+
+### 21.8 Non-claims
+
+E9 does not prove QN20 repeated residue freedom, body QA execution, check
+evidence, verdict, QA economics, retry/resume or software acceptance.

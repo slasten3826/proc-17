@@ -100,6 +100,7 @@ static int test_fault_free_controller(void)
     char tests_path[PATH_MAX];
     struct proc17_qa_phase_identity identity;
     struct proc17_qa_run_request request;
+    struct proc17_qa_namespace_observation namespace_observation;
     struct proc17_qa_wire_view result_view;
     unsigned char token[PROC17_QA_WIRE_DIGEST_BYTES];
     unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES];
@@ -112,6 +113,7 @@ static int test_fault_free_controller(void)
     int result = -1;
 
     fill_v1_identity(&identity, &request);
+    memset(&namespace_observation, 0, sizeof(namespace_observation));
     memset(token, 0x55, sizeof(token));
     if (mkdtemp(root) == NULL
         || snprintf(tests_path, sizeof(tests_path), "%s/tests", root)
@@ -133,7 +135,7 @@ static int test_fault_free_controller(void)
     tests_descriptor = -1;
     if (proc17_qa_run_namespace_v1_unrouted(root_descriptor,
             public_descriptors[1], &request, &identity, token,
-            report, &controller_wait_status) != 0) {
+            report, &controller_wait_status, &namespace_observation) != 0) {
         root_descriptor = -1;
         goto cleanup;
     }
@@ -147,7 +149,8 @@ static int test_fault_free_controller(void)
     }
     public_descriptors[0] = -1;
     if (proc17_qa_controller_report_finalize(report, &identity, token,
-            controller_wait_status, 1U, result_frame, &result_bytes) != 0
+            controller_wait_status, &namespace_observation,
+            result_frame, &result_bytes) != 0
         || proc17_qa_wire_decode_run_v1(
             result_frame, result_bytes, &result_view) != 0
         || result_view.kind != PROC17_QA_WIRE_RUN_RESULT_V1

@@ -983,3 +983,156 @@ declared=9 executed=9 matched=9 candidate_outcomes=0
 It also requires trusted-invariant source quarantine and postflight-drift
 source quarantine as separate policy witnesses. The only authorized matrix
 change is QN18, from `41/43` to `42/42`.
+
+## 27. E9 QN19 Cleanup-Ambiguity Precision Amendment
+
+Amended 2026-07-28 from the E9 runtime diagnosis in
+`docs/00_chaos/qa_e9_qn19_cleanup_ambiguity_notes_2026-07-28.md`.
+
+### 27.1 Existing QN19 text is insufficient
+
+Section 14 remains the high-level disposition law. This section supersedes its
+implementation detail. Runtime diagnosis proved that the current field-wise
+error validator accepts the impossible tuple:
+
+```text
+reap_ambiguous + preflight + not_started + cleanup complete
+```
+
+and provider witness consequently writes `consumed`. QN19 cannot promote until
+one causal topology validator rejects that tuple and every equivalent
+laundering attempt.
+
+The same diagnosis found that `output_observation_incomplete`,
+`scratch_observation_incomplete` and `namespace_cleanup_incomplete` have public
+names but no production writer. They may not be promoted from caller-built Lua
+fixtures alone.
+
+### 27.2 Controller terminal v2
+
+The one success-only private controller report becomes one fixed private union:
+
+```text
+protocol/version  proc17.qa.controller_terminal.v2
+exact size        572 bytes
+record kind       result | error
+write count       exactly one
+```
+
+The common envelope binds the exact request identity, private process token and
+source-stage summary. Reserved bytes are zero. The entire record remains
+private and fits one bounded write.
+
+`result` carries the existing reason, termination, first cause, seven complete
+controller finality facts, stream/resource/scratch measurements and allocator
+state.
+
+`error` carries:
+
+```text
+controller-owned code = output_observation_incomplete
+                      | scratch_observation_incomplete
+subject               = stdout | stderr | scratch
+seven controller finality facts with the named missing fact false
+no candidate reason
+no invented measurement or cost
+all unused union bytes zero
+```
+
+The controller cannot write `namespace_cleanup_incomplete`. The top-level
+supervisor derives namespace cleanup only after validating the private record,
+observing its EOF and reaping the exact controller. Failure of that named
+predicate becomes the public namespace error. Missing/malformed private bytes,
+identity/token split and an impossible result/error union are loud trusted
+invariants.
+
+### 27.3 Exact error topology
+
+One table-backed validator owns class, code, stage, phase/start and cleanup
+relationships. Both `qa_process.normalize_error_v1` and provider-witness source
+reuse classification consume it.
+
+Only this family is reusable:
+
+| code | class | stage | start | cleanup | reap | EOF | reuse class |
+|---|---|---|---|---|---|---|---|
+| supervisor_unavailable | unavailable | preflight or launch | not_started | complete | complete | complete | clean_prestart |
+| source_staging_failed | world | source_staging | not_started | complete | complete | complete | clean_prestart |
+
+Every other code has reuse class `non_reusable`, even if a caller supplies
+`not_started` and complete cleanup words. Its exact legal combinations remain
+closed; an illegal combination is `invalid`, not a conservative alias.
+
+QN19 requires:
+
+| Case | class / code / stage | start | cleanup | reap | EOF | source |
+|---|---|---|---|---|---|---|
+| terminal missing | ambiguous / terminal_frame_missing / postflight | started | unknown | complete | complete | quarantined |
+| reap ambiguity | ambiguous / reap_ambiguous / cleanup | started | unknown | unknown | complete | quarantined |
+| stream observation, two variants | ambiguous / output_observation_incomplete / postflight | started | incomplete | complete | complete | quarantined |
+| scratch observation | ambiguous / scratch_observation_incomplete / postflight | started | incomplete | complete | complete | quarantined |
+| namespace cleanup | ambiguous / namespace_cleanup_incomplete / cleanup | started | incomplete | complete | complete | quarantined |
+| postflight source drift | ambiguous / source_drift / postflight | started | process-derived | process-derived | process-derived | quarantined |
+
+`supervisor_crashed` remains the honest result when no valid private terminal
+record names the internal failure. QN19 must not infer output, scratch or
+namespace cause from a dirty exit alone.
+
+### 27.4 Source disposition reader
+
+Provider witness asks the shared topology validator for:
+
+```text
+clean_prestart -> consumed
+non_reusable   -> quarantined
+invalid        -> quarantine attempt, then loud
+```
+
+It may not recompute cleanliness from independent fields. Postflight source
+drift is always non-reusable. A terminal source disposition is sticky before
+handle close; close failure is loud and cannot roll the source back to active.
+Every quarantined case denies exact replay before a second provider call.
+
+### 27.5 Closed campaign
+
+The parameterless target is:
+
+```make
+qa-supervisor-cleanup-ambiguity-test
+```
+
+The closed campaign owns six case ids and two stream variants. The native
+driver owns the five host-process cases; repository postflight drift is grown
+only by the Lua repository-inventory writer and has no fabricated native row.
+The native record is:
+
+```text
+QN19_NATIVE_V0|case_id|class|code|stage|start|cleanup|reap|eof|variant_count
+```
+
+The Lua campaign binds those rows to current request identities through the
+strict normalizer and grows one real sealed source transaction per row. It must
+print and enforce:
+
+```text
+declared=6 executed=6 matched=6 stream_variants=2
+candidate_outcomes=0 source_quarantines=6 replays=0
+```
+
+Native host-fact production and Lua source disposition are matched layers, not
+one fabricated writer. Exactly five native rows plus one Lua-owned drift life
+produce the six matched campaign cases. The case id never enters production
+wire, environment, candidate bytes or public API. Production artifact/API
+exclusion from QN18 is rerun unchanged.
+
+### 27.6 Promotion gate
+
+The only authorized transition is:
+
+```text
+QN19 red -> green
+42 green / 42 red -> 43 green / 41 red
+```
+
+QN20 and every body QE/QV control remain red. QN19 authorizes no Packet QA
+writer, verdict, retry or software acceptance.

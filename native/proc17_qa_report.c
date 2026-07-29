@@ -9,9 +9,12 @@
 
 #include "proc17_qa_policy.h"
 
+#define PROC17_QA_REPORT_KIND_OFFSET 12U
 #define PROC17_QA_REPORT_IDENTITY_OFFSET 16U
 #define PROC17_QA_REPORT_TOKEN_OFFSET 144U
 #define PROC17_QA_REPORT_REASON_OFFSET 176U
+#define PROC17_QA_REPORT_ERROR_CODE_OFFSET 176U
+#define PROC17_QA_REPORT_ERROR_SUBJECT_OFFSET 178U
 #define PROC17_QA_REPORT_CAUSE_OFFSET 188U
 #define PROC17_QA_REPORT_FINALITY_OFFSET 208U
 #define PROC17_QA_REPORT_STATUS_EOF_OFFSET 215U
@@ -32,6 +35,8 @@ static const unsigned char report_magic[8] = {
 
 _Static_assert(PROC17_QA_CONTROLLER_REPORT_BYTES == 572U,
     "private controller report layout changed");
+_Static_assert(sizeof(struct proc17_qa_namespace_observation) == 5U,
+    "namespace observation must contain only named booleans");
 _Static_assert(PROC17_QA_WIRE_ENVELOPE_BYTES
         + PROC17_QA_RUN_RESULT_V1_BYTES <= PIPE_BUF,
     "terminal RUN v1 frame must fit one atomic pipe write");
@@ -239,6 +244,8 @@ int proc17_qa_controller_report_build(
         PROC17_QA_CONTROLLER_REPORT_VERSION);
     proc17_qa_wire_put_u16(output + 10U,
         PROC17_QA_CONTROLLER_REPORT_BYTES);
+    proc17_qa_wire_put_u16(output + PROC17_QA_REPORT_KIND_OFFSET,
+        PROC17_QA_CONTROLLER_TERMINAL_RESULT);
     memcpy(output + PROC17_QA_REPORT_IDENTITY_OFFSET, input->identity,
         PROC17_QA_V1_IDENTITY_BYTES);
     memcpy(output + PROC17_QA_REPORT_TOKEN_OFFSET, input->process_token,
@@ -280,7 +287,84 @@ int proc17_qa_controller_report_build(
     return 0;
 }
 
-static int private_report_valid(
+int proc17_qa_controller_error_build(
+    const struct proc17_qa_controller_error_input *input,
+    unsigned char output[PROC17_QA_CONTROLLER_REPORT_BYTES])
+{
+    uint8_t expected_stdout;
+    uint8_t expected_stderr;
+    uint8_t expected_scratch;
+
+    if (input == NULL || output == NULL || input->identity == NULL
+        || input->process_token == NULL || input->source_stage == NULL
+        || !proc17_qa_phase_identity_valid(input->identity)
+        || !proc17_qa_wire_digest_nonzero(input->process_token)
+        || !proc17_qa_wire_v1_source_stage_valid(input->source_stage)
+        || input->source_stage[80U] != 1U
+        || input->source_stage[81U] != 1U
+        || input->candidate_terminal_observed != 1U
+        || input->process_tree_reaped != 1U
+        || input->status_eof_observed != 1U) {
+        return -1;
+    }
+    if (input->error_code == PROC17_QA_RUN_V1_OUTPUT_OBSERVATION_INCOMPLETE
+        && (input->subject == PROC17_QA_CONTROLLER_ERROR_STDOUT
+            || input->subject == PROC17_QA_CONTROLLER_ERROR_STDERR)) {
+        expected_stdout = input->subject == PROC17_QA_CONTROLLER_ERROR_STDOUT
+            ? 0U : 1U;
+        expected_stderr = input->subject == PROC17_QA_CONTROLLER_ERROR_STDERR
+            ? 0U : 1U;
+        expected_scratch = 1U;
+    } else if (input->error_code
+            == PROC17_QA_RUN_V1_SCRATCH_OBSERVATION_INCOMPLETE
+        && input->subject == PROC17_QA_CONTROLLER_ERROR_SCRATCH) {
+        expected_stdout = 1U;
+        expected_stderr = 1U;
+        expected_scratch = 0U;
+    } else {
+        return -1;
+    }
+    if (input->stdout_eof_observed != expected_stdout
+        || input->stderr_eof_observed != expected_stderr
+        || input->scratch_observation_complete != expected_scratch) {
+        return -1;
+    }
+    memset(output, 0, PROC17_QA_CONTROLLER_REPORT_BYTES);
+    memcpy(output, report_magic, sizeof(report_magic));
+    proc17_qa_wire_put_u16(output + 8U,
+        PROC17_QA_CONTROLLER_REPORT_VERSION);
+    proc17_qa_wire_put_u16(output + 10U,
+        PROC17_QA_CONTROLLER_REPORT_BYTES);
+    proc17_qa_wire_put_u16(output + PROC17_QA_REPORT_KIND_OFFSET,
+        PROC17_QA_CONTROLLER_TERMINAL_ERROR);
+    memcpy(output + PROC17_QA_REPORT_IDENTITY_OFFSET, input->identity,
+        PROC17_QA_V1_IDENTITY_BYTES);
+    memcpy(output + PROC17_QA_REPORT_TOKEN_OFFSET, input->process_token,
+        PROC17_QA_WIRE_DIGEST_BYTES);
+    proc17_qa_wire_put_u16(output + PROC17_QA_REPORT_ERROR_CODE_OFFSET,
+        input->error_code);
+    proc17_qa_wire_put_u16(output + PROC17_QA_REPORT_ERROR_SUBJECT_OFFSET,
+        input->subject);
+    output[PROC17_QA_REPORT_FINALITY_OFFSET] = 1U;
+    output[PROC17_QA_REPORT_FINALITY_OFFSET + 1U] = 1U;
+    output[PROC17_QA_REPORT_FINALITY_OFFSET + 2U]
+        = input->candidate_terminal_observed;
+    output[PROC17_QA_REPORT_FINALITY_OFFSET + 3U]
+        = input->process_tree_reaped;
+    output[PROC17_QA_REPORT_FINALITY_OFFSET + 4U]
+        = input->stdout_eof_observed;
+    output[PROC17_QA_REPORT_FINALITY_OFFSET + 5U]
+        = input->stderr_eof_observed;
+    output[PROC17_QA_REPORT_FINALITY_OFFSET + 6U]
+        = input->scratch_observation_complete;
+    output[PROC17_QA_REPORT_STATUS_EOF_OFFSET]
+        = input->status_eof_observed;
+    memcpy(output + PROC17_QA_REPORT_STAGE_OFFSET, input->source_stage,
+        PROC17_QA_SOURCE_STAGE_V1_BYTES);
+    return 0;
+}
+
+static int private_result_valid(
     const unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES])
 {
     struct proc17_qa_candidate_termination termination;
@@ -299,7 +383,9 @@ static int private_report_valid(
             != PROC17_QA_CONTROLLER_REPORT_VERSION
         || proc17_qa_wire_get_u16(report + 10U)
             != PROC17_QA_CONTROLLER_REPORT_BYTES
-        || !proc17_qa_wire_bytes_zero(report + 12U, 4U)
+        || proc17_qa_wire_get_u16(report + PROC17_QA_REPORT_KIND_OFFSET)
+            != PROC17_QA_CONTROLLER_TERMINAL_RESULT
+        || !proc17_qa_wire_bytes_zero(report + 14U, 2U)
         || !proc17_qa_wire_v1_identity_valid(
             report + PROC17_QA_REPORT_IDENTITY_OFFSET)
         || !proc17_qa_wire_digest_nonzero(
@@ -413,31 +499,167 @@ static int private_report_valid(
             &stdout_measurement, &stderr_measurement, &metrics, &allocator);
 }
 
+static int private_error_valid(
+    const unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES])
+{
+    uint16_t code;
+    uint16_t subject;
+    const unsigned char *finality;
+
+    if (report == NULL || memcmp(report, report_magic, sizeof(report_magic)) != 0
+        || proc17_qa_wire_get_u16(report + 8U)
+            != PROC17_QA_CONTROLLER_REPORT_VERSION
+        || proc17_qa_wire_get_u16(report + 10U)
+            != PROC17_QA_CONTROLLER_REPORT_BYTES
+        || proc17_qa_wire_get_u16(report + PROC17_QA_REPORT_KIND_OFFSET)
+            != PROC17_QA_CONTROLLER_TERMINAL_ERROR
+        || !proc17_qa_wire_bytes_zero(report + 14U, 2U)
+        || !proc17_qa_wire_v1_identity_valid(
+            report + PROC17_QA_REPORT_IDENTITY_OFFSET)
+        || !proc17_qa_wire_digest_nonzero(
+            report + PROC17_QA_REPORT_TOKEN_OFFSET)
+        || !proc17_qa_wire_bytes_zero(report + 180U, 28U)
+        || report[PROC17_QA_REPORT_STATUS_EOF_OFFSET] != 1U
+        || !proc17_qa_wire_bytes_zero(report + 216U,
+            PROC17_QA_REPORT_STAGE_OFFSET - 216U)
+        || !proc17_qa_wire_v1_source_stage_valid(
+            report + PROC17_QA_REPORT_STAGE_OFFSET)
+        || report[PROC17_QA_REPORT_STAGE_OFFSET + 80U] != 1U
+        || report[PROC17_QA_REPORT_STAGE_OFFSET + 81U] != 1U) {
+        return 0;
+    }
+    code = proc17_qa_wire_get_u16(
+        report + PROC17_QA_REPORT_ERROR_CODE_OFFSET);
+    subject = proc17_qa_wire_get_u16(
+        report + PROC17_QA_REPORT_ERROR_SUBJECT_OFFSET);
+    finality = report + PROC17_QA_REPORT_FINALITY_OFFSET;
+    if (finality[0] != 1U || finality[1] != 1U
+        || finality[2] != 1U || finality[3] != 1U) {
+        return 0;
+    }
+    if (code == PROC17_QA_RUN_V1_OUTPUT_OBSERVATION_INCOMPLETE
+        && subject == PROC17_QA_CONTROLLER_ERROR_STDOUT) {
+        return finality[4] == 0U && finality[5] == 1U
+            && finality[6] == 1U;
+    }
+    if (code == PROC17_QA_RUN_V1_OUTPUT_OBSERVATION_INCOMPLETE
+        && subject == PROC17_QA_CONTROLLER_ERROR_STDERR) {
+        return finality[4] == 1U && finality[5] == 0U
+            && finality[6] == 1U;
+    }
+    return code == PROC17_QA_RUN_V1_SCRATCH_OBSERVATION_INCOMPLETE
+        && subject == PROC17_QA_CONTROLLER_ERROR_SCRATCH
+        && finality[4] == 1U && finality[5] == 1U
+        && finality[6] == 0U;
+}
+
+static int private_report_kind(
+    const unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES])
+{
+    uint16_t kind;
+    if (report == NULL) return 0;
+    kind = proc17_qa_wire_get_u16(report + PROC17_QA_REPORT_KIND_OFFSET);
+    if (kind == PROC17_QA_CONTROLLER_TERMINAL_RESULT) {
+        return private_result_valid(report) ? (int)kind : 0;
+    }
+    if (kind == PROC17_QA_CONTROLLER_TERMINAL_ERROR) {
+        return private_error_valid(report) ? (int)kind : 0;
+    }
+    return 0;
+}
+
+int proc17_qa_namespace_cleanup_observe(
+    const struct proc17_qa_namespace_observation *observation,
+    int controller_wait_status,
+    uint8_t *complete)
+{
+    const uint8_t *bytes;
+    size_t index;
+
+    if (observation == NULL || complete == NULL) return -1;
+    bytes = (const uint8_t *)observation;
+    for (index = 0U; index < sizeof(*observation); index++) {
+        if (bytes[index] > 1U) return -1;
+    }
+    if (observation->terminal_record_complete != 1U) return -1;
+    if (observation->controller_reaped != 0U
+        && (!WIFEXITED(controller_wait_status)
+            || WEXITSTATUS(controller_wait_status) != 0)) {
+        return -1;
+    }
+    *complete = observation->controller_pidfd_identity_retained != 0U
+        && observation->terminal_record_eof_observed != 0U
+        && observation->controller_reaped != 0U
+        && observation->controller_authority_closed != 0U ? 1U : 0U;
+    return 0;
+}
+
+static int encode_public_error(
+    const unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES],
+    const struct proc17_qa_phase_identity *identity,
+    uint16_t code,
+    uint16_t stage,
+    unsigned char frame[PROC17_QA_WIRE_MAX_FRAME_BYTES],
+    size_t *frame_bytes)
+{
+    unsigned char payload[PROC17_QA_RUN_ERROR_V1_BYTES];
+
+    memset(payload, 0, sizeof(payload));
+    memcpy(payload, identity, PROC17_QA_V1_IDENTITY_BYTES);
+    proc17_qa_wire_put_u16(payload + PROC17_QA_V1_PHASE_OFFSET,
+        PROC17_QA_RUN_V1_PHASE_TERMINAL);
+    proc17_qa_wire_put_u16(payload + 130U,
+        PROC17_QA_RUN_V1_ERROR_AMBIGUOUS);
+    proc17_qa_wire_put_u16(payload + 132U, code);
+    proc17_qa_wire_put_u16(payload + 134U, stage);
+    payload[136U] = PROC17_QA_RUN_V1_TRUE;
+    payload[137U] = PROC17_QA_RUN_V1_FALSE;
+    payload[139U] = 1U;
+    memcpy(payload + PROC17_QA_V1_ERROR_STAGE_OFFSET,
+        report + PROC17_QA_REPORT_STAGE_OFFSET,
+        PROC17_QA_SOURCE_STAGE_V1_BYTES);
+    if (!proc17_qa_wire_v1_error_valid(payload, sizeof(payload))) return -1;
+    return proc17_qa_wire_encode_run_v1(PROC17_QA_WIRE_RUN_ERROR_V1,
+        identity->transaction, payload, sizeof(payload), frame, frame_bytes);
+}
+
 int proc17_qa_controller_report_finalize(
     const unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES],
     const struct proc17_qa_phase_identity *expected_identity,
     const unsigned char expected_process_token[PROC17_QA_WIRE_DIGEST_BYTES],
     int controller_wait_status,
-    uint8_t namespace_cleanup_complete,
+    const struct proc17_qa_namespace_observation *namespace_observation,
     unsigned char frame[PROC17_QA_WIRE_MAX_FRAME_BYTES],
     size_t *frame_bytes)
 {
     unsigned char payload[PROC17_QA_RUN_RESULT_V1_BYTES];
+    uint8_t namespace_complete = 0U;
+    int kind = private_report_kind(report);
     size_t index;
 
-    if (!private_report_valid(report)
-        || !proc17_qa_phase_identity_valid(expected_identity)
+    if (kind == 0 || !proc17_qa_phase_identity_valid(expected_identity)
         || expected_process_token == NULL
         || !proc17_qa_wire_digest_nonzero(expected_process_token)
         || memcmp(report + PROC17_QA_REPORT_IDENTITY_OFFSET,
             expected_identity, PROC17_QA_V1_IDENTITY_BYTES) != 0
         || memcmp(report + PROC17_QA_REPORT_TOKEN_OFFSET,
             expected_process_token, PROC17_QA_WIRE_DIGEST_BYTES) != 0
-        || !WIFEXITED(controller_wait_status)
-        || WEXITSTATUS(controller_wait_status) != 0
-        || namespace_cleanup_complete != 1U
-        || frame == NULL || frame_bytes == NULL) {
+        || frame == NULL || frame_bytes == NULL
+        || proc17_qa_namespace_cleanup_observe(namespace_observation,
+            controller_wait_status, &namespace_complete) != 0) {
         return -1;
+    }
+    if (kind == PROC17_QA_CONTROLLER_TERMINAL_ERROR) {
+        if (namespace_complete != 1U) return -1;
+        return encode_public_error(report, expected_identity,
+            proc17_qa_wire_get_u16(
+                report + PROC17_QA_REPORT_ERROR_CODE_OFFSET),
+            PROC17_QA_RUN_V1_ERROR_POSTFLIGHT, frame, frame_bytes);
+    }
+    if (namespace_complete != 1U) {
+        return encode_public_error(report, expected_identity,
+            PROC17_QA_RUN_V1_NAMESPACE_CLEANUP_INCOMPLETE,
+            PROC17_QA_RUN_V1_ERROR_CLEANUP, frame, frame_bytes);
     }
     memset(payload, 0, sizeof(payload));
     memcpy(payload, expected_identity, PROC17_QA_V1_IDENTITY_BYTES);

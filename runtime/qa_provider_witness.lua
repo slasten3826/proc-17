@@ -1,5 +1,6 @@
 local digest = require("core.digest")
 local qa_schema = require("core.qa_schema")
+local qa_process = require("runtime.qa_process")
 local candidate_seal = require("runtime.candidate_seal")
 local capabilities = require("runtime.repository_capability")
 local repository_inventory = require("runtime.repository_inventory")
@@ -470,11 +471,16 @@ function witness.execute(instance, host_services, plan)
                     ~= "qa.provider_process_error.v1" then
                 error("QA provider returned an invalid process error", 0)
             end
-            local clean = process_err.cleanup_state == "complete"
-                and process_err.candidate_start_state == "not_started"
+            local reuse_class, topology_err =
+                qa_process.error_reuse_class_v1(process_err)
+            if reuse_class == nil then
+                error("QA provider returned an invalid process error topology: "
+                    .. tostring(topology_err), 0)
+            end
             return {
                 kind = "error",
-                disposition = clean and "consumed" or "quarantined",
+                disposition = reuse_class == "clean_prestart"
+                    and "consumed" or "quarantined",
                 code = process_err.code,
                 class = process_err.class,
                 stage = process_err.stage,

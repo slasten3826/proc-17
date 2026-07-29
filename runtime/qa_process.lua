@@ -87,6 +87,13 @@ local v1_error_keys = {
     "result_eof", "measured_cost", "event_truth_status",
 }
 
+local v1_provider_error_keys = {
+    "protocol_version", "operation", "transaction_id", "witness_id",
+    "profile_id", "environment_id", "class", "code", "stage",
+    "candidate_start_state", "cleanup_state", "launcher_reaped",
+    "result_eof", "measured_cost", "event_truth_status",
+}
+
 local v1_finality_keys = {
     "source_staging_complete", "candidate_started",
     "candidate_terminal_observed", "process_tree_reaped",
@@ -161,6 +168,98 @@ local v1_tri_states = {
     incomplete = true,
 }
 
+local v1_error_topologies = {
+    supervisor_unavailable = {
+        class = "unavailable",
+        stages = {preflight = true, launch = true},
+        reuse_class = "clean_prestart",
+        variants = {
+            {phase = 1, start = "not_started", cleanup = "complete",
+                reap = "complete", eof = "complete"},
+        },
+    },
+    source_staging_failed = {
+        class = "world",
+        stages = {source_staging = true},
+        reuse_class = "clean_prestart",
+        variants = {
+            {phase = 1, start = "not_started", cleanup = "complete",
+                reap = "complete", eof = "complete"},
+        },
+    },
+    supervisor_crashed = {
+        class = "unavailable",
+        stages = {supervision = true},
+        reuse_class = "non_reusable",
+        variants = {
+            {phase = 1, start = "not_started", cleanup = "unknown",
+                reap = "complete", eof = "complete"},
+            {phase = 2, start = "started", cleanup = "unknown",
+                reap = "complete", eof = "complete"},
+        },
+    },
+    result_pipe_lost = {
+        class = "ambiguous",
+        stages = {supervision = true},
+        reuse_class = "non_reusable",
+        variants = {
+            {phase = 1, start = "not_started", cleanup = "unknown",
+                reap = "complete", eof = "unknown"},
+            {phase = 2, start = "started", cleanup = "unknown",
+                reap = "complete", eof = "unknown"},
+        },
+    },
+    terminal_frame_missing = {
+        class = "ambiguous",
+        stages = {postflight = true},
+        reuse_class = "non_reusable",
+        variants = {
+            {phase = 1, start = "not_started", cleanup = "unknown",
+                reap = "complete", eof = "complete"},
+            {phase = 2, start = "started", cleanup = "unknown",
+                reap = "complete", eof = "complete"},
+        },
+    },
+    reap_ambiguous = {
+        class = "ambiguous",
+        stages = {cleanup = true},
+        reuse_class = "non_reusable",
+        variants = {
+            {phase = 2, start = "started", cleanup = "unknown",
+                reap = "unknown", eof = "complete"},
+            {phase = 1, start = "unknown", cleanup = "unknown",
+                reap = "unknown", eof = "unknown"},
+        },
+    },
+    output_observation_incomplete = {
+        class = "ambiguous",
+        stages = {postflight = true},
+        reuse_class = "non_reusable",
+        variants = {
+            {phase = 2, start = "started", cleanup = "incomplete",
+                reap = "complete", eof = "complete"},
+        },
+    },
+    scratch_observation_incomplete = {
+        class = "ambiguous",
+        stages = {postflight = true},
+        reuse_class = "non_reusable",
+        variants = {
+            {phase = 2, start = "started", cleanup = "incomplete",
+                reap = "complete", eof = "complete"},
+        },
+    },
+    namespace_cleanup_incomplete = {
+        class = "ambiguous",
+        stages = {cleanup = true},
+        reuse_class = "non_reusable",
+        variants = {
+            {phase = 2, start = "started", cleanup = "incomplete",
+                reap = "complete", eof = "complete"},
+        },
+    },
+}
+
 local function copy_value(value, seen)
     if type(value) ~= "table" then
         return value
@@ -217,6 +316,26 @@ end
 
 local function fail(message)
     error("QA process contract failure: " .. tostring(message), 0)
+end
+
+local function v1_error_topology(value, phase_ordinal)
+    local rule = v1_error_topologies[value.code]
+    if rule == nil or value.class ~= rule.class
+        or rule.stages[value.stage] ~= true then
+        return nil, "native RUN v1 error causal topology mismatch: "
+            .. tostring(value.code)
+    end
+    for _, variant in ipairs(rule.variants) do
+        if (phase_ordinal == nil or phase_ordinal == variant.phase)
+            and value.candidate_start_state == variant.start
+            and value.cleanup_state == variant.cleanup
+            and value.launcher_reaped == variant.reap
+            and value.result_eof == variant.eof then
+            return rule
+        end
+    end
+    return nil, "native RUN v1 error causal topology mismatch: "
+        .. tostring(value.code)
 end
 
 function qa_process.normalize_request(value)
@@ -775,6 +894,8 @@ function qa_process.normalize_error_v1(raw, request)
         and (raw.launcher_reaped ~= "complete" or raw.result_eof ~= "complete") then
         fail("native RUN v1 complete cleanup lacks reap or EOF")
     end
+    local _, topology_err = v1_error_topology(raw, raw.phase_ordinal)
+    if topology_err then fail(topology_err) end
     v1_identity(raw, normalized_request, "native RUN v1 error")
     return {
         protocol_version = "qa.provider_process_error.v1",
@@ -793,6 +914,30 @@ function qa_process.normalize_error_v1(raw, request)
         measured_cost = v1_error_cost(raw.measured_cost),
         event_truth_status = "runtime_confirmed",
     }
+end
+
+function qa_process.error_reuse_class_v1(value)
+    local keys_ok, keys_err = exact_keys(value, v1_provider_error_keys,
+        "provider RUN v1 error", {measured_cost = true})
+    if not keys_ok then return nil, keys_err end
+    if value.protocol_version ~= "qa.provider_process_error.v1"
+        or value.operation ~= "run_lua54_test_suite"
+        or not tagged_digest(value.transaction_id, "qa-provider-transaction:")
+        or not tagged_digest(value.witness_id, "qa-provider-witness:")
+        or value.profile_id ~= qa_schema.profile_id
+        or not tagged_digest(value.environment_id, "qa-environment:")
+        or value.event_truth_status ~= "runtime_confirmed" then
+        return nil, "provider RUN v1 error envelope is invalid"
+    end
+    local rule, topology_err = v1_error_topology(value)
+    if not rule then return nil, topology_err end
+    if value.measured_cost ~= nil then
+        local cost_ok = pcall(v1_error_cost, value.measured_cost)
+        if not cost_ok then
+            return nil, "provider RUN v1 error measured cost is invalid"
+        end
+    end
+    return rule.reuse_class
 end
 
 return qa_process

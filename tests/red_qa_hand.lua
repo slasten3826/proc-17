@@ -38,8 +38,8 @@ print(string.format(
     controls.green + controls.red + controls.skip
 ))
 
-if controls.green ~= 42 or controls.red ~= 42 or controls.skip ~= 0 then
-    error("QA hand red matrix drifted from exact post-QN18 42/42", 0)
+if controls.green ~= 43 or controls.red ~= 41 or controls.skip ~= 0 then
+    error("QA hand red matrix drifted from exact post-QN19 43/41", 0)
 end
 
 print(string.format(

@@ -29,6 +29,7 @@ QA_WRONG_ABI_MODULE = tests/proc17_qa_launcher_wrong_abi.so
 QA_FAULT_SUPERVISOR = tests/proc17_qa_supervisor_fault_test
 QA_FAULT_LAUNCHER_MODULE = tests/proc17_qa_launcher_fault_test.so
 QA_TRUSTED_FAULT_TEST = tests/test_proc17_qa_trusted_faults
+QA_CLEANUP_AMBIGUITY_TEST = tests/test_proc17_qa_cleanup_ambiguity
 QA_GENERATED_DIR = generated
 QA_PREBUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_prebuild.h
 QA_BUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_build_identity.h
@@ -54,7 +55,7 @@ QA_STATIC_LDFLAGS ?= -static-pie
 	qa-supervisor-limits-test qa-native-probe-test qa-provider-shell \
 	qa-loader-test-fixture qa-run-basic-internal-test \
 	qa-supervisor-basic-fixtures-test qa-supervisor-hostile-fixtures-test \
-	qa-supervisor-trusted-fault-test
+	qa-supervisor-trusted-fault-test qa-supervisor-cleanup-ambiguity-test
 
 all: toolchain-check $(MODULE)
 
@@ -279,6 +280,20 @@ $(QA_TRUSTED_FAULT_TEST): tests/test_proc17_qa_trusted_faults.c \
 		-o $@ tests/test_proc17_qa_trusted_faults.c proc17_qa_launcher.c \
 		proc17_qa_launcher_v1.c proc17_sha256.c $(LDFLAGS) $(LUA_LIBS) -ldl
 
+$(QA_CLEANUP_AMBIGUITY_TEST): tests/test_proc17_qa_cleanup_ambiguity.c \
+		proc17_qa_launcher_v1.c proc17_qa_launcher_v1.h \
+		proc17_qa_report.c proc17_qa_report.h proc17_qa_controller.c \
+		proc17_qa_controller.h proc17_qa_allocator.c proc17_qa_allocator.h \
+		proc17_qa_stream.c proc17_qa_stream.h proc17_qa_scratch.c \
+		proc17_qa_scratch.h proc17_qa_phase.c proc17_qa_phase.h \
+		proc17_qa_phase_internal.h proc17_qa_status.c proc17_qa_status.h \
+		proc17_qa_wire.h proc17_qa_policy.h proc17_sha256.c proc17_sha256.h
+	$(CC) $(CFLAGS) -I. -o $@ \
+		tests/test_proc17_qa_cleanup_ambiguity.c proc17_qa_launcher_v1.c \
+		proc17_qa_report.c proc17_qa_controller.c proc17_qa_allocator.c \
+		proc17_qa_stream.c proc17_qa_scratch.c proc17_qa_phase.c \
+		proc17_qa_status.c proc17_sha256.c $(LDFLAGS)
+
 $(QA_WRONG_ABI_MODULE): tests/proc17_qa_launcher_wrong_abi.c
 	$(CC) $(CFLAGS) -fPIC -shared $(LUA_CFLAGS) $(LDFLAGS) \
 		-o $@ $< $(LUA_LIBS)
@@ -307,6 +322,10 @@ qa-supervisor-trusted-fault-test: qa-provider-shell fixture-helper \
 		$(QA_FAULT_SUPERVISOR) $(QA_FAULT_LAUNCHER_MODULE) \
 		$(QA_TRUSTED_FAULT_TEST)
 	cd .. && lua tests/run_qa_trusted_fault_campaign.lua
+
+qa-supervisor-cleanup-ambiguity-test: qa-provider-shell fixture-helper \
+		$(QA_CLEANUP_AMBIGUITY_TEST)
+	cd .. && lua tests/run_qa_cleanup_ambiguity_campaign.lua
 
 qa-static-closure-test: $(QA_SUPERVISOR) $(QA_BUILD_IDENTITY)
 	@! readelf -l $(QA_SUPERVISOR) | grep -q 'INTERP'
@@ -382,6 +401,8 @@ qa-scratch-test: $(QA_SCRATCH_TEST) $(QA_SUPERVISOR)
 qa-report-test: $(QA_REPORT_TEST) $(QA_SUPERVISOR)
 	./$(QA_REPORT_TEST)
 	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_controller_report_finalize$$'
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_controller_error_build$$'
+	@nm $(QA_SUPERVISOR) | grep -q ' T proc17_qa_namespace_cleanup_observe$$'
 
 qa-shared-abi-test: toolchain-check $(QA_SHARED_ABI_TEST)
 	./$(QA_SHARED_ABI_TEST)
@@ -402,5 +423,6 @@ clean:
 		$(QA_EXECUTION_TEST) $(QA_LAUNCHER_V1_TEST) \
 		$(QA_SUPERVISOR) $(QA_LAUNCHER_MODULE) $(QA_SUPERVISOR_TEST) \
 		$(QA_WRONG_ABI_MODULE) $(QA_RUN_TEST) $(QA_FAULT_SUPERVISOR) \
-		$(QA_FAULT_LAUNCHER_MODULE) $(QA_TRUSTED_FAULT_TEST)
+		$(QA_FAULT_LAUNCHER_MODULE) $(QA_TRUSTED_FAULT_TEST) \
+		$(QA_CLEANUP_AMBIGUITY_TEST)
 	rm -rf $(QA_GENERATED_DIR)

@@ -171,6 +171,47 @@ suite:check("C7 process uncertainty is preserved exactly", function()
     end))
 end)
 
+suite:check("C7 impossible process topology quarantines before loud failure", function()
+    assert(support.with_candidate("return true\n", function(grown)
+        local runs = 0
+        local qa_provider = {
+            run = function(_, request)
+                runs = runs + 1
+                return nil, {
+                    protocol_version = "qa.provider_process_error.v1",
+                    operation = "run_lua54_test_suite",
+                    transaction_id = request.transaction_id,
+                    witness_id = request.witness_id,
+                    profile_id = request.profile_id,
+                    environment_id = request.environment_id,
+                    class = "ambiguous",
+                    code = "reap_ambiguous",
+                    stage = "preflight",
+                    candidate_start_state = "not_started",
+                    cleanup_state = "complete",
+                    launcher_reaped = "complete",
+                    result_eof = "complete",
+                    measured_cost = nil,
+                    event_truth_status = "runtime_confirmed",
+                }
+            end,
+        }
+        local hostile_services = services(grown, nil, qa_provider)
+        local plan = assert(witness.prepare(grown.instance, hostile_services))
+        local ok, err = pcall(witness.execute,
+            grown.instance, hostile_services, plan)
+        H.assert_false(ok, "impossible provider topology returned normally")
+        H.assert_contains(err, "callback failed",
+            "impossible provider topology is loud after quarantine")
+        local replay, replay_err = witness.execute(
+            grown.instance, hostile_services, plan)
+        H.assert_nil(replay, "quarantined impossible topology replayed")
+        H.assert_true(replay_err ~= nil, "topology replay denial is explicit")
+        H.assert_eq(runs, 1, "quarantine prevents a second provider call")
+        return true
+    end))
+end)
+
 suite:check("C7 legacy process witness is rejected loudly", function()
     assert(support.with_candidate("return true\n", function(grown)
         local qa_provider = {

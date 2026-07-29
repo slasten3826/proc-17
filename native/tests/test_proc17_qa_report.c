@@ -111,6 +111,13 @@ static int test_join_and_suppression(void)
     struct proc17_qa_allocator_snapshot allocator;
     struct proc17_qa_scratch_measurement scratch;
     struct proc17_qa_controller_report_input input;
+    struct proc17_qa_namespace_observation namespace_observation = {
+        .controller_pidfd_identity_retained = 1U,
+        .terminal_record_complete = 1U,
+        .terminal_record_eof_observed = 1U,
+        .controller_reaped = 1U,
+        .controller_authority_closed = 1U,
+    };
     struct proc17_qa_wire_view view;
     unsigned char token[PROC17_QA_WIRE_DIGEST_BYTES];
     unsigned char wrong_token[PROC17_QA_WIRE_DIGEST_BYTES];
@@ -158,7 +165,7 @@ static int test_join_and_suppression(void)
     input.allocator_observation_stable = 1U;
     if (proc17_qa_controller_report_build(&input, report) != 0
         || proc17_qa_controller_report_finalize(report, &identity, token,
-            0, 1U, frame, &frame_bytes) != 0
+            0, &namespace_observation, frame, &frame_bytes) != 0
         || proc17_qa_wire_decode_run_v1(frame, frame_bytes, &view) != 0
         || view.kind != PROC17_QA_WIRE_RUN_RESULT_V1
         || !proc17_qa_wire_v1_result_valid(
@@ -171,17 +178,26 @@ static int test_join_and_suppression(void)
     }
 
     if (proc17_qa_controller_report_finalize(report, &identity, wrong_token,
-            0, 1U, frame, &frame_bytes) == 0
+            0, &namespace_observation, frame, &frame_bytes) == 0
         || proc17_qa_controller_report_finalize(report, &identity, token,
-            SIGKILL, 1U, frame, &frame_bytes) == 0
-        || proc17_qa_controller_report_finalize(report, &identity, token,
-            0, 0U, frame, &frame_bytes) == 0) {
+            SIGKILL, &namespace_observation, frame, &frame_bytes) == 0) {
         return -1;
     }
+    namespace_observation.controller_authority_closed = 0U;
+    if (proc17_qa_controller_report_finalize(report, &identity, token,
+            0, &namespace_observation, frame, &frame_bytes) != 0
+        || proc17_qa_wire_decode_run_v1(frame, frame_bytes, &view) != 0
+        || view.kind != PROC17_QA_WIRE_RUN_ERROR_V1
+        || proc17_qa_wire_get_u16(view.payload + 132U)
+            != PROC17_QA_RUN_V1_NAMESPACE_CLEANUP_INCOMPLETE) {
+        return -1;
+    }
+    namespace_observation.controller_authority_closed = 1U;
     memcpy(changed_report, report, sizeof(changed_report));
     changed_report[220U] = 1U;
     if (proc17_qa_controller_report_finalize(changed_report,
-            &identity, token, 0, 1U, frame, &frame_bytes) == 0) {
+            &identity, token, 0, &namespace_observation,
+            frame, &frame_bytes) == 0) {
         return -1;
     }
     input.status_eof_observed = 0U;
@@ -262,9 +278,83 @@ static int test_memory_join(void)
     return 0;
 }
 
+static int test_error_union(void)
+{
+    struct proc17_qa_phase_identity identity;
+    struct proc17_qa_controller_error_input input;
+    struct proc17_qa_namespace_observation namespace_observation = {
+        .controller_pidfd_identity_retained = 1U,
+        .terminal_record_complete = 1U,
+        .terminal_record_eof_observed = 1U,
+        .controller_reaped = 1U,
+        .controller_authority_closed = 1U,
+    };
+    struct proc17_qa_wire_view view;
+    unsigned char token[PROC17_QA_WIRE_DIGEST_BYTES];
+    unsigned char stage[PROC17_QA_SOURCE_STAGE_V1_BYTES];
+    unsigned char report[PROC17_QA_CONTROLLER_REPORT_BYTES];
+    unsigned char changed[PROC17_QA_CONTROLLER_REPORT_BYTES];
+    unsigned char frame[PROC17_QA_WIRE_MAX_FRAME_BYTES];
+    size_t frame_bytes = 0U;
+
+    fill_identity(&identity);
+    memset(token, 0x77, sizeof(token));
+    fill_stage(stage);
+    memset(&input, 0, sizeof(input));
+    input.identity = &identity;
+    input.process_token = token;
+    input.source_stage = stage;
+    input.error_code = PROC17_QA_RUN_V1_OUTPUT_OBSERVATION_INCOMPLETE;
+    input.subject = PROC17_QA_CONTROLLER_ERROR_STDOUT;
+    input.candidate_terminal_observed = 1U;
+    input.process_tree_reaped = 1U;
+    input.stderr_eof_observed = 1U;
+    input.scratch_observation_complete = 1U;
+    input.status_eof_observed = 1U;
+    if (proc17_qa_controller_error_build(&input, report) != 0
+        || proc17_qa_controller_report_finalize(report, &identity, token,
+            0, &namespace_observation, frame, &frame_bytes) != 0
+        || proc17_qa_wire_decode_run_v1(frame, frame_bytes, &view) != 0
+        || view.kind != PROC17_QA_WIRE_RUN_ERROR_V1
+        || proc17_qa_wire_get_u16(view.payload + 132U)
+            != PROC17_QA_RUN_V1_OUTPUT_OBSERVATION_INCOMPLETE
+        || proc17_qa_wire_get_u16(view.payload + 134U)
+            != PROC17_QA_RUN_V1_ERROR_POSTFLIGHT
+        || view.payload[136U] != PROC17_QA_RUN_V1_TRUE
+        || view.payload[137U] != PROC17_QA_RUN_V1_FALSE
+        || view.payload[139U] != 1U) {
+        return -1;
+    }
+    memcpy(changed, report, sizeof(changed));
+    changed[300U] = 1U;
+    if (proc17_qa_controller_report_finalize(changed, &identity, token,
+            0, &namespace_observation, frame, &frame_bytes) == 0) {
+        return -1;
+    }
+    namespace_observation.controller_authority_closed = 0U;
+    if (proc17_qa_controller_report_finalize(report, &identity, token,
+            0, &namespace_observation, frame, &frame_bytes) == 0) {
+        return -1;
+    }
+    namespace_observation.controller_authority_closed = 1U;
+    input.stdout_eof_observed = 1U;
+    input.stderr_eof_observed = 0U;
+    input.subject = PROC17_QA_CONTROLLER_ERROR_STDERR;
+    if (proc17_qa_controller_error_build(&input, report) != 0) return -1;
+    input.error_code = PROC17_QA_RUN_V1_SCRATCH_OBSERVATION_INCOMPLETE;
+    input.subject = PROC17_QA_CONTROLLER_ERROR_SCRATCH;
+    input.stderr_eof_observed = 1U;
+    input.scratch_observation_complete = 0U;
+    if (proc17_qa_controller_error_build(&input, report) != 0) return -1;
+    input.scratch_observation_complete = 1U;
+    if (proc17_qa_controller_error_build(&input, report) == 0) return -1;
+    return 0;
+}
+
 int main(void)
 {
-    if (test_join_and_suppression() != 0 || test_memory_join() != 0) {
+    if (test_join_and_suppression() != 0 || test_memory_join() != 0
+        || test_error_union() != 0) {
         return 1;
     }
     puts("proc17 QA private controller report and finality join ok");
