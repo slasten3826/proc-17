@@ -542,6 +542,175 @@ function qa_fixture.run_qa_execution_tick(options)
     }
 end
 
+local function first_event(instance, event_type)
+    for index, event in ipairs(instance and instance.trace or {}) do
+        if event.type == event_type then return event, index end
+    end
+    return nil
+end
+
+function qa_fixture.grow_terminal_qa_life(options)
+    options = options or {}
+    local packet_core = require("core.packet")
+    local budget = require("runtime.budget")
+    local corpse_module = require("runtime.corpse")
+    local operator_registry = require("runtime.operator_registry")
+    local tension_runner = require("runtime.tension_runner")
+
+    local execution = assert(qa_fixture.run_qa_execution_tick(options))
+    local grown = execution.grown
+    qa_fixture.move_to(grown.instance, "☱")
+    assert(tension_runner.execute_qa_verdict_tick(
+        grown.instance,
+        grown.qa_contract.qa_contract_id
+    ))
+    local verdict_event, verdict_index = assert(first_event(
+        grown.instance,
+        "qa_candidate_verdict"
+    ))
+    local check_event = assert(first_event(grown.instance, "qa_check"))
+
+    for index = 1, (options.tail_events or 0) do
+        assert(packet_core.append_trace(grown.instance, {
+            type = "tension_measure",
+            operator = "☱",
+            truth_status = "runtime_confirmed",
+            payload = {
+                kind = "qa_terminal_retention_padding",
+                ordinal = index,
+                source_ref = verdict_event.id,
+            },
+            cost = {},
+        }))
+    end
+
+    assert(packet_core.commit_transition(grown.instance, {
+        from = "☱",
+        to = "△",
+        reason = "qa_terminal_fixture_boundary",
+        authority = "harness_override",
+    }))
+    assert(packet_core.begin_tick(grown.instance, "△", {}))
+    local tick_lease = assert(packet_core.assert_actor_tick(
+        grown.instance,
+        "△",
+        "grow terminal QA fixture"
+    ))
+    local context = {
+        options = {work_mode = "build"},
+        manifest = {
+            qa_terminal = {
+                action = "project_current_candidate",
+                qa_contract_id = grown.qa_contract.qa_contract_id,
+            },
+        },
+        result = {ticks = {}},
+    }
+    local terminal_execution = assert(operator_registry.execute(
+        "△",
+        grown.instance,
+        context
+    ))
+    assert(terminal_execution.status == "applied")
+    assert(budget.charge(grown.instance, {
+        operator = "△",
+        event_id = tick_lease.id,
+        cost = {steps = 1},
+        source = "body_tick",
+        truth_status = "runtime_confirmed",
+    }))
+    assert(packet_core.manifest_packet(
+        grown.instance,
+        terminal_execution.payload
+    ))
+    local record = assert(corpse_module.capture(grown.instance, {
+        corpse_id = "corpse:" .. grown.instance.id .. ":qa-terminal",
+        trace_tail_count = 32,
+    }))
+    assert(corpse_module.verify(record))
+    local distance = #grown.instance.trace - verdict_index
+    return {
+        instance = grown.instance,
+        grown = grown,
+        terminal = terminal_execution.payload,
+        check = copy(check_event.payload),
+        verdict = copy(verdict_event.payload),
+        corpse_record = record,
+        corpse = {
+            record = record,
+            qa = {
+                check_id = record.qa_evidence.check.qa_check_id,
+                verdict_id = record.qa_evidence.verdict.verdict_id,
+            },
+        },
+        qa_event_distance_from_tail = distance,
+    }
+end
+
+function qa_fixture.grow_qa_descendant()
+    local carrier = require("runtime.carrier")
+    local lineage = require("runtime.lineage")
+    local network_ingress = require("runtime.network_ingress")
+    local packet_core = require("core.packet")
+    local qa_evidence = require("runtime.qa_evidence")
+
+    local ancestor = assert(qa_fixture.grow_terminal_qa_life({
+        label = "qa-historical-descendant",
+        adapter_options = {reason = "unexpected_exit", exit_code = 70},
+    }))
+    local dead = ancestor.corpse_record
+    local state = assert(lineage.create("replace rejected candidate", {
+        lineage_id = dead.lineage_id,
+        session_id = "session-qa-historical-descendant",
+        work_mode = "build",
+        completion_contract_id = "software.create.v0",
+        carrier = {max_bytes = 1048576},
+        budget = {
+            steps = 100,
+            generations = 4,
+            carrier_bytes = 1048576,
+        },
+    }))
+    state.status = "evaluating_terminal"
+    state.current_generation = dead.generation
+    state.current_packet_id = dead.packet_id
+    state.current_corpse_id = dead.corpse_id
+    local assessment = {
+        kind = "lineage_completion_assessment",
+        assessment_id = "assessment:" .. dead.corpse_hash,
+        task_state = "unfinished",
+        terminal_recoverable = true,
+        terminal_recovery_basis = "qa_rejected",
+        remaining_work = {count = 1},
+    }
+    local record = assert(carrier.build_recovery(state, dead, assessment, {
+        carrier_id = "carrier:" .. dead.corpse_id .. ":qa-recovery",
+        max_bytes = 1048576,
+    }))
+    assert(lineage.mark_continued(state, dead, record))
+    local ingress = assert(network_ingress.prepare(state, record, {
+        max_bytes = 1048576,
+    }))
+    local descendant = packet_core.new(ingress.prompt, ingress.packet_options)
+    local current = assert(qa_evidence.current(
+        descendant,
+        ancestor.verdict.candidate_seal_id,
+        ancestor.verdict.qa_contract_id
+    ))
+    local current_check_count = current.check and 1 or 0
+    local history = assert(ingress.carrier.payload.qa_history)
+    return {
+        ancestor = ancestor,
+        carrier = record,
+        ingress = ingress,
+        descendant = descendant,
+        descendant_current_check_count = current_check_count,
+        historical_verdict_id = history.qa_evidence.verdict.verdict_id,
+        ancestor_verdict_id = ancestor.verdict.verdict_id,
+        applicability_truth_status = history.applicability_truth_status,
+    }
+end
+
 function qa_fixture.run_repeated_body_campaign()
     local stream, stream_err = io.popen(
         "lua tests/run_qa_body_repeated_residue_campaign.lua 2>&1",

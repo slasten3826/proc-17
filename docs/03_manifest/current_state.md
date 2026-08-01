@@ -1,4 +1,4 @@
-# Current State - 2026-07-30
+# Current State - 2026-08-01
 
 Status: active packet-first body
 
@@ -11,6 +11,7 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> first complete capability-safe repository life
 -> private QA RUN v1 witness + QN17-QN20 containment campaigns
 -> deterministic current-candidate QA verdict and shadow work projection
+-> exact terminal QA projection, corpse retention and inherited history
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -36,9 +37,12 @@ Its 17 hostile-candidate, nine trusted-runtime fault, six cleanup-ambiguity and
 that closure to one exact Packet request, private receipt and strict
 `qa.check.v0` or `qa.execution_failure.v0` writer. A second actor-valid `☱`
 tick now derives one deterministic current-candidate verdict, preserves the
-ordinary runtime camera and feeds pure completion/work-layer readers.
-Terminal QA projection, corpse retention, descendant historical transport,
-automatic routing and lineage software acceptance remain closed.
+ordinary runtime camera and feeds pure completion/work-layer readers. One
+explicit actor-valid `△` action now projects the exact current QA chain into a
+terminal manifest. The corpse retains that chain outside its bounded trace
+tail, and a carrier can transport it only as inherited history. Automatic QA
+routing, automatic rejected-generation recovery and lineage software
+acceptance remain closed.
 
 ## Runtime Shape
 
@@ -354,6 +358,14 @@ runner separately applies intrinsic task state, cumulative affordability and
 policy, producing exact `lineage_budget_exhausted` or
 `recovery_disabled_by_policy` outcomes without relabelling unfinished work.
 
+Terminal QA evidence now obeys the same separation. A living Packet derives a
+current verdict and exact terminal projection; its corpse freezes a hashed
+`corpse.qa_evidence.v1` envelope before `trace_tail` truncation. A recovery
+carrier may expose that envelope only through `carrier.qa_history.v1`, where
+the ancestor event remains `runtime_confirmed` and descendant applicability is
+only `inherited_proposal`. The descendant receives no current QA check from its
+ancestor.
+
 ### Substrates and tools
 
 Substrate adapters exist for fake and OpenAI-compatible models, including
@@ -379,12 +391,18 @@ Controller terminal v2 carries either exact result evidence or one named
 internal observation failure; a closed causal topology decides source reuse,
 and only exact clean pre-start failures are reusable.
 
+An explicit `△` action now consumes one complete current request/check/verdict
+chain without rerunning the candidate and emits `qa.terminal_projection.v1`.
+Accepted and rejected projections have equal schema depth; they terminate the
+Packet as `complete` and `blocked` respectively. The action is implemented but
+is not selected by automatic pressure or exposed as CLI release acceptance.
+
 ## Measured Evidence
 
 Current local audit results:
 
 ```text
-lua tests/run.lua                   111 listed suites passed
+lua tests/run.lua                   114 listed suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -417,11 +435,12 @@ tests/test_qa_native_supervisor.lua  20 green / 0 red / 0 deferred
 tests/test_qa_body_join.lua          9 green / 0 red
 tests/test_qa_runner_tick.lua        7 green / 0 red
 tests/test_qa_verdict_tick.lua       7 green / 0 red
+tests/test_qa_terminal_retention.lua 5 green / 0 red
 lua tests/run_qa_trusted_fault_campaign.lua 9/9, zero candidate outcomes
 lua tests/run_qa_cleanup_ambiguity_campaign.lua 6/6, zero candidate outcomes, six quarantines
 lua tests/run_qa_repeated_residue_campaign.lua 32/32, all named residue deltas zero/exact
 lua tests/run_qa_body_repeated_residue_campaign.lua 32/32, all named residue deltas zero/exact
-lua tests/red_qa_hand.lua            expected red: 82 green / 2 red
+lua tests/red_qa_hand.lua            84 green / 0 red / 0 skip
 live CLI plan                        complete, 1 DeepSeek call, 373 tokens
 live CLI build                       complete, 1 DeepSeek call, 408 tokens, one verified file
 live CLI overwrite attempt           effect_failure, original file unchanged
@@ -622,7 +641,7 @@ completion and repository manifestation inside the body.
    plan or one exact create-only build Packet, starts fresh sessions by default,
    and resumes only an explicitly named session. It does not provide persistent
    lineage recovery, QA acceptance, general repository work or a human TUI.
-10. **The QA body hand has manual execution and verdict ticks but is not routed.** Production RUN v1,
+10. **The bounded QA body hand is complete but remains manually entered.** Production RUN v1,
     source finality and QN17-QN20 containment are implemented. One exact Packet
     request now mints private authority; its receipt can append exactly one
     accepted/rejected check or one typed execution failure. Replay, drift,
@@ -631,9 +650,11 @@ completion and repository manifestation inside the body.
     external QA debit in the runner; infrastructure failure enters the existing
     `effect_failure` death. One explicit actor-valid `☱` action now derives an
     accepted/rejected current-candidate verdict at equal depth and feeds
-    massless completion/work-layer readers. Automatic routing, terminal QA
-    projection, corpse retention and descendant historical transport remain
-    expected-red.
+    massless completion/work-layer readers. One explicit actor-valid `△` action
+    projects the verdict into an honest terminal manifest; corpse and carrier
+    preserve it outside the trace tail as bounded history only. Automatic QA
+    routing, automatic recovery, multiple checks, lineage acceptance and CLI
+    release policy remain deliberately unauthorized.
 
 Several modules are currently standalone or partially integrated, including
 `runtime/pressure_snapshot.lua`, `runtime/trace_store.lua`,
@@ -662,12 +683,12 @@ The active roadmap is deliberately ordered so new power follows owned facts:
    - qualified suite/route promotion                           complete
    - first exact repository manifest                           complete
 8. expose a machine CLI                                        complete (v0)
-9. finish the body QA hand                                      in progress
+9. finish the body QA hand                                      complete (manual bounded v0)
    - shared physical engine and private receipt                   complete
    - strict Packet request/check/failure join                     complete
    - runner-owned QA tick and one-time debit                      complete
    - deterministic current-candidate verdict                      complete
-   - terminal projection, corpse and historical transport         pending
+   - terminal projection, corpse and historical transport         complete
 10. close the v0 release boundary and run real CLI probes        pending
 11. expose a Go TUI                                             deferred
 ```
@@ -711,11 +732,12 @@ Every line in this selected v0 loop is now runtime-confirmed, including one
 production C-provider life. The first hand chapter is complete. A narrow JSON
 machine CLI now exposes exactly this capability without widening it: one Packet
 per invocation, DeepSeek as the production substrate, fresh session by default,
-explicit resume, and one create-only artifact in build mode. The active bounded
-boundary is QA M4: exact terminal projection, corpse retention outside the
-trace tail and descendant transport as history only. Release closure and real
-CLI probes follow that boundary; the Go TUI and operation widening remain
-separate later campaigns.
+explicit resume, and one create-only artifact in build mode. QA M4 now closes
+the bounded manual body transaction: exact terminal projection, corpse
+retention outside the trace tail and descendant transport as history only are
+runtime-confirmed. The next boundary is the explicit v0 release and real-CLI
+policy decision; automatic QA routing is not smuggled into M4. The Go TUI and
+operation widening remain separate later campaigns.
 
 The detailed audit and authorship reconstruction are preserved in
 [`../00_chaos/full_project_audit_2026-07-15_notes.md`](../00_chaos/full_project_audit_2026-07-15_notes.md).

@@ -87,6 +87,13 @@ local function repository_delivery(instance, options)
     return repository_result.delivery(instance, input, action_scope)
 end
 
+local function qa_terminal_delivery(instance, options)
+    if options.repository_result ~= nil or options.plan_input ~= nil then
+        return nil, "QA terminal action must be exclusive"
+    end
+    return manifest_logic.assemble_qa_terminal(instance, options.qa_terminal)
+end
+
 local function last_trace_event(instance, event_type, operator)
     for index = #(instance.trace or {}), 1, -1 do
         local event = instance.trace[index]
@@ -186,6 +193,29 @@ end
 
 function manifest_organ.readiness(instance, options)
     options = options or {}
+    if options.qa_terminal ~= nil then
+        local delivery, delivery_err = qa_terminal_delivery(instance, options)
+        if not delivery then
+            return {
+                operator = "△",
+                ready = false,
+                reason = delivery_err,
+                source_refs = {},
+                required_capabilities = {},
+                missing_capabilities = {},
+                event_truth_status = "runtime_confirmed",
+            }
+        end
+        return {
+            operator = "△",
+            ready = true,
+            reason = "qa_terminal_delivery_ready",
+            source_refs = copy_value(delivery.effect_scope_refs),
+            required_capabilities = {},
+            missing_capabilities = {},
+            event_truth_status = "runtime_confirmed",
+        }
+    end
     if options.repository_result ~= nil then
         local delivery, delivery_err = repository_delivery(instance, options)
         if not delivery then
@@ -258,6 +288,11 @@ function manifest_organ.run(instance, options)
         return nil, mutable_err
     end
     options = options or {}
+    if options.qa_terminal ~= nil then
+        local delivery, delivery_err = qa_terminal_delivery(instance, options)
+        if not delivery then return nil, delivery_err end
+        return instance, delivery
+    end
     if options.repository_result ~= nil then
         local delivery, delivery_err = repository_delivery(instance, options)
         if not delivery then

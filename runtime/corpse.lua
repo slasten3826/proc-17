@@ -1,4 +1,6 @@
 local digest = require("core.digest")
+local qa_evidence = require("runtime.qa_evidence")
+local qa_evidence_schema = require("core.qa_evidence_schema")
 local qa_schema = require("core.qa_schema")
 
 local corpse = {
@@ -43,6 +45,95 @@ local function unique_refs(values)
     return result
 end
 
+local function append_refs(target, values)
+    for _, value in ipairs(values or {}) do target[#target + 1] = value end
+end
+
+local function qa_evidence_envelope(instance, manifest)
+    local qa_contract_id = instance.qa_contract_id
+    local candidate_seal_id
+    for _, event in ipairs(instance.trace or {}) do
+        if event.type == "qa_check_request" or event.type == "qa_check"
+            or event.type == "qa_execution_failure"
+            or event.type == "qa_candidate_verdict" then
+            local payload = event.payload
+            if type(payload) ~= "table" then
+                return nil, "corpse encountered malformed QA event"
+            end
+            if qa_contract_id ~= nil and payload.qa_contract_id ~= qa_contract_id then
+                return nil, "corpse QA event contradicts birth contract"
+            end
+            qa_contract_id = qa_contract_id or payload.qa_contract_id
+            if candidate_seal_id ~= nil
+                and candidate_seal_id ~= payload.candidate_seal_id then
+                return nil, "corpse contains multiple QA candidate seals"
+            end
+            candidate_seal_id = payload.candidate_seal_id
+        end
+    end
+
+    local current
+    if candidate_seal_id ~= nil then
+        local current_err
+        current, current_err = qa_evidence.historical(
+            instance,
+            candidate_seal_id,
+            qa_contract_id
+        )
+        if not current then return nil, current_err end
+        if #current.conflicts > 0 then
+            return nil, "corpse QA evidence is contradictory: "
+                .. table.concat(current.conflicts, ",")
+        end
+    end
+
+    local refs = {}
+    if qa_contract_id then refs[#refs + 1] = qa_contract_id end
+    if current then
+        for _, ref in ipairs({
+            current.request and current.request.request_id,
+            current.request_ref,
+            current.check and current.check.qa_check_id,
+            current.check_ref,
+            current.execution_failure and current.execution_failure.failure_id,
+            current.execution_failure_ref,
+            current.verdict and current.verdict.verdict_id,
+            current.verdict_ref,
+        }) do
+            if ref then refs[#refs + 1] = ref end
+        end
+        append_refs(refs, current.request and current.request.source_refs)
+        append_refs(refs, current.check and current.check.source_refs)
+        append_refs(refs, current.execution_failure
+            and current.execution_failure.source_refs)
+        append_refs(refs, current.verdict and current.verdict.source_refs)
+    end
+    local terminal_projection = manifest and manifest.qa_terminal_projection
+    if terminal_projection ~= nil then
+        append_refs(refs, terminal_projection.source_refs)
+    end
+    if manifest and manifest.mode == "qa_terminal_delivery"
+        and terminal_projection == nil then
+        return nil, "QA terminal manifest omits its terminal projection"
+    end
+
+    return qa_evidence_schema.normalize_corpse_evidence({
+        protocol_version = "corpse.qa_evidence.v1",
+        qa_contract_id = qa_contract_id,
+        request_id = current and current.request and current.request.request_id,
+        request_ref = current and current.request_ref,
+        check = current and copy_value(current.check),
+        check_ref = current and current.check_ref,
+        execution_failure = current
+            and copy_value(current.execution_failure),
+        execution_failure_ref = current and current.execution_failure_ref,
+        verdict = current and copy_value(current.verdict),
+        verdict_ref = current and current.verdict_ref,
+        terminal_projection = copy_value(terminal_projection),
+        source_refs = unique_refs(refs),
+    })
+end
+
 local function identity_projection(record)
     local projected = copy_value(record)
     projected.corpse_hash = nil
@@ -73,6 +164,8 @@ function corpse.capture(instance, options)
     end
 
     local manifest = copy_value(instance.manifest)
+    local qa_envelope, qa_envelope_err = qa_evidence_envelope(instance, manifest)
+    if not qa_envelope then return nil, qa_envelope_err end
     local evidence_refs = {
         instance.terminal.event_id,
         instance.terminal.manifest_ref,
@@ -81,6 +174,7 @@ function corpse.capture(instance, options)
     for _, ref in ipairs(manifest and manifest.effect_scope_refs or {}) do
         evidence_refs[#evidence_refs + 1] = ref
     end
+    append_refs(evidence_refs, qa_envelope.source_refs)
 
     local record = {
         kind = "proc17_corpse",
@@ -98,6 +192,7 @@ function corpse.capture(instance, options)
         repository_id = instance.repository_id,
         qa_contract_id = instance.qa_contract_id,
         qa_contract = copy_value(instance.qa_contract),
+        qa_evidence = qa_envelope,
         parent_packet_id = instance.parent_id,
         parent_corpse_id = instance.parent_corpse_id,
         ingress_carrier_id = instance.carrier_id,
@@ -149,6 +244,33 @@ function corpse.verify(record)
     end
     if (record.qa_contract_id == nil) ~= (record.qa_contract == nil) then
         return nil, "invalid corpse QA contract projection"
+    end
+    local qa_evidence_ok, qa_evidence_err =
+        qa_evidence_schema.verify_corpse_evidence(record.qa_evidence)
+    if not qa_evidence_ok then
+        return nil, "invalid corpse QA evidence: " .. tostring(qa_evidence_err)
+    end
+    if record.qa_evidence.qa_contract_id ~= record.qa_contract_id then
+        return nil, "corpse QA evidence contradicts QA contract projection"
+    end
+    local manifest_projection = record.manifest
+        and record.manifest.qa_terminal_projection or nil
+    if not qa_schema.same(
+            manifest_projection,
+            record.qa_evidence.terminal_projection
+        ) then
+        return nil, "corpse QA terminal projection contradicts manifest"
+    end
+    if record.manifest and record.manifest.mode == "qa_terminal_delivery" then
+        local projection = record.qa_evidence.terminal_projection
+        if projection == nil then
+            return nil, "corpse QA terminal projection is absent"
+        end
+        local expected_cause = projection.verdict == "accepted"
+            and "complete" or "blocked"
+        if record.death_cause ~= expected_cause then
+            return nil, "corpse QA verdict contradicts death cause"
+        end
     end
     if record.qa_contract ~= nil then
         local normalized, normalized_err = qa_schema.normalize_contract(record.qa_contract)

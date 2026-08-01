@@ -268,7 +268,7 @@ local descriptors = {
         module = manifest,
         required_capabilities = {},
         loss_profile = "terminal",
-        reads = {"calm", "boundary.validations", "runtime.camera.reconciliations", "runtime.evidence", "budget", "loss", "regime.work", "plan.completion_assessment"},
+        reads = {"calm", "boundary.validations", "runtime.camera.reconciliations", "runtime.evidence", "budget", "loss", "regime.work", "plan.completion_assessment", "candidate.seal", "qa.contract", "qa.check", "qa.candidate_verdict"},
         writes = {"manifest", "terminal", "residue"},
         readiness = function(instance, context)
             return manifest.readiness(instance, merged_options(context, "manifest"))

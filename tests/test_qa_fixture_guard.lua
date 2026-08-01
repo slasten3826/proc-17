@@ -76,7 +76,7 @@ suite:check("QF03 ordinary runner reaches fixture bytes only through the guard",
         "ordinary runner must not import hostile fixture manifest")
 end)
 
-suite:check("QF05 expected-red QA suites stay outside the ordinary runner", function()
+suite:check("QF05 dedicated QA campaigns stay outside the ordinary runner", function()
     local file = assert(io.open("tests/run.lua", "rb"))
     local source = assert(file:read("*a"))
     assert(file:close())
@@ -88,7 +88,7 @@ suite:check("QF05 expected-red QA suites stay outside the ordinary runner", func
         "tests.red_qa_hand",
     }) do
         H.assert_false(source:find(forbidden, 1, true) ~= nil,
-            "expected-red suite leaked into ordinary runner: " .. forbidden)
+            "dedicated QA suite leaked into ordinary runner: " .. forbidden)
     end
     H.assert_contains(source, "tests.test_qa_fixture_guard",
         "ordinary runner retains the inert fixture guard")

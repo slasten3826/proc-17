@@ -144,6 +144,52 @@ local verdict_keys = {
     content_truth_status = true,
 }
 
+local terminal_projection_keys = {
+    protocol_version = true,
+    candidate_seal_id = true,
+    candidate_seal_event_ref = true,
+    artifact_alignment_id = true,
+    qa_contract_id = true,
+    profile_id = true,
+    environment_id = true,
+    request_id = true,
+    request_ref = true,
+    qa_check_id = true,
+    qa_check_ref = true,
+    check_outcome = true,
+    check_reason = true,
+    termination = true,
+    cause = true,
+    finality = true,
+    source = true,
+    stdout = true,
+    stderr = true,
+    resources = true,
+    scratch = true,
+    verdict_id = true,
+    verdict_ref = true,
+    verdict = true,
+    runtime_cost = true,
+    source_refs = true,
+    event_truth_status = true,
+    content_truth_status = true,
+}
+
+local corpse_evidence_keys = {
+    protocol_version = true,
+    qa_contract_id = true,
+    request_id = true,
+    request_ref = true,
+    check = true,
+    check_ref = true,
+    execution_failure = true,
+    execution_failure_ref = true,
+    verdict = true,
+    verdict_ref = true,
+    terminal_projection = true,
+    source_refs = true,
+}
+
 local qa_cost_keys = {
     protocol_version = true,
     tool_calls = true,
@@ -783,6 +829,279 @@ function schema.verify_verdict(value)
     if not normalized then return nil, normalized_err end
     if not qa_schema.same(value, normalized) then
         return nil, "QA candidate verdict is not normalized"
+    end
+    return true
+end
+
+function schema.normalize_terminal_projection(value)
+    local plain, plain_err = plain_tree(value, "QA terminal projection")
+    if not plain then return nil, plain_err end
+    local record_ok, record_err = exact_record(
+        value,
+        terminal_projection_keys,
+        "QA terminal projection"
+    )
+    if not record_ok then return nil, record_err end
+    if value.protocol_version ~= "qa.terminal_projection.v1"
+        or (value.check_outcome ~= "accepted"
+            and value.check_outcome ~= "rejected")
+        or value.verdict ~= value.check_outcome
+        or value.profile_id ~= qa_schema.profile_id
+        or value.event_truth_status ~= "runtime_confirmed"
+        or (value.content_truth_status ~= "runtime_confirmed"
+            and value.content_truth_status ~= "mixed") then
+        return nil, "QA terminal projection envelope is invalid"
+    end
+    for _, key in ipairs({
+        "candidate_seal_event_ref", "artifact_alignment_id", "request_ref",
+        "qa_check_ref", "verdict_ref",
+    }) do
+        local _, err = non_empty(value[key], "QA terminal projection " .. key)
+        if err then return nil, err end
+    end
+    if not prefixed_digest(value.candidate_seal_id, "candidate-seal:")
+        or not prefixed_digest(value.qa_contract_id, "qa-contract:")
+        or not prefixed_digest(value.environment_id, "qa-environment:")
+        or not prefixed_digest(value.request_id, "qa-check-request:")
+        or not prefixed_digest(value.qa_check_id, "qa-check:")
+        or not prefixed_digest(value.verdict_id, "qa-verdict:") then
+        return nil, "QA terminal projection identity coordinate is invalid"
+    end
+    local source_ok, source_err = exact_record(
+        value.source,
+        source_keys,
+        "QA terminal projection source"
+    )
+    if not source_ok then return nil, source_err end
+    if value.source.stable ~= true
+        or value.source.disposition ~= "consumed"
+        or type(value.source.pre_inventory_id) ~= "string"
+        or value.source.pre_inventory_id == ""
+        or value.source.pre_inventory_id ~= value.source.post_inventory_id then
+        return nil, "QA terminal projection source is not exact and stable"
+    end
+    local process, process_err = normalize_contained_process({
+        profile_id = value.profile_id,
+        environment_id = value.environment_id,
+        reason = value.check_reason,
+        termination = value.termination,
+        cause = value.cause,
+        finality = value.finality,
+        stdout = value.stdout,
+        stderr = value.stderr,
+        resources = value.resources,
+        scratch = value.scratch,
+    })
+    if not process then return nil, process_err end
+    local expected_outcome = process.outcome == "expected_exit"
+        and "accepted" or "rejected"
+    if value.check_outcome ~= expected_outcome
+        or value.check_reason ~= process.outcome
+        or not qa_schema.same(value.termination, process.termination)
+        or not qa_schema.same(value.cause, process.cause)
+        or not qa_schema.same(value.finality, process.finality)
+        or not qa_schema.same(value.stdout, process.stdout)
+        or not qa_schema.same(value.stderr, process.stderr)
+        or not qa_schema.same(value.resources, process.resources)
+        or not qa_schema.same(value.scratch, process.scratch)
+        or not qa_schema.same(value.runtime_cost, process.cost) then
+        return nil, "QA terminal projection contradicts RUN v1 evidence"
+    end
+    local refs, refs_err = normalize_refs(
+        value.source_refs,
+        "QA terminal projection"
+    )
+    if not refs then return nil, refs_err end
+    for _, ref in ipairs({
+        value.candidate_seal_id,
+        value.candidate_seal_event_ref,
+        value.artifact_alignment_id,
+        value.qa_contract_id,
+        value.request_id,
+        value.request_ref,
+        value.qa_check_id,
+        value.qa_check_ref,
+        value.verdict_id,
+        value.verdict_ref,
+    }) do
+        if not contains_ref(refs, ref) then
+            return nil, "QA terminal projection omits an identity source"
+        end
+    end
+    local normalized = copy_value(value)
+    normalized.termination = copy_value(process.termination)
+    normalized.cause = copy_value(process.cause)
+    normalized.finality = copy_value(process.finality)
+    normalized.stdout = copy_value(process.stdout)
+    normalized.stderr = copy_value(process.stderr)
+    normalized.resources = copy_value(process.resources)
+    normalized.scratch = copy_value(process.scratch)
+    normalized.runtime_cost = copy_value(process.cost)
+    normalized.source_refs = refs
+    return normalized
+end
+
+function schema.verify_terminal_projection(value)
+    local normalized, normalized_err = schema.normalize_terminal_projection(value)
+    if not normalized then return nil, normalized_err end
+    if not qa_schema.same(value, normalized) then
+        return nil, "QA terminal projection is not normalized"
+    end
+    return true
+end
+
+function schema.normalize_corpse_evidence(value)
+    local plain, plain_err = plain_tree(value, "corpse QA evidence")
+    if not plain then return nil, plain_err end
+    local record_ok, record_err = exact_record(
+        value,
+        corpse_evidence_keys,
+        "corpse QA evidence",
+        {
+            qa_contract_id = true,
+            request_id = true,
+            request_ref = true,
+            check = true,
+            check_ref = true,
+            execution_failure = true,
+            execution_failure_ref = true,
+            verdict = true,
+            verdict_ref = true,
+            terminal_projection = true,
+        }
+    )
+    if not record_ok then return nil, record_err end
+    if value.protocol_version ~= "corpse.qa_evidence.v1" then
+        return nil, "corpse QA evidence protocol is invalid"
+    end
+    local refs, refs_err = normalize_refs(value.source_refs, "corpse QA evidence")
+    if not refs then return nil, refs_err end
+    local normalized = copy_value(value)
+    normalized.source_refs = refs
+
+    if value.qa_contract_id ~= nil
+        and not prefixed_digest(value.qa_contract_id, "qa-contract:") then
+        return nil, "corpse QA contract identity is invalid"
+    end
+    if (value.request_id == nil) ~= (value.request_ref == nil) then
+        return nil, "corpse QA request identity is incomplete"
+    end
+    if value.request_id ~= nil then
+        if not prefixed_digest(value.request_id, "qa-check-request:")
+            or not non_empty(value.request_ref, "corpse QA request_ref") then
+            return nil, "corpse QA request identity is invalid"
+        end
+    end
+    if (value.check == nil) ~= (value.check_ref == nil)
+        or (value.execution_failure == nil)
+            ~= (value.execution_failure_ref == nil)
+        or (value.verdict == nil) ~= (value.verdict_ref == nil) then
+        return nil, "corpse QA evidence ref pair is incomplete"
+    end
+    if value.check ~= nil and value.execution_failure ~= nil then
+        return nil, "corpse QA evidence contains check and execution failure"
+    end
+
+    if value.check ~= nil then
+        local check, check_err = schema.normalize_check(value.check)
+        if not check or not qa_schema.same(check, value.check) then
+            return nil, check_err or "corpse QA check is not normalized"
+        end
+        normalized.check = check
+    end
+    if value.execution_failure ~= nil then
+        local failure, failure_err = schema.normalize_failure(
+            value.execution_failure
+        )
+        if not failure or not qa_schema.same(failure, value.execution_failure) then
+            return nil, failure_err
+                or "corpse QA execution failure is not normalized"
+        end
+        normalized.execution_failure = failure
+    end
+    if value.verdict ~= nil then
+        local verdict, verdict_err = schema.normalize_verdict(value.verdict)
+        if not verdict or not qa_schema.same(verdict, value.verdict) then
+            return nil, verdict_err or "corpse QA verdict is not normalized"
+        end
+        normalized.verdict = verdict
+    end
+    if value.terminal_projection ~= nil then
+        local projection, projection_err = schema.normalize_terminal_projection(
+            value.terminal_projection
+        )
+        if not projection
+            or not qa_schema.same(projection, value.terminal_projection) then
+            return nil, projection_err
+                or "corpse QA terminal projection is not normalized"
+        end
+        normalized.terminal_projection = projection
+    end
+
+    local coordinate_source = value.check or value.execution_failure
+        or value.verdict
+    if coordinate_source ~= nil then
+        if value.qa_contract_id ~= coordinate_source.qa_contract_id
+            or value.request_id == nil or value.request_ref == nil then
+            return nil, "corpse QA evidence coordinates are incomplete"
+        end
+    end
+    if value.check ~= nil and (value.check.request_id ~= value.request_id
+            or value.check.request_ref ~= value.request_ref) then
+        return nil, "corpse QA check contradicts request"
+    end
+    if value.execution_failure ~= nil
+        and (value.execution_failure.request_id ~= value.request_id
+            or value.execution_failure.request_ref ~= value.request_ref) then
+        return nil, "corpse QA execution failure contradicts request"
+    end
+    if value.verdict ~= nil then
+        if value.check == nil
+            or value.verdict.qa_contract_id ~= value.qa_contract_id
+            or value.verdict.check_ids[1] ~= value.check.qa_check_id
+            or value.verdict.check_refs[1] ~= value.check_ref
+            or value.verdict.request_refs[1] ~= value.request_ref
+            or value.verdict.verdict ~= value.check.outcome then
+            return nil, "corpse QA verdict contradicts current check"
+        end
+    end
+    if value.terminal_projection ~= nil then
+        local projection = value.terminal_projection
+        if value.verdict == nil or value.check == nil
+            or projection.qa_contract_id ~= value.qa_contract_id
+            or projection.request_id ~= value.request_id
+            or projection.request_ref ~= value.request_ref
+            or projection.qa_check_id ~= value.check.qa_check_id
+            or projection.qa_check_ref ~= value.check_ref
+            or projection.verdict_id ~= value.verdict.verdict_id
+            or projection.verdict_ref ~= value.verdict_ref
+            or projection.verdict ~= value.verdict.verdict then
+            return nil, "corpse QA terminal projection contradicts evidence"
+        end
+    end
+    for _, ref in ipairs({
+        value.qa_contract_id,
+        value.request_id,
+        value.request_ref,
+        value.check and value.check.qa_check_id,
+        value.check_ref,
+        value.execution_failure and value.execution_failure.failure_id,
+        value.execution_failure_ref,
+        value.verdict and value.verdict.verdict_id,
+        value.verdict_ref,
+    }) do
+        if ref ~= nil and not contains_ref(refs, ref) then
+            return nil, "corpse QA evidence omits an identity source"
+        end
+    end
+    return normalized
+end
+
+function schema.verify_corpse_evidence(value)
+    local normalized, normalized_err = schema.normalize_corpse_evidence(value)
+    if not normalized then return nil, normalized_err end
+    if not qa_schema.same(value, normalized) then
+        return nil, "corpse QA evidence is not normalized"
     end
     return true
 end

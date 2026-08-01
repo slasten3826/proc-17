@@ -87,6 +87,9 @@ local function request_event_is_exact(instance, event)
     if not verified then
         return nil, verified_err
     end
+    if not body_coordinates_match(instance, event.payload) then
+        return nil, "QA check request is foreign to Packet"
+    end
     local cost_keys = {
         steps = true,
         substrate_calls = true,
@@ -181,6 +184,9 @@ local function outcome_event_is_exact(instance, event, event_type)
         verified, verified_err = evidence_schema.verify_failure(event.payload)
     end
     if not verified then return nil, verified_err end
+    if not body_coordinates_match(instance, event.payload) then
+        return nil, "QA outcome is foreign to Packet"
+    end
     local expected = event_type == "qa_check"
         and trace_cost_projection(event.payload.runtime_cost)
         or trace_cost_projection(event.payload.measured_cost)
@@ -245,7 +251,12 @@ function evidence.verify_failure(instance, value)
     return verify_outcome(instance, value, "qa_execution_failure")
 end
 
-function evidence.current(instance, candidate_seal_id, qa_contract_id)
+local function collect_current(
+    instance,
+    candidate_seal_id,
+    qa_contract_id,
+    require_live_verification
+)
     if type(candidate_seal_id) ~= "string" or candidate_seal_id == ""
         or type(qa_contract_id) ~= "string" or qa_contract_id == "" then
         return nil, "current QA evidence coordinates are required"
@@ -280,12 +291,14 @@ function evidence.current(instance, candidate_seal_id, qa_contract_id)
                 event.type
             )
             if not exact then return nil, exact_err end
-            local verified, verified_err = verify_outcome(
-                instance,
-                payload,
-                event.type
-            )
-            if not verified then return nil, verified_err end
+            if require_live_verification then
+                local verified, verified_err = verify_outcome(
+                    instance,
+                    payload,
+                    event.type
+                )
+                if not verified then return nil, verified_err end
+            end
         elseif is_qa_verdict then
             local exact, exact_err = verdict_event_is_exact(instance, event)
             if not exact then return nil, exact_err end
@@ -333,9 +346,22 @@ function evidence.current(instance, candidate_seal_id, qa_contract_id)
         and view.request.request_id ~= view.check.request_id then
         view.conflicts[#view.conflicts + 1] = "check_request_mismatch"
     end
+    if view.request and view.check
+        and not request_coordinates_match(view.request, view.check) then
+        view.conflicts[#view.conflicts + 1] =
+            "check_request_coordinate_mismatch"
+    end
     if view.request and view.execution_failure
         and view.request.request_id ~= view.execution_failure.request_id then
         view.conflicts[#view.conflicts + 1] = "failure_request_mismatch"
+    end
+    if view.request and view.execution_failure
+        and not request_coordinates_match(
+            view.request,
+            view.execution_failure
+        ) then
+        view.conflicts[#view.conflicts + 1] =
+            "failure_request_coordinate_mismatch"
     end
     if view.verdict then
         if not view.request or not view.check then
@@ -360,6 +386,24 @@ function evidence.current(instance, candidate_seal_id, qa_contract_id)
     end
     view.conflicts = sorted_unique(view.conflicts)
     return copy(view)
+end
+
+function evidence.current(instance, candidate_seal_id, qa_contract_id)
+    return collect_current(
+        instance,
+        candidate_seal_id,
+        qa_contract_id,
+        true
+    )
+end
+
+function evidence.historical(instance, candidate_seal_id, qa_contract_id)
+    return collect_current(
+        instance,
+        candidate_seal_id,
+        qa_contract_id,
+        false
+    )
 end
 
 local receipt_keys = {

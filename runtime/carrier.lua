@@ -1,5 +1,7 @@
 local digest = require("core.digest")
 local json = require("core.json")
+local corpse_module = require("runtime.corpse")
+local qa_evidence_schema = require("core.qa_evidence_schema")
 local qa_schema = require("core.qa_schema")
 
 local carrier = {
@@ -28,6 +30,121 @@ local function identity_projection(record)
     return projected
 end
 
+local qa_history_keys = {
+    protocol_version = true,
+    source_corpse_id = true,
+    source_corpse_hash = true,
+    source_packet_id = true,
+    source_generation = true,
+    qa_evidence = true,
+    source_refs = true,
+    event_truth_status = true,
+    applicability_truth_status = true,
+}
+
+local function exact_keys(value, allowed, label)
+    if type(value) ~= "table" or getmetatable(value) ~= nil then
+        return nil, label .. " must be a plain table"
+    end
+    for key in pairs(value) do
+        if not allowed[key] then
+            return nil, label .. " contains unknown key: " .. tostring(key)
+        end
+    end
+    for key in pairs(allowed) do
+        if value[key] == nil then
+            return nil, label .. " is missing key: " .. key
+        end
+    end
+    return true
+end
+
+local function unique_refs(values)
+    local result, seen = {}, {}
+    for _, value in ipairs(values or {}) do
+        if type(value) == "string" and value ~= "" and not seen[value] then
+            seen[value] = true
+            result[#result + 1] = value
+        end
+    end
+    table.sort(result)
+    return result
+end
+
+local function build_qa_history(source)
+    local evidence = source.qa_evidence
+    if type(evidence) ~= "table" then return nil end
+    if evidence.request_id == nil and evidence.check == nil
+        and evidence.execution_failure == nil and evidence.verdict == nil
+        and evidence.terminal_projection == nil then
+        return nil
+    end
+    local valid, valid_err = qa_evidence_schema.verify_corpse_evidence(evidence)
+    if not valid then return nil, valid_err end
+    local refs = {
+        source.corpse_id,
+        source.corpse_hash,
+        source.packet_id,
+    }
+    for _, ref in ipairs(evidence.source_refs or {}) do refs[#refs + 1] = ref end
+    return {
+        protocol_version = "carrier.qa_history.v1",
+        source_corpse_id = source.corpse_id,
+        source_corpse_hash = source.corpse_hash,
+        source_packet_id = source.packet_id,
+        source_generation = source.generation,
+        qa_evidence = copy_value(evidence),
+        source_refs = unique_refs(refs),
+        event_truth_status = "runtime_confirmed",
+        applicability_truth_status = "inherited_proposal",
+    }
+end
+
+local function verify_qa_history(value, record)
+    local exact, exact_err = exact_keys(
+        value,
+        qa_history_keys,
+        "carrier QA history"
+    )
+    if not exact then return nil, exact_err end
+    if value.protocol_version ~= "carrier.qa_history.v1"
+        or value.source_corpse_id ~= record.source_corpse_id
+        or value.source_packet_id ~= record.source_packet_id
+        or value.source_generation ~= record.source_generation
+        or type(value.source_corpse_hash) ~= "string"
+        or #value.source_corpse_hash ~= 64
+        or value.event_truth_status ~= "runtime_confirmed"
+        or value.applicability_truth_status ~= "inherited_proposal" then
+        return nil, "invalid carrier QA history coordinates"
+    end
+    local evidence_ok, evidence_err =
+        qa_evidence_schema.verify_corpse_evidence(value.qa_evidence)
+    if not evidence_ok then return nil, evidence_err end
+    if not qa_schema.same(
+            record.payload.prior_manifest
+                and record.payload.prior_manifest.qa_terminal_projection,
+            value.qa_evidence.terminal_projection
+        ) then
+        return nil, "carrier QA history contradicts prior manifest"
+    end
+    local expected_refs = unique_refs(value.source_refs)
+    if not qa_schema.same(expected_refs, value.source_refs) then
+        return nil, "carrier QA history refs are not normalized"
+    end
+    for _, required in ipairs({
+        value.source_corpse_id,
+        value.source_corpse_hash,
+        value.source_packet_id,
+    }) do
+        local present = false
+        for _, ref in ipairs(value.source_refs) do
+            if ref == required then present = true break end
+        end
+        if not present then return nil, "carrier QA history omits source ref" end
+    end
+    return true
+end
+
 function carrier.build_recovery(lineage, corpse, assessment, options)
     options = options or {}
     if type(lineage) ~= "table" or lineage.kind ~= "proc17_lineage"
@@ -42,11 +159,15 @@ function carrier.build_recovery(lineage, corpse, assessment, options)
         or corpse.lineage_id ~= lineage.lineage_id then
         return nil, "terminal assessment cannot produce a recovery carrier"
     end
+    local corpse_valid, corpse_err = corpse_module.verify(corpse)
+    if not corpse_valid then return nil, corpse_err end
     local max_bytes = options.max_bytes
         or lineage.policy and lineage.policy.carrier and lineage.policy.carrier.max_bytes
     if type(max_bytes) ~= "number" or max_bytes < 1 or max_bytes ~= math.floor(max_bytes) then
         return nil, "carrier max_bytes must be integer >= 1"
     end
+    local qa_history, qa_history_err = build_qa_history(corpse)
+    if qa_history_err then return nil, qa_history_err end
     local payload = {
         original_task = lineage.task.payload,
         prior_manifest = copy_value(corpse.manifest),
@@ -58,6 +179,7 @@ function carrier.build_recovery(lineage, corpse, assessment, options)
         stage_id = corpse.stage_id,
         qa_contract_id = corpse.qa_contract_id,
         qa_contract = copy_value(corpse.qa_contract),
+        qa_history = copy_value(qa_history),
     }
     local encoded_ok, encoded = pcall(json.encode, payload)
     if not encoded_ok then
@@ -147,6 +269,16 @@ function carrier.verify(record, context)
             or normalized.stage_id ~= payload.stage_id then
             return nil, "invalid recovery carrier QA contract"
         end
+    end
+    if payload.qa_history ~= nil then
+        local history_ok, history_err = verify_qa_history(
+            payload.qa_history,
+            record
+        )
+        if not history_ok then return nil, history_err end
+    elseif payload.prior_manifest
+        and payload.prior_manifest.qa_terminal_projection ~= nil then
+        return nil, "recovery carrier omitted QA history"
     end
     local encoded_ok, encoded = pcall(json.encode, record.payload)
     if not encoded_ok or record.payload_bytes ~= #encoded then
