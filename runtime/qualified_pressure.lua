@@ -13,6 +13,9 @@ local upper_coverage = require("runtime.upper_coverage")
 local qualified = {
     derivation_version = "pressure.qualified_need.v0",
     calibration_status = "unmeasured_qualified",
+    witness_protocol = "pressure.witness.v1",
+    witness_gate_version = "object-version-coverage.v0",
+    action_protocol = pressure_action.protocol_version,
 }
 
 local canonical_index = {}

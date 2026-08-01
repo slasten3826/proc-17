@@ -6,10 +6,35 @@ local budget = require("runtime.budget")
 local loss = require("runtime.loss")
 local reconciliation = require("runtime.reconciliation")
 local qualified_pressure = require("runtime.qualified_pressure")
+local json = require("core.json")
 
 local pressure = {
     derivation_version = "pressure.binary.v0",
     calibration_status = "vibed_control",
+}
+
+local ablation_aliases = {
+    ablate_relation_consumer = "relation_consumer",
+    ablate_structure_consumer = "structure_consumer",
+    ablate_choice_consumer = "choice_consumer",
+    ablate_plan_completion_consumer = "plan_completion_consumer",
+    ablate_plan_delivery_consumer = "plan_delivery_consumer",
+    ablate_repository_review = "repository_review",
+    ablate_repository_effect = "repository_effect",
+    ablate_repository_reconcile = "repository_reconcile",
+    ablate_repository_delivery = "repository_delivery",
+}
+
+local ablation_keys = {
+    "relation_consumer",
+    "structure_consumer",
+    "choice_consumer",
+    "plan_completion_consumer",
+    "plan_delivery_consumer",
+    "repository_review",
+    "repository_effect",
+    "repository_reconcile",
+    "repository_delivery",
 }
 
 local canonical_index = {}
@@ -61,6 +86,74 @@ local function copy_map(source)
     local result = {}
     for key, value in pairs(source or {}) do
         result[key] = value
+    end
+    return result
+end
+
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
+local function sorted_unique(values)
+    local seen = {}
+    local result = {}
+    for _, value in ipairs(values or {}) do
+        if type(value) ~= "string" or value == "" or seen[value] then
+            return nil
+        end
+        seen[value] = true
+        result[#result + 1] = value
+    end
+    table.sort(result)
+    return result
+end
+
+local function policy_error(code, extra)
+    local err = {
+        class = "instrument_contract",
+        code = code,
+        stage = "authority_epoch",
+    }
+    for key, value in pairs(extra or {}) do
+        err[key] = value
+    end
+    return err
+end
+
+local function exact_keys(value, allowed, optional)
+    if type(value) ~= "table" then
+        return false
+    end
+    optional = optional or {}
+    for key in pairs(value) do
+        if not allowed[key] then
+            return false
+        end
+    end
+    for key in pairs(allowed) do
+        if value[key] == nil and not optional[key] then
+            return false
+        end
+    end
+    return true
+end
+
+local function empty_ablation_vector()
+    local result = {}
+    for _, key in ipairs(ablation_keys) do
+        result[key] = false
     end
     return result
 end
@@ -615,6 +708,163 @@ function pressure.read(kind, instance, context)
         return nil, err
     end
     return result
+end
+
+function pressure.is_known_ablation_option(name)
+    return ablation_aliases[name] ~= nil
+end
+
+function pressure.ablation_option_names()
+    local result = {}
+    for name in pairs(ablation_aliases) do
+        result[#result + 1] = name
+    end
+    table.sort(result)
+    return result
+end
+
+function pressure.describe(options)
+    if options ~= nil and type(options) ~= "table" then
+        return nil, policy_error("invalid_pressure_options")
+    end
+    options = options or {}
+
+    for key in pairs(options) do
+        if type(key) == "string" and key:match("^ablate_")
+            and not ablation_aliases[key]
+        then
+            return nil, policy_error("unknown_policy_affecting_option", {
+                option = key,
+            })
+        end
+    end
+
+    local policy = options.pressure_policy or "camera_reconciliation"
+    if policy ~= "camera_reconciliation"
+        and policy ~= "sampled"
+        and policy ~= "qualified_need_v0"
+    then
+        return nil, policy_error("invalid_pressure_policy", {
+            pressure_policy = policy,
+        })
+    end
+
+    local qualified = policy == "qualified_need_v0"
+    local vector = empty_ablation_vector()
+    local unused = {}
+    for option_name, canonical_name in pairs(ablation_aliases) do
+        local value = options[option_name]
+        if qualified then
+            if value ~= nil and type(value) ~= "boolean" then
+                return nil, policy_error("invalid_policy_option", {
+                    option = option_name,
+                })
+            end
+            vector[canonical_name] = value == true
+        elseif value ~= nil then
+            unused[#unused + 1] = option_name
+        end
+    end
+    table.sort(unused)
+
+    local descriptor = {
+        kind = "pressure_policy_descriptor",
+        protocol_version = "pressure-policy-descriptor.v0",
+        pressure_policy = policy,
+        pressure_derivation_version = qualified
+            and qualified_pressure.derivation_version or pressure.derivation_version,
+        pressure_calibration_status = qualified
+            and qualified_pressure.calibration_status or pressure.calibration_status,
+        witness_protocol = qualified
+            and qualified_pressure.witness_protocol or "none",
+        witness_gate_version = qualified
+            and qualified_pressure.witness_gate_version or "none",
+        action_protocol = qualified
+            and qualified_pressure.action_protocol or "none",
+        ablation_vector = vector,
+        unused_options = unused,
+        event_truth_status = "runtime_confirmed",
+    }
+    return descriptor, {
+        kind = "pressure_policy_diagnostics",
+        unused_options = copy_value(unused),
+        event_truth_status = "runtime_confirmed",
+    }
+end
+
+function pressure.verify_descriptor(value, compact)
+    local allowed = {
+        kind = true,
+        protocol_version = true,
+        pressure_policy = true,
+        pressure_derivation_version = true,
+        pressure_calibration_status = true,
+        witness_protocol = true,
+        witness_gate_version = true,
+        action_protocol = true,
+        ablation_vector = true,
+        unused_options = true,
+        event_truth_status = true,
+    }
+    if not exact_keys(value, allowed, compact and {unused_options = true} or nil)
+        or value.kind ~= "pressure_policy_descriptor"
+        or value.protocol_version ~= "pressure-policy-descriptor.v0"
+        or value.event_truth_status ~= "runtime_confirmed"
+    then
+        return nil, policy_error("invalid_pressure_policy_descriptor")
+    end
+
+    local vector_allowed = {}
+    for _, key in ipairs(ablation_keys) do
+        vector_allowed[key] = true
+    end
+    if not exact_keys(value.ablation_vector, vector_allowed) then
+        return nil, policy_error("invalid_pressure_policy_descriptor")
+    end
+    for _, key in ipairs(ablation_keys) do
+        if type(value.ablation_vector[key]) ~= "boolean" then
+            return nil, policy_error("invalid_pressure_policy_descriptor")
+        end
+    end
+
+    local unused = value.unused_options or {}
+    local normalized_unused = sorted_unique(unused)
+    if not normalized_unused or json.encode(unused) ~= json.encode(normalized_unused) then
+        return nil, policy_error("invalid_pressure_policy_descriptor")
+    end
+
+    local policy = value.pressure_policy
+    local qualified = policy == "qualified_need_v0"
+    if not qualified and policy ~= "camera_reconciliation" and policy ~= "sampled" then
+        return nil, policy_error("invalid_pressure_policy_descriptor")
+    end
+    if qualified then
+        if value.pressure_derivation_version ~= qualified_pressure.derivation_version
+            or value.pressure_calibration_status ~= qualified_pressure.calibration_status
+            or value.witness_protocol ~= qualified_pressure.witness_protocol
+            or value.witness_gate_version ~= qualified_pressure.witness_gate_version
+            or value.action_protocol ~= qualified_pressure.action_protocol
+            or #unused ~= 0
+        then
+            return nil, policy_error("invalid_pressure_policy_descriptor")
+        end
+    else
+        if value.pressure_derivation_version ~= pressure.derivation_version
+            or value.pressure_calibration_status ~= pressure.calibration_status
+            or value.witness_protocol ~= "none"
+            or value.witness_gate_version ~= "none"
+            or value.action_protocol ~= "none"
+            or json.encode(value.ablation_vector) ~= json.encode(empty_ablation_vector())
+        then
+            return nil, policy_error("invalid_pressure_policy_descriptor")
+        end
+        for _, name in ipairs(unused) do
+            if not ablation_aliases[name] then
+                return nil, policy_error("invalid_pressure_policy_descriptor")
+            end
+        end
+    end
+    return true
 end
 
 function pressure.derive(instance, tick_result, options)

@@ -10,6 +10,19 @@ local router = {}
 local legacy_policy = "legacy.control.v0"
 local legacy_policy_status = "historical_control"
 
+router.legacy_policy = legacy_policy
+router.legacy_policy_status = legacy_policy_status
+
+function router.legacy_descriptor()
+    return {
+        kind = "legacy_policy_descriptor",
+        protocol_version = "legacy-policy-descriptor.v0",
+        routing_policy = legacy_policy,
+        routing_policy_status = legacy_policy_status,
+        event_truth_status = "runtime_confirmed",
+    }
+end
+
 local hard_next = {
     ["☵"] = "☴",
     ["☳"] = "☴",

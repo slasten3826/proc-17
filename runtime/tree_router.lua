@@ -10,6 +10,58 @@ local tree_router = {
     policy_status = "vibed_control",
 }
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
+local function policy_error(code, extra)
+    local err = {
+        class = "instrument_contract",
+        code = code,
+        stage = "authority_epoch",
+    }
+    for key, value in pairs(extra or {}) do
+        err[key] = value
+    end
+    return err
+end
+
+local function exact_keys(value, allowed)
+    if type(value) ~= "table" then
+        return false
+    end
+    for key in pairs(value) do
+        if not allowed[key] then
+            return false
+        end
+    end
+    for key in pairs(allowed) do
+        if value[key] == nil then
+            return false
+        end
+    end
+    return true
+end
+
+local function finite_number(value)
+    return type(value) == "number"
+        and value == value
+        and value ~= math.huge
+        and value ~= -math.huge
+end
+
 local canonical_index = {}
 for index, glyph in ipairs(topology.order) do
     canonical_index[glyph] = index
@@ -277,6 +329,99 @@ function tree_router.predict(instance, snapshot, context)
     decision.from = snapshot.current_operator
     decision.source_snapshot_ref = snapshot.trace_event_id or snapshot.id
     return decision
+end
+
+function tree_router.describe(pressure_descriptor, tree_options)
+    local pressure_ok, pressure_err = pressure.verify_descriptor(pressure_descriptor)
+    if not pressure_ok then
+        return nil, pressure_err
+    end
+    if tree_options ~= nil and type(tree_options) ~= "table" then
+        return nil, policy_error("invalid_tree_policy_options")
+    end
+    tree_options = tree_options or {}
+
+    local threshold = tree_options.threshold
+    if threshold == nil then
+        threshold = 0
+    end
+    if not finite_number(threshold) then
+        return nil, policy_error("invalid_tree_policy_option", {
+            option = "threshold",
+        })
+    end
+    if tree_options.allow_control_fallback ~= nil
+        and type(tree_options.allow_control_fallback) ~= "boolean"
+    then
+        return nil, policy_error("invalid_tree_policy_option", {
+            option = "allow_control_fallback",
+        })
+    end
+
+    local qualified = pressure_descriptor.pressure_policy == "qualified_need_v0"
+    local routing_policy = qualified and pressure_composition.policy or tree_router.policy
+    local routing_status = qualified
+        and pressure_composition.policy_status or tree_router.policy_status
+    if qualified and tree_options.policy ~= nil
+        and tree_options.policy ~= routing_policy
+    then
+        return nil, policy_error("invalid_tree_policy_option", {
+            option = "policy",
+        })
+    end
+
+    local compact_pressure = copy_value(pressure_descriptor)
+    compact_pressure.unused_options = nil
+    return {
+        kind = "tree_policy_descriptor",
+        protocol_version = "tree-policy-descriptor.v0",
+        pressure = compact_pressure,
+        routing_policy = routing_policy,
+        routing_policy_status = routing_status,
+        policy_parameters = {
+            movement_threshold = threshold,
+            allow_control_fallback = tree_options.allow_control_fallback == true,
+        },
+        event_truth_status = "runtime_confirmed",
+    }
+end
+
+function tree_router.verify_descriptor(value)
+    if not exact_keys(value, {
+        kind = true,
+        protocol_version = true,
+        pressure = true,
+        routing_policy = true,
+        routing_policy_status = true,
+        policy_parameters = true,
+        event_truth_status = true,
+    }) or value.kind ~= "tree_policy_descriptor"
+        or value.protocol_version ~= "tree-policy-descriptor.v0"
+        or value.event_truth_status ~= "runtime_confirmed"
+        or not exact_keys(value.policy_parameters, {
+            movement_threshold = true,
+            allow_control_fallback = true,
+        })
+        or not finite_number(value.policy_parameters.movement_threshold)
+        or type(value.policy_parameters.allow_control_fallback) ~= "boolean"
+    then
+        return nil, policy_error("invalid_tree_policy_descriptor")
+    end
+
+    local pressure_ok, pressure_err = pressure.verify_descriptor(value.pressure, true)
+    if not pressure_ok then
+        return nil, pressure_err
+    end
+    local qualified = value.pressure.pressure_policy == "qualified_need_v0"
+    local expected_policy = qualified and pressure_composition.policy or tree_router.policy
+    local expected_status = qualified
+        and pressure_composition.policy_status or tree_router.policy_status
+    if value.routing_policy ~= expected_policy
+        or value.routing_policy_status ~= expected_status
+    then
+        return nil, policy_error("invalid_tree_policy_descriptor")
+    end
+    return true
 end
 
 return tree_router

@@ -1,6 +1,11 @@
 local topology = require("core.topology")
+local digest = require("core.digest")
+local json = require("core.json")
 
-local edge_catalog = {}
+local edge_catalog = {
+    protocol_version = "edge-catalog.v0",
+    surface_protocol = "operator-tree.authority-surface.v0",
+}
 
 local canonical_index = {}
 for index, glyph in ipairs(topology.order) do
@@ -48,6 +53,163 @@ local definitions = {
     {id = "E22", left = "☶", right = "△", directions = {"☶->△"}, witness = "fresh accepted evidence manifests directly"},
 }
 
+local one_way_directions = {
+    E01 = "▽->☰",
+    E02 = "▽->☷",
+    E03 = "▽->☴",
+    E20 = "☱->△",
+    E21 = "☲->△",
+    E22 = "☶->△",
+}
+
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
+local function sorted_unique(values)
+    local seen = {}
+    local result = {}
+    for _, value in ipairs(values or {}) do
+        if type(value) ~= "string" or value == "" or seen[value] then
+            return nil
+        end
+        seen[value] = true
+        result[#result + 1] = value
+    end
+    table.sort(result)
+    return result
+end
+
+local function surface_error()
+    return {
+        class = "instrument_contract",
+        code = "authority_surface_mismatch",
+        stage = "authority_epoch",
+    }
+end
+
+local function exact_keys(value, allowed)
+    if type(value) ~= "table" then
+        return false
+    end
+    for key in pairs(value) do
+        if not allowed[key] then
+            return false
+        end
+    end
+    for key in pairs(allowed) do
+        if value[key] == nil then
+            return false
+        end
+    end
+    return true
+end
+
+local function surface_seed(surface)
+    return {
+        kind = surface.kind,
+        protocol_version = surface.protocol_version,
+        topology_version = surface.topology_version,
+        catalog_version = surface.catalog_version,
+        edges = copy_value(surface.edges),
+        edge_count = surface.edge_count,
+        legal_direction_count = surface.legal_direction_count,
+    }
+end
+
+local function build_surface()
+    local edges = {}
+    local seen_ids = {}
+    local seen_pairs = {}
+    local seen_directions = {}
+    local legal_direction_count = 0
+
+    for index, definition in ipairs(definitions) do
+        local left = topology.resolve(definition.left)
+        local right = topology.resolve(definition.right)
+        local pair = edge_catalog.edge(definition.left, definition.right)
+        local directions = sorted_unique(definition.directions)
+        if not left or not right
+            or left ~= definition.left or right ~= definition.right
+            or not topology.is_adjacent(left, right)
+            or not topology.is_adjacent(right, left)
+            or pair ~= definition.edge
+            or seen_ids[definition.id]
+            or seen_pairs[pair]
+            or not directions
+        then
+            return nil, surface_error()
+        end
+
+        local expected_one_way = one_way_directions[definition.id]
+        if expected_one_way then
+            if #directions ~= 1 or directions[1] ~= expected_one_way then
+                return nil, surface_error()
+            end
+        else
+            local expected = sorted_unique(both(left, right))
+            if json.encode(directions) ~= json.encode(expected) then
+                return nil, surface_error()
+            end
+        end
+
+        for _, direction in ipairs(directions) do
+            if direction ~= left .. "->" .. right
+                and direction ~= right .. "->" .. left
+            then
+                return nil, surface_error()
+            end
+            if seen_directions[direction] then
+                return nil, surface_error()
+            end
+            seen_directions[direction] = true
+            legal_direction_count = legal_direction_count + 1
+        end
+
+        seen_ids[definition.id] = true
+        seen_pairs[pair] = true
+        edges[index] = {
+            edge_id = definition.id,
+            left = left,
+            right = right,
+            legal_directions = directions,
+        }
+    end
+
+    if #edges ~= 22 or legal_direction_count ~= 38 then
+        return nil, surface_error()
+    end
+
+    local surface = {
+        kind = "operator_tree_authority_surface",
+        protocol_version = edge_catalog.surface_protocol,
+        topology_version = topology.version,
+        catalog_version = edge_catalog.protocol_version,
+        edges = edges,
+        edge_count = #edges,
+        legal_direction_count = legal_direction_count,
+        event_truth_status = "runtime_confirmed",
+    }
+    local record_digest, digest_err = digest.record(surface_seed(surface))
+    if not record_digest then
+        return nil, digest_err
+    end
+    surface.surface_id = "sha256:" .. record_digest
+    return surface
+end
+
 local by_id = {}
 local by_edge = {}
 for _, definition in ipairs(definitions) do
@@ -59,16 +221,75 @@ end
 function edge_catalog.list()
     local result = {}
     for index, definition in ipairs(definitions) do
-        result[index] = definition
+        result[index] = copy_value(definition)
     end
     return result
 end
 
 function edge_catalog.get(value, right)
     if right ~= nil then
-        return by_edge[edge_catalog.edge(value, right)]
+        return copy_value(by_edge[edge_catalog.edge(value, right)])
     end
-    return by_id[value] or by_edge[value]
+    return copy_value(by_id[value] or by_edge[value])
+end
+
+function edge_catalog.authority_surface()
+    local surface, err = build_surface()
+    if not surface then
+        return nil, err
+    end
+    return copy_value(surface)
+end
+
+function edge_catalog.verify_authority_surface(surface)
+    if not exact_keys(surface, {
+        kind = true,
+        protocol_version = true,
+        topology_version = true,
+        catalog_version = true,
+        edges = true,
+        edge_count = true,
+        legal_direction_count = true,
+        surface_id = true,
+        event_truth_status = true,
+    }) or surface.kind ~= "operator_tree_authority_surface"
+        or surface.protocol_version ~= edge_catalog.surface_protocol
+        or surface.topology_version ~= topology.version
+        or surface.catalog_version ~= edge_catalog.protocol_version
+        or surface.event_truth_status ~= "runtime_confirmed"
+        or type(surface.edges) ~= "table"
+        or type(surface.edge_count) ~= "number"
+        or type(surface.legal_direction_count) ~= "number"
+        or type(surface.surface_id) ~= "string"
+    then
+        return nil, surface_error()
+    end
+
+    for _, edge in ipairs(surface.edges) do
+        if not exact_keys(edge, {
+            edge_id = true,
+            left = true,
+            right = true,
+            legal_directions = true,
+        }) then
+            return nil, surface_error()
+        end
+    end
+
+    local current, current_err = build_surface()
+    if not current then
+        return nil, current_err
+    end
+    local computed, digest_err = digest.record(surface_seed(surface))
+    if not computed then
+        return nil, surface_error()
+    end
+    if surface.surface_id ~= "sha256:" .. computed
+        or json.encode(surface) ~= json.encode(current)
+    then
+        return nil, surface_error()
+    end
+    return true
 end
 
 return edge_catalog

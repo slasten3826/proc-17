@@ -78,6 +78,7 @@ local tests = {
     "tests.test_pressure_ablation",
     "tests.test_runtime_camera",
     "tests.test_tree_router",
+    "tests.test_authority_epoch",
     "tests.test_edge_evidence",
     "tests.test_edge_metric_roles",
     "tests.test_packet",
