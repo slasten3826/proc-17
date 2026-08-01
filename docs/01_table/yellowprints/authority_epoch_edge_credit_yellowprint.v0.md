@@ -904,3 +904,352 @@ implementation: not authorized by TABLE alone
 CRYSTALL: ready for construction
 router promotion: blocked
 ```
+
+## Amendment A1: Live Policy Versus Observer Policy
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: CRYSTALL construction
+reason:
+  the original schema placed Tree pressure/ablation inside physics even when
+  router_mode=shadow and Tree was only a massless observer
+supersedes:
+  section 3.1 flat physics policy placement
+  section 3.3 reading of router_mode/pressure/ablation as always-live physics
+  AE05 without mode qualification
+retains:
+  two epoch ids
+  exact raw merge
+  dual edge credit
+  all promotion and taint laws
+```
+
+### A1.1 Corrected causal split
+
+The epoch first resolves one Tree policy descriptor, then places it according
+to actual authority:
+
+```lua
+tree_policy_descriptor = {
+  pressure_policy = string,
+  pressure_derivation_version = string,
+  pressure_calibration_status = string,
+  routing_policy = string,
+  routing_policy_status = string,
+  policy_parameters = normalized_map,
+  witness_protocol = string,
+  witness_gate_version = string,
+  action_protocol = string,
+  ablation_vector = normalized_map,
+}
+```
+
+Assignment matrix:
+
+| Router mode | Live policy in physics | Observer policy in instrumentation |
+|---|---|---|
+| `legacy` | `legacy.control.v0` | none |
+| `shadow` | `legacy.control.v0` | resolved Tree policy descriptor |
+| `tree` | resolved Tree policy descriptor | legacy observer when enabled, otherwise none |
+
+Therefore:
+
+```text
+legacy and shadow may share one physics_epoch_id
+legacy and shadow must have different evidence_epoch_id
+
+changing Tree pressure/threshold/ablation under shadow
+  changes evidence_epoch_id only
+
+changing Tree pressure/threshold/ablation under tree
+  changes physics_epoch_id and evidence_epoch_id
+```
+
+### A1.2 Corrected schema
+
+The authoritative shape for CRYSTALL is:
+
+```lua
+{
+  kind = "authority_epoch",
+  protocol_version = "authority_epoch.v0",
+
+  configured = {
+    router_mode = "legacy" | "shadow" | "tree",
+    configured_movement_owner = "legacy_control" | "tree",
+  },
+
+  physics = {
+    topology_version = string,
+    authority_surface_id = string,
+    operator_registry_version = string,
+    movement_owner = "legacy_control" | "tree",
+    live_policy = legacy_policy_descriptor | tree_policy_descriptor,
+  },
+
+  instrumentation = {
+    router_mode = "legacy" | "shadow" | "tree",
+    observer_mode = "none" | "tree_shadow" | "legacy_shadow",
+    observer_enabled = boolean,
+    observer_policy = "none"
+                    | legacy_policy_descriptor
+                    | tree_policy_descriptor,
+    observer_protocol = string,
+    edge_stats_protocol = "edge-stats.v3",
+  },
+
+  physics_epoch_id = digest(normalize(physics)),
+  evidence_epoch_id = digest(normalize({
+    physics_epoch_id = physics_epoch_id,
+    configured = configured,
+    instrumentation = instrumentation,
+  })),
+  event_truth_status = "runtime_confirmed",
+}
+```
+
+`router_mode` remains recorded and merge-significant through the evidence
+identity. It does not pretend that enabling a massless observer changed live
+Packet movement.
+
+`harness_override` is route-level authority evidence, never a configured clean
+movement owner. Its first committed route taints later promotion credit without
+manufacturing a new physics epoch.
+
+### A1.3 Effective options, not dead declarations
+
+Only effective policy options enter a descriptor:
+
+| Situation | Epoch treatment |
+|---|---|
+| Qualified Tree options under `tree` | Live physics |
+| Qualified Tree options under `shadow` | Observer instrumentation |
+| Qualified Tree options under `legacy` | Unused-option diagnostic; no id change |
+| `legacy_shadow` under `tree` | Instrumentation only |
+| `legacy_shadow` outside `tree` | Unused-option diagnostic |
+
+An unused option is retained in invocation provenance so the caller can see
+that it had no effect. It is forbidden from manufacturing a new epoch.
+
+### A1.4 Revised permanent controls
+
+| ID | Pair/change | Required result |
+|---|---|---|
+| AE05-T | Tree authority, one routing consumer ablated | Both ids change |
+| AE05-S | Shadow mode, one Tree observer consumer ablated | Physics id same, evidence id changes |
+| AE05-L | Legacy mode, unused Tree ablation option changed | Both ids same; unused-option diagnostic changes |
+| AE06-A | Legacy versus shadow with same live legacy policy | Physics id same, evidence id changes |
+| AE06-B | Tree legacy observer on versus off | Physics id same, evidence id changes |
+
+### A1.5 Amendment acceptance
+
+```text
+observer policy never enters live physics merely because options mention it
+effective Tree policy occupies exactly one role: live authority or observer
+shadow ablation cannot falsify a physics-epoch change
+tree ablation remains a real physics-epoch change
+unused options remain visible but cannot create identity
+all original merge and promotion-credit restrictions remain in force
+```
+
+## Amendment A2: Observer Trace and Corpse Equality
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: CRYSTALL construction
+reason:
+  the original masslessness vector required corpse equality while allowing
+  observer trace delta, but corpse.v0 hashes trace_tail and therefore turns
+  a lawful observer event into a raw corpse_hash delta
+supersedes:
+  section 14.4 raw reading of "manifest/death/corpse equal"
+retains:
+  exact body equality for the new authority instrument
+  observer masslessness as a falsifiable requirement
+```
+
+Two ablations have different comparison laws because the old router observer
+already writes named instrumentation events into the Packet trace:
+
+| Ablation | Required equality |
+|---|---|
+| New authority instrument `off` versus `v3` | Exact Packet and raw corpse equality; all new records live outside Packet trace |
+| Existing Tree/legacy observer disabled versus enabled | Semantic body/corpse equality after removing only trace events explicitly referenced by that observer |
+
+The observer comparator must derive the removable set from observer records;
+it may not filter by payload kind alone:
+
+```text
+allowed refs = observer decision trace refs
+             + pressure snapshot refs named by those decisions
+
+every allowed ref must resolve to the expected observer and live-authority pair
+every other Packet trace event remains comparison-significant
+corpse_hash itself is excluded only because it commits to the filtered trace_tail
+manifest, death, residue, evidence and the filtered corpse payload remain equal
+```
+
+This is not permission for arbitrary semantic comparison. An unexplained trace
+or corpse delta makes the pair red. A future observer that writes no Packet
+trace receives the stricter exact-equality law automatically.
+
+### A2.1 Revised masslessness controls
+
+```text
+MI01-MI05 authority instrument off/on -> exact Packet and corpse equality
+MI06 existing observer pair -> only explicitly referenced observer events and
+                               their derived corpse hash may differ
+all repository, QA, budget, loss, field, revision, route and terminal facts
+remain exact in both classes
+```
+
+## Amendment A3: Corpus Life Identity And Replay Rejection
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: CRYSTALL construction
+reason:
+  Packet ids are process-local counters and may repeat after Lua restart;
+  exact-epoch merge did not explicitly reject the same life twice
+supersedes:
+  section 10 corpus identity underspecification
+  EM01 reading that permits overlapping life sources
+retains:
+  work/task/model provenance outside epoch identity
+  exact same-evidence-epoch merge for distinct lives
+```
+
+Every corpus-bound life receives runner-only provenance:
+
+```lua
+{
+  case_id = string | nil,
+  evidence_run_id = non_empty_string,
+}
+```
+
+`evidence_run_id` is supplied by the experiment/corpus harness. It is not a
+Packet field, is not randomly invented by the body and does not enter either
+epoch id. A diagnostic life may omit it, but that life cannot enter a corpus.
+
+Merge and corpus law:
+
+```text
+one evidence_run_id names at most one life in one corpus
+every corpus route_evidence_id seed includes the derived life_id
+raw edge-stats merge requires disjoint life_id sets
+byte-identical overlap still rejects rather than double-counting
+rejected overlap leaves the target digest unchanged
+repeated experiment -> new explicit evidence_run_id
+```
+
+Permanent additions:
+
+| ID | Control | Required result |
+|---|---|---|
+| EM11 | Merge the same life twice | Reject; target unchanged |
+| CO10 | Missing or reused evidence_run_id | Reject; corpus unchanged |
+
+## Amendment A4: Corpus-Bound Source Evidence
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: CRYSTALL construction
+reason:
+  v3 route records named Packet trace/tick refs, but a merged corpus had no
+  contract for resolving those refs after the source runner life ended
+supersedes:
+  section 9 reading that an id alone is a durable later-reader payload
+retains:
+  body writers as sole owners of physical facts
+  instrument masslessness
+```
+
+`edge-stats.v3` transports immutable evidence copies for every source ref used
+by its route and credit records:
+
+```text
+body event remains the fact writer
+runner captures the completed event only after its authoritative write
+edge ledger deep-copies and digests the event as source evidence
+corpus resolves refs only through that immutable store
+no Packet table, provider handle, grant, callback or other live identity crosses
+```
+
+Source identity binds:
+
+```text
+life_id + source kind + original source id + exact payload digest
+```
+
+Within one life, replaying the exact same source payload is idempotent and
+reuses one source-evidence ref. The same source id with changed payload is an
+instrument error. A missing required source keeps physical evidence visible but
+blocks classification/closure. Raw merge validates the complete source store
+before mutating counters.
+
+Observer-pair evidence has a separate named writer: a massless post-life
+projector receives the finished Packet, runner result and corpse when present,
+then emits one immutable plain-data `edge_life_projection.v0`. It whitelists the
+masslessness vector; it does not archive the live Packet.
+
+```text
+exact projection:
+  all named body components, full trace and raw corpse identity
+
+observer-neutral projection:
+  same components, removing only trace refs named and verified by the observer,
+  plus the raw corpse hash derived from that trace_tail
+```
+
+The corpus stores this projection per life. Observer-pair comparison reads only
+the two stored projections. Missing projection, unverified removed ref or live
+value in a projection blocks the pair and closure.
+
+The transport is host-bounded, but never charged to Packet budget/loss:
+
+```text
+source-record count bound
+single source byte bound
+aggregate source bytes per life
+post-life projection bytes
+instrument error-record bound with one reserved overflow aggregate
+```
+
+Effective per-life bounds and their calibration status enter instrumentation
+and therefore `evidence_epoch_id`, never `physics_epoch_id`. Exceeding a source
+bound records the physical phase plus an invalid-ledger error when structurally
+possible; it cannot kill, redirect or charge the Packet. Exceeding projection
+or corpus bounds rejects archival, leaving the corpus unchanged.
+
+## Amendment A5: Observer Family Scope At Harness Failure
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: CRYSTALL construction
+reason:
+  P12 said every deterministic family receives a life observer pair, while
+  P13 intentionally aborts at the harness boundary and may produce no completed
+  life/corpse projection
+```
+
+P12 covers completed-life families P01-P11, including P06a and P06b. P13 keeps
+its own required matched valid/invalid harness control and implementation
+ablation, but no synthetic life is invented solely to fit the observer-pair
+schema. A future runner that can expose a complete immutable failed-run
+projection may extend P12 through a versioned case manifest.
