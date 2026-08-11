@@ -1039,6 +1039,15 @@ function credit.is_eligibility_reason(reason)
     return eligibility_reasons[reason] == true
 end
 
+function credit.eligibility_reason_ids()
+    local result = {}
+    for reason in pairs(eligibility_reasons) do
+        result[#result + 1] = reason
+    end
+    table.sort(result)
+    return result
+end
+
 function credit.verify(state)
     if not exact_keys(state, {
         kind = true,

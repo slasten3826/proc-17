@@ -1500,3 +1500,66 @@ Permanent controls:
 | ER03 | strict/deferred statistics matched life | byte-equal ledger and summary |
 | ER04 | invalid deferred observation | typed error, zero partial source/counter |
 | ER05 | closed runtime capability | every later append denied |
+
+## Amendment A10: Current Report Is A Diagnostic Projection
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-11
+source:
+  docs/00_chaos/authority_instrument_i10_current_report_notes_2026-08-11.md
+slice: I10 current evidence manifest
+promotion/default authority change: forbidden
+```
+
+The I10 writer consumes only a verified `edge-evidence-corpus.v1` assembled
+from fresh runner-grown v3 lives. It derives one closure report per evidence
+epoch and never calls raw `edge_stats.merge` across unlike epochs.
+
+The output owns these bounded fields:
+
+| Field | Derivation | Truth |
+|---|---|---|
+| source revision and corpus id | exact campaign input | runtime-confirmed |
+| authority surface and required direction count | edge catalog | runtime-confirmed |
+| epoch summaries | one corpus closure per bucket | runtime-confirmed |
+| physical/eligible direction union | set union with source epoch refs | diagnostic query |
+| eligibility reason coverage | edge-credit vocabulary plus epoch counters | runtime-confirmed counts |
+| P01-P13/L1 status | current case manifest plus closure statuses | runtime-confirmed derivation |
+| promotion authorization | fixed false | document decision from this amendment |
+
+Every epoch summary records its evidence id, physics id, life ids, ledger,
+provenance, observer, L0 and L1 gates, closure status, physical directions,
+eligible directions, unclassified execution count, instrument error count and
+observed rejection counts.
+
+The top-level union records every contributing epoch for every direction. It
+cannot be fed to `edge_stats.merge`, `edge_corpus.closure`, routing or pressure.
+Its truth status is `diagnostic_query` even when one direction appears in every
+epoch.
+
+The eligibility vocabulary is read from `edge_credit.eligibility_reason_ids()`.
+The report writer cannot carry a copied private list. Each vocabulary entry has
+an observed count and sorted epoch ids; an unobserved entry remains present at
+zero.
+
+Case status is keyed by the exact current case-manifest id. A life tagged with a
+case id supplies candidate evidence only. It does not advance a case status
+without `edge_case_manifest` evaluation and corpus admission.
+
+The report is content-addressed over every field except `report_id`. Its closed
+schema fixes:
+
+```text
+kind = current_authority_evidence_report
+protocol_version = current-authority-evidence.v0
+decision_truth_status = diagnostic_query
+promotion_authorized = false
+event_truth_status = runtime_confirmed
+```
+
+Permanent controls CR01-CR10 are copied from the source CHAOS document. Report
+verification must at minimum grow CR02, CR03, CR05, CR06 and CR10 directly;
+existing corpus controls own CR01, CR04, CR07-CR09.

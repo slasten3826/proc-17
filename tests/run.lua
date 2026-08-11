@@ -90,6 +90,7 @@ local tests = {
     "tests.test_edge_life_projection",
     "tests.test_edge_case_manifest",
     "tests.test_edge_corpus",
+    "tests.test_edge_current_report",
     "tests.test_edge_evidence",
     "tests.test_edge_metric_roles",
     "tests.test_packet",

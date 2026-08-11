@@ -3121,3 +3121,100 @@ QA control matrix 84/84
 QA red baseline 5/5
 no live require of runtime.edge_stats_v2
 ```
+
+## 23. I10 Current Evidence Report
+
+Source:
+
+```text
+docs/00_chaos/authority_instrument_i10_current_report_notes_2026-08-11.md
+docs/01_table/yellowprints/authority_epoch_edge_credit_yellowprint.v0.md
+  Amendment A10
+```
+
+New bounded reporter:
+
+```text
+runtime/edge_current_report.lua
+tests/test_edge_current_report.lua
+tests/run_current_edge_report.lua
+docs/03_manifest/authority_instrument_current_evidence.v0.md
+```
+
+API:
+
+```lua
+reason_ids = edge_credit.eligibility_reason_ids()
+report, err = edge_current_report.build(corpus_record, {
+  implementation_revision = string,
+})
+ok, err = edge_current_report.verify(report)
+```
+
+`build` first calls `edge_corpus.verify`. It sorts bucket ids, calls
+`edge_corpus.closure` once for every bucket with the exact implementation
+revision, and rejects any invalid ledger or red provenance. It retains missing
+case and observer gates as data.
+
+For each closure it derives sorted physical and corpus-eligible direction ids.
+It scans directional rejected-reason counters and unclassified execution
+counters without accepting caller-authored totals. Top-level unions retain a
+sorted source-epoch list per direction.
+
+Report schema:
+
+```lua
+{
+  kind = "current_authority_evidence_report",
+  protocol_version = "current-authority-evidence.v0",
+  report_id = "sha256:<hex>",
+  corpus_id = string,
+  source_revision = string,
+  authority_surface_id = "sha256:<hex>",
+  case_manifest_id = "sha256:<hex>",
+  required_direction_count = integer,
+  observed_life_ids = {string, ...},
+  epochs = { current_epoch_summary, ... },
+  diagnostic_union = {
+    physical_directions = {direction_ref, ...},
+    eligible_directions = {direction_ref, ...},
+    truth_status = "diagnostic_query",
+    promotion_eligible = false,
+  },
+  eligibility_reasons = {
+    {reason = string, observed_count = integer, epoch_ids = {string, ...}},
+    ...
+  },
+  case_status = {
+    {case_id = string, layer = "L0" | "L1",
+     statuses = {{evidence_epoch_id = string, status = string}, ...}},
+    ...
+  },
+  promotion_authorized = false,
+  promotion_blockers = {string, ...},
+  decision_truth_status = "diagnostic_query",
+  event_truth_status = "runtime_confirmed",
+}
+```
+
+`direction_ref` is `{direction, epoch_ids}`. No cross-epoch counter is stored.
+The report id hashes the complete record with `report_id=nil`.
+
+The campaign script grows named deterministic cases through
+`tension_runner.run`, captures each post-life projection, admits it through
+`edge_corpus.add_life`, builds the report and prints a stable machine record.
+The manifest projection records exact ids and statuses but cannot replace that
+campaign.
+
+I10 acceptance:
+
+```text
+fresh lives use canonical default v3, never explicit v2
+all admitted provenance names one clean implementation revision
+every observed evidence epoch is retained separately
+every eligibility reason appears, including zero-count
+all 18 current case ids appear
+promotion_authorized remains false
+report verifies and regenerates to one digest
+full suite, mortality and QA gates remain green
+```
