@@ -172,7 +172,7 @@ assert_eq(observed.tension.loss, binary.tension.loss,
     "qualified shadow cannot create identity loss")
 assert_eq(json.encode(observed.revisions), json.encode(binary.revisions),
     "qualified shadow cannot move body revisions")
-assert_eq(observed_result.edge_stats_errors, nil,
+assert_eq(observed_result.authority_instrument_errors, nil,
     "qualified candidates remain readable by instrumentation")
 for _, shadow in ipairs(observed_result.shadow_routes) do
     assert_eq(shadow.policy, "pressure.class_order.v0",

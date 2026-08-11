@@ -10,6 +10,10 @@ local credit = {
     error_protocol_version = "authority-instrument-error.v0",
 }
 
+-- Live credit states are runner-owned until closure. The weak registry grants
+-- an append-only fast path without weakening the strict public transactions.
+local runtime_states = setmetatable({}, {__mode = "k"})
+
 local eligibility_reasons = {
     non_tree_authority = true,
     harness_override = true,
@@ -1900,6 +1904,120 @@ function credit.record_pending(state, commit, input)
         return nil, commit_err
     end
     return copy_value(record)
+end
+
+local function require_runtime_state(state)
+    if runtime_states[state] ~= true then
+        return nil, instrument_error("runtime_credit_state_unavailable")
+    end
+    return true
+end
+
+local function rollback_runtime_events(state, event_count)
+    for index = #state.events, event_count + 1, -1 do
+        state.events[index] = nil
+    end
+    state.next_sequence = #state.events + 1
+end
+
+function credit.new_runtime(epoch_record, identity)
+    local state, state_err = credit.new(epoch_record, identity)
+    if not state then
+        return nil, state_err
+    end
+    runtime_states[state] = true
+    return state
+end
+
+function credit.runtime_prepare(state, decision, context)
+    local available, available_err = require_runtime_state(state)
+    if not available then
+        return nil, available_err
+    end
+    local event_count = #state.events
+    local selection, selection_err = prepare_on(state, decision, context)
+    if not selection then
+        rollback_runtime_events(state, event_count)
+        return nil, selection_err
+    end
+    return copy_value(selection)
+end
+
+function credit.runtime_record_commit(state, selection, route_event)
+    local available, available_err = require_runtime_state(state)
+    if not available then
+        return nil, nil, available_err
+    end
+    local event_count = #state.events
+    local record, taint, record_err = record_commit_on(
+        state,
+        selection,
+        route_event
+    )
+    if not record then
+        rollback_runtime_events(state, event_count)
+        return nil, nil, record_err
+    end
+    return copy_value(record), copy_value(taint), nil
+end
+
+function credit.runtime_record_arrival(state, commit, input)
+    local available, available_err = require_runtime_state(state)
+    if not available then
+        return nil, nil, available_err
+    end
+    local event_count = #state.events
+    local arrival, decision, arrival_err = record_arrival_on(
+        state,
+        commit,
+        input
+    )
+    if not arrival then
+        rollback_runtime_events(state, event_count)
+        return nil, nil, arrival_err
+    end
+    return copy_value(arrival), copy_value(decision), nil
+end
+
+function credit.runtime_record_failure(state, commit, input)
+    local available, available_err = require_runtime_state(state)
+    if not available then
+        return nil, available_err
+    end
+    local event_count = #state.events
+    local record, record_err = record_failure_on(state, commit, input)
+    if not record then
+        rollback_runtime_events(state, event_count)
+        return nil, record_err
+    end
+    return copy_value(record)
+end
+
+function credit.runtime_record_pending(state, commit, input)
+    local available, available_err = require_runtime_state(state)
+    if not available then
+        return nil, available_err
+    end
+    local event_count = #state.events
+    local record, record_err = record_pending_on(state, commit, input)
+    if not record then
+        rollback_runtime_events(state, event_count)
+        return nil, record_err
+    end
+    return copy_value(record)
+end
+
+function credit.finish_runtime(state)
+    local available, available_err = require_runtime_state(state)
+    if not available then
+        return nil, available_err
+    end
+    local verified, verify_err = credit.verify(state)
+    if not verified then
+        return nil, verify_err
+    end
+    runtime_states[state] = nil
+    return state
 end
 
 function credit.authority_taint(state)

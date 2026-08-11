@@ -7,7 +7,7 @@ local digest = require("core.digest")
 local edge_catalog = require("runtime.edge_catalog")
 local edge_corpus = require("runtime.edge_corpus")
 local edge_credit = require("runtime.edge_credit")
-local edge_stats = require("runtime.edge_stats_v3")
+local edge_stats = require("runtime.edge_stats")
 local json = require("core.json")
 local life_projection = require("runtime.edge_life_projection")
 local fixture = require("tests.support.plan_life")
@@ -340,7 +340,7 @@ end
 local function add_life(record, epoch, source, projected, directions, prov, classified)
     local ledger = ledger_for(epoch, source, directions or {}, classified)
     local ok, err = edge_corpus.add_life(record, {
-        edge_stats_v3 = ledger,
+        edge_stats = ledger,
     }, projected, prov)
     assert_true(ok ~= nil, err and err.code or err)
     return ledger
@@ -398,7 +398,7 @@ local reused = source_for(enabled_epoch, {
     lineage_id = "lineage:reused-run",
 })
 local reused_ok, reused_err = edge_corpus.add_life(record, {
-    edge_stats_v3 = ledger_for(enabled_epoch, reused),
+    edge_stats = ledger_for(enabled_epoch, reused),
 }, projection_for(reused, true), provenance(revision))
 assert_eq(reused_ok, nil, "CO10 reused evidence run rejects")
 assert_eq(reused_err.code, "corpus_evidence_run_reused", "CO10 typed error")
@@ -408,7 +408,7 @@ assert_eq(assert(digest.record(record)), before_reuse,
 local tampered_projection = copy_value(disabled_projection)
 tampered_projection.life_id = enabled_source.life_id
 local tampered_ok = edge_corpus.add_life(record, {
-    edge_stats_v3 = ledger_for(enabled_epoch, reused),
+    edge_stats = ledger_for(enabled_epoch, reused),
 }, tampered_projection, provenance(revision))
 assert_eq(tampered_ok, nil, "CO11 tampered projection rejects")
 assert_eq(assert(digest.record(record)), before_reuse,
@@ -469,7 +469,7 @@ add_life(bounded, enabled_epoch, enabled_source, enabled_projection, {},
     provenance(revision))
 local bounded_before = assert(digest.record(bounded))
 local bounded_ok, bounded_err = edge_corpus.add_life(bounded, {
-    edge_stats_v3 = ledger_for(disabled_epoch, disabled_source),
+    edge_stats = ledger_for(disabled_epoch, disabled_source),
 }, disabled_projection, provenance(revision))
 assert_eq(bounded_ok, nil, "CO13 max_lives rejects")
 assert_eq(bounded_err.code, "corpus_max_lives_exceeded", "CO13 typed bound")

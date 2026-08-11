@@ -11,6 +11,10 @@ local stats = {
     error_protocol_version = "authority-instrument-error.v0",
 }
 
+-- Runner recorders are opaque capabilities. The pending observations are not
+-- a second statistics ledger and cannot be read as evidence before closure.
+local runtime_recorders = setmetatable({}, {__mode = "k"})
+
 local source_kinds = {
     packet_trace = true,
     runner_tick = true,
@@ -875,6 +879,19 @@ local function source_index_slot(ledger, life_id, kind)
 end
 
 local function source_usage_for_life(ledger, life_id)
+    local only_life
+    for candidate_life_id in pairs(ledger.source_lives or {}) do
+        if only_life ~= nil then
+            only_life = false
+            break
+        end
+        only_life = candidate_life_id
+    end
+    if only_life == life_id then
+        return ledger.source_usage.record_count,
+            ledger.source_usage.encoded_bytes
+    end
+
     local count = 0
     local bytes = 0
     for _, by_original in pairs(ledger.source_index[life_id] or {}) do
@@ -2798,6 +2815,238 @@ function stats.record_pending(ledger, pending, bundle)
         return nil, err
     end
     return finish_transaction(ledger, working)
+end
+
+local function runtime_state(recorder)
+    local state = runtime_recorders[recorder]
+    if not state or state.closed then
+        return nil, instrument_error(
+            "ledger",
+            "runtime_recorder_unavailable",
+            "edge_stats_v3.runtime"
+        )
+    end
+    return state
+end
+
+local function queue_runtime(recorder, operation)
+    local state, state_err = runtime_state(recorder)
+    if not state then
+        return nil, state_err
+    end
+    state.operations[#state.operations + 1] = copy_value(operation)
+    return true
+end
+
+-- The live runner owns one recorder for one Packet life. Public record_* APIs
+-- stay fully transactional; this private path delays ledger construction until
+-- the observer closes, avoiding a full historical rehash after every tick.
+function stats.begin_runtime(epoch_record, life, epoch_error)
+    local base, base_err = stats.new(epoch_record, life, epoch_error)
+    if not base then
+        return nil, base_err
+    end
+    local recorder = {}
+    runtime_recorders[recorder] = {
+        base = base,
+        operations = {},
+        closed = false,
+    }
+    return recorder
+end
+
+function stats.runtime_note_error(recorder, value)
+    return queue_runtime(recorder, {
+        kind = "note_error",
+        value = value,
+    })
+end
+
+function stats.runtime_record_observer(recorder, shadow, bundle)
+    return queue_runtime(recorder, {
+        kind = "observer",
+        shadow = shadow,
+        bundle = bundle,
+    })
+end
+
+function stats.runtime_record_tree_derivation(recorder, decision, bundle)
+    return queue_runtime(recorder, {
+        kind = "tree_derivation",
+        decision = decision,
+        bundle = bundle,
+    })
+end
+
+function stats.runtime_record_selection(recorder, selection, bundle)
+    return queue_runtime(recorder, {
+        kind = "selection",
+        selection = selection,
+        bundle = bundle,
+    })
+end
+
+function stats.runtime_record_transition(recorder, commit, bundle)
+    return queue_runtime(recorder, {
+        kind = "transition",
+        commit = commit,
+        bundle = bundle,
+    })
+end
+
+function stats.runtime_record_arrival(recorder, arrival, decision, bundle)
+    return queue_runtime(recorder, {
+        kind = "arrival",
+        arrival = arrival,
+        decision = decision,
+        bundle = bundle,
+    })
+end
+
+function stats.runtime_record_failure(recorder, failure, bundle)
+    return queue_runtime(recorder, {
+        kind = "failure",
+        failure = failure,
+        bundle = bundle,
+    })
+end
+
+function stats.runtime_record_pending(recorder, pending, bundle)
+    return queue_runtime(recorder, {
+        kind = "pending",
+        pending = pending,
+        bundle = bundle,
+    })
+end
+
+local runtime_appliers = {
+    note_error = function(ledger, operation)
+        return append_error_on(ledger, operation.value)
+    end,
+    observer = function(ledger, operation)
+        return record_observer_on(
+            ledger,
+            operation.shadow,
+            operation.bundle
+        )
+    end,
+    tree_derivation = function(ledger, operation)
+        return record_tree_derivation_on(
+            ledger,
+            operation.decision,
+            operation.bundle
+        )
+    end,
+    selection = function(ledger, operation)
+        return record_selection_on(
+            ledger,
+            operation.selection,
+            operation.bundle
+        )
+    end,
+    transition = function(ledger, operation)
+        return record_transition_on(
+            ledger,
+            operation.commit,
+            operation.bundle
+        )
+    end,
+    arrival = function(ledger, operation)
+        return record_arrival_on(
+            ledger,
+            operation.arrival,
+            operation.decision,
+            operation.bundle
+        )
+    end,
+    failure = function(ledger, operation)
+        return record_failure_on(
+            ledger,
+            operation.failure,
+            operation.bundle
+        )
+    end,
+    pending = function(ledger, operation)
+        return record_pending_on(
+            ledger,
+            operation.pending,
+            operation.bundle
+        )
+    end,
+}
+
+local function apply_runtime_operation(ledger, operation)
+    local apply = type(operation) == "table"
+        and runtime_appliers[operation.kind] or nil
+    if not apply then
+        return nil, instrument_error(
+            "ledger",
+            "runtime_operation_invalid",
+            "edge_stats_v3.runtime"
+        )
+    end
+    return apply(ledger, operation)
+end
+
+local function replay_runtime(base, operations)
+    local ledger = copy_value(base)
+    for _, operation in ipairs(operations) do
+        local applied, apply_err = apply_runtime_operation(ledger, operation)
+        if not applied then
+            return nil, apply_err
+        end
+    end
+    return ledger
+end
+
+function stats.finish_runtime(recorder)
+    local state, state_err = runtime_state(recorder)
+    if not state then
+        return nil, state_err
+    end
+
+    local accepted = {}
+    local ledger = copy_value(state.base)
+    for _, operation in ipairs(state.operations) do
+        local applied, apply_err = apply_runtime_operation(ledger, operation)
+        if applied then
+            accepted[#accepted + 1] = operation
+        else
+            -- A rejected low-level operation may have touched its working
+            -- ledger. Rebuild the accepted prefix before recording the typed
+            -- observer error, preserving the public transaction law.
+            local rebuilt, rebuild_err = replay_runtime(state.base, accepted)
+            if not rebuilt then
+                return nil, rebuild_err
+            end
+            ledger = rebuilt
+            local error_operation = {
+                kind = "note_error",
+                value = apply_err,
+            }
+            local noted, note_err = apply_runtime_operation(
+                ledger,
+                error_operation
+            )
+            if not noted then
+                return nil, note_err
+            end
+            accepted[#accepted + 1] = error_operation
+        end
+    end
+
+    for _, edge in pairs(ledger.edges or {}) do
+        refresh_edge(edge, ledger.ledger_status)
+    end
+    local verified, verify_err = stats.verify(ledger)
+    if not verified then
+        return nil, verify_err
+    end
+
+    state.closed = true
+    state.operations = nil
+    runtime_recorders[recorder] = nil
+    return ledger, copy_value(ledger)
 end
 
 local function merge_error(code, refs)

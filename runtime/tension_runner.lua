@@ -3,11 +3,10 @@ local packet_birth = require("runtime.packet_birth")
 local operator_registry = require("runtime.operator_registry")
 local body = require("runtime.body")
 local router = require("runtime.router")
-local edge_stats_v2 = require("runtime.edge_stats")
+local edge_stats = require("runtime.edge_stats")
 local authority_epoch = require("runtime.authority_epoch")
 local edge_catalog = require("runtime.edge_catalog")
 local edge_credit = require("runtime.edge_credit")
-local edge_stats_v3 = require("runtime.edge_stats_v3")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
 local grave = require("runtime.grave")
@@ -92,10 +91,9 @@ local function prepare_options(options)
         return nil, "work_layer_contract must be table"
     end
     if prepared.authority_instrument ~= nil
-        and prepared.authority_instrument ~= "edge_stats_v2"
         and prepared.authority_instrument ~= "v3"
         and prepared.authority_instrument ~= "off" then
-        return nil, "authority_instrument must be edge_stats_v2, v3, or off"
+        return nil, "authority_instrument must be v3 or off"
     end
     if prepared.authority_instrument == "off"
         and prepared.authority_instrument_test_override ~= true then
@@ -147,20 +145,14 @@ local function append_tick(result, operator, payload)
     return tick
 end
 
-local function note_v2_stats_error(result, err)
-    result.edge_stats_errors = result.edge_stats_errors or {}
-    result.edge_stats_errors[#result.edge_stats_errors + 1] = tostring(err)
-end
-
 local function note_instrument_error(result, instrument, err)
-    if instrument.mode == "edge_stats_v2" then
-        note_v2_stats_error(result, err)
-        return true
-    end
     if instrument.mode == "off" then
         return true
     end
-    local recorded, record_err = edge_stats_v3.note_error(instrument.stats, err)
+    local recorded, record_err = edge_stats.runtime_note_error(
+        instrument.recorder,
+        err
+    )
     if not recorded then
         return nil, record_err
     end
@@ -171,20 +163,26 @@ local function finish_measurements(result, instrument)
     if instrument.mode == "off" then
         return true
     end
-    if instrument.mode == "edge_stats_v2" then
-        local summary, err = edge_stats_v2.summary(instrument.stats)
-        if summary then
-            result.edge_evidence = summary
-        else
-            note_v2_stats_error(result, err)
-        end
-        return true
+    local credit_state, credit_err = edge_credit.finish_runtime(
+        instrument.credit
+    )
+    if not credit_state then
+        return nil, credit_err
     end
-    local summary, err = edge_stats_v3.summary(instrument.stats)
+    result.edge_credit = credit_state
+    local ledger, summary_or_err = edge_stats.finish_runtime(
+        instrument.recorder
+    )
+    if not ledger then
+        return nil, summary_or_err
+    end
+    local summary = summary_or_err
     if not summary then
-        return nil, err
+        return nil, "runtime recorder returned no summary"
     end
-    result.edge_evidence_v3 = summary
+    instrument.stats = ledger
+    result.edge_stats = ledger
+    result.edge_evidence = summary
     if #summary.errors > 0 or summary.error_overflow ~= nil then
         result.authority_instrument_errors = {
             errors = copy_value(summary.errors),
@@ -562,18 +560,10 @@ local function authority_surface_decision(decision)
 end
 
 local function initialize_instrument(instance, result, options)
-    local mode = options.authority_instrument or "edge_stats_v2"
+    local mode = options.authority_instrument or "v3"
     local instrument = {mode = mode}
     result.authority_instrument = mode
     if mode == "off" then
-        return instrument
-    end
-    if mode == "edge_stats_v2" then
-        instrument.stats = edge_stats_v2.new({
-            work_mode = options.work_mode or "build",
-            router_mode = options.router_mode or "shadow",
-        })
-        result.edge_stats = instrument.stats
         return instrument
     end
 
@@ -589,7 +579,7 @@ local function initialize_instrument(instance, result, options)
         return nil, prompt_digest_err
     end
     local evidence = options.edge_evidence or {}
-    local life, life_err = edge_stats_v3.make_life_source({
+    local life, life_err = edge_stats.make_life_source({
         packet_id = instance.id,
         lineage_id = instance.lineage_id,
         generation = instance.generation,
@@ -608,15 +598,15 @@ local function initialize_instrument(instance, result, options)
     if not epoch_record then
         epoch_error = diagnostics_or_err
     end
-    local stats_state, stats_err = edge_stats_v3.new(
+    local recorder, stats_err = edge_stats.begin_runtime(
         epoch_record,
         life,
         epoch_error
     )
-    if not stats_state then
+    if not recorder then
         return nil, stats_err
     end
-    local credit_state, credit_err = edge_credit.new(epoch_record, {
+    local credit_state, credit_err = edge_credit.new_runtime(epoch_record, {
         life_id = life.life_id,
         packet_id = instance.id,
         lineage_id = instance.lineage_id,
@@ -627,7 +617,7 @@ local function initialize_instrument(instance, result, options)
     end
     instrument.epoch = epoch_record
     instrument.life = life
-    instrument.stats = stats_state
+    instrument.recorder = recorder
     instrument.credit = credit_state
     instrument.next_route_ordinal = 1
     result.authority_epoch = copy_value(epoch_record)
@@ -636,8 +626,6 @@ local function initialize_instrument(instance, result, options)
     else
         result.authority_epoch_error = copy_value(diagnostics_or_err)
     end
-    result.edge_stats_v3 = stats_state
-    result.edge_credit = credit_state
     return instrument
 end
 
@@ -656,27 +644,6 @@ local function record_decision_evidence(instance, result, instrument, decision, 
     if instrument.mode == "off" then
         return true
     end
-    if instrument.mode == "edge_stats_v2" then
-        if decision.authority == "tree" then
-            local recorded, stats_err = edge_stats_v2.record_tree_derivation(
-                instrument.stats,
-                decision
-            )
-            if not recorded then
-                note_v2_stats_error(result, stats_err)
-            end
-        end
-        if observer then
-            local recorded, stats_err = edge_stats_v2.record(
-                instrument.stats,
-                observer
-            )
-            if not recorded then
-                note_v2_stats_error(result, stats_err)
-            end
-        end
-        return true
-    end
 
     if decision.authority == "tree" then
         local measured_decision = authority_surface_decision(decision)
@@ -685,8 +652,8 @@ local function record_decision_evidence(instance, result, instrument, decision, 
             trace_event_by_id(instance, decision.derivation_ref))
         append_source(records, "policy_evidence", decision.pressure_snapshot_ref,
             trace_event_by_id(instance, decision.pressure_snapshot_ref))
-        local recorded, stats_err = edge_stats_v3.record_tree_derivation(
-            instrument.stats,
+        local recorded, stats_err = edge_stats.runtime_record_tree_derivation(
+            instrument.recorder,
             measured_decision,
             source_bundle(instrument, records)
         )
@@ -701,8 +668,8 @@ local function record_decision_evidence(instance, result, instrument, decision, 
             trace_event_by_id(instance, observer.trace_event_id))
         append_source(records, "policy_evidence", observer.pressure_snapshot_ref,
             trace_event_by_id(instance, observer.pressure_snapshot_ref))
-        local recorded, stats_err = edge_stats_v3.record_observer(
-            instrument.stats,
+        local recorded, stats_err = edge_stats.runtime_record_observer(
+            instrument.recorder,
             observer,
             source_bundle(instrument, records)
         )
@@ -723,10 +690,17 @@ local function commit_route(instance, result, instrument, route, include_in_rout
         local ordinal = instrument.next_route_ordinal
         instrument.next_route_ordinal = ordinal + 1
         local selection_err
-        selection, selection_err = edge_credit.prepare(instrument.credit, route, {
-            route_ordinal = ordinal,
-            derivation_event = trace_event_by_id(instance, route.derivation_ref),
-        })
+        selection, selection_err = edge_credit.runtime_prepare(
+            instrument.credit,
+            route,
+            {
+                route_ordinal = ordinal,
+                derivation_event = trace_event_by_id(
+                    instance,
+                    route.derivation_ref
+                ),
+            }
+        )
         if not selection then
             local noted, note_err = note_instrument_error(
                 result,
@@ -744,8 +718,8 @@ local function commit_route(instance, result, instrument, route, include_in_rout
         )
         if not observed then return nil, observe_err end
         if selection then
-            local recorded, stats_err = edge_stats_v3.record_selection(
-                instrument.stats,
+            local recorded, stats_err = edge_stats.runtime_record_selection(
+                instrument.recorder,
                 selection,
                 source_bundle(instrument)
             )
@@ -778,18 +752,10 @@ local function commit_route(instance, result, instrument, route, include_in_rout
         )
         if not observed then return nil, observe_err end
     end
-    if instrument.mode == "edge_stats_v2" then
-        local recorded, stats_err = edge_stats_v2.record_transition(
-            instrument.stats,
-            route
-        )
-        if not recorded then
-            note_v2_stats_error(result, stats_err)
-        end
-    elseif instrument.mode == "v3" and selection then
+    if instrument.mode == "v3" and selection then
         local taint
         local credit_err
-        credit_commit, taint, credit_err = edge_credit.record_commit(
+        credit_commit, taint, credit_err = edge_credit.runtime_record_commit(
             instrument.credit,
             selection,
             route_event
@@ -804,8 +770,8 @@ local function commit_route(instance, result, instrument, route, include_in_rout
         else
             local records = {}
             append_source(records, "packet_trace", route_event.id, route_event)
-            local recorded, stats_err = edge_stats_v3.record_transition(
-                instrument.stats,
+            local recorded, stats_err = edge_stats.runtime_record_transition(
+                instrument.recorder,
                 credit_commit,
                 source_bundle(instrument, records)
             )
@@ -842,6 +808,8 @@ local function die_from_no_viable(instance, result, instrument, outcome)
     )
     if not observed then return nil, observe_err end
     if die_from_mortality(instance, result, instance.operator) then
+        local finished, finish_err = finish_measurements(result, instrument)
+        if not finished then return nil, finish_err end
         return instance
     end
     local cause = outcome.cause == "unsafe" and "unsafe_scope" or "stalled"
@@ -898,17 +866,6 @@ local function record_arrival_evidence(instance, result, instrument,
     if instrument.mode == "off" or not pending_arrival then
         return true
     end
-    if instrument.mode == "edge_stats_v2" then
-        local arrival, arrival_err = edge_stats_v2.record_arrival(
-            instrument.stats,
-            pending_arrival,
-            payload
-        )
-        if not arrival then
-            note_v2_stats_error(result, arrival_err)
-        end
-        return true
-    end
     if not pending_credit then
         return true
     end
@@ -918,7 +875,7 @@ local function record_arrival_evidence(instance, result, instrument,
         trace_start,
         tick_event
     )
-    local arrival, decision, arrival_err = edge_credit.record_arrival(
+    local arrival, decision, arrival_err = edge_credit.runtime_record_arrival(
         instrument.credit,
         pending_credit,
         {
@@ -931,8 +888,8 @@ local function record_arrival_evidence(instance, result, instrument,
     if not arrival then
         return note_instrument_error(result, instrument, arrival_err)
     end
-    local recorded, stats_err = edge_stats_v3.record_arrival(
-        instrument.stats,
+    local recorded, stats_err = edge_stats.runtime_record_arrival(
+        instrument.recorder,
         arrival,
         decision,
         bundle
@@ -948,22 +905,10 @@ local function record_failure_evidence(instance, result, instrument,
     if instrument.mode == "off" or not pending_arrival then
         return true
     end
-    if instrument.mode == "edge_stats_v2" then
-        local failed, failed_err = edge_stats_v2.record_failure(
-            instrument.stats,
-            pending_arrival,
-            failure,
-            failure_event.id
-        )
-        if not failed then
-            note_v2_stats_error(result, failed_err)
-        end
-        return true
-    end
     if not pending_credit then
         return true
     end
-    local record, record_err = edge_credit.record_failure(
+    local record, record_err = edge_credit.runtime_record_failure(
         instrument.credit,
         pending_credit,
         {
@@ -980,8 +925,8 @@ local function record_failure_evidence(instance, result, instrument,
     local records = {}
     append_source(records, "runner_tick", tick_event.id, tick_event)
     append_source(records, "runner_effect", failure_event.id, failure_event)
-    local recorded, stats_err = edge_stats_v3.record_failure(
-        instrument.stats,
+    local recorded, stats_err = edge_stats.runtime_record_failure(
+        instrument.recorder,
         record,
         source_bundle(instrument, records)
     )
@@ -995,7 +940,7 @@ local function record_pending_evidence(result, instrument, pending_credit)
     if instrument.mode ~= "v3" or not pending_credit then
         return true
     end
-    local record, record_err = edge_credit.record_pending(
+    local record, record_err = edge_credit.runtime_record_pending(
         instrument.credit,
         pending_credit,
         {stop_reason = "tick_limit"}
@@ -1003,8 +948,8 @@ local function record_pending_evidence(result, instrument, pending_credit)
     if not record then
         return note_instrument_error(result, instrument, record_err)
     end
-    local recorded, stats_err = edge_stats_v3.record_pending(
-        instrument.stats,
+    local recorded, stats_err = edge_stats.runtime_record_pending(
+        instrument.recorder,
         record
     )
     if not recorded then

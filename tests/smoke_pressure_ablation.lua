@@ -27,7 +27,8 @@ local function run_life(work_mode, max_ticks)
         },
     })
     assert(packet, result and result.message or result)
-    assert(result.edge_stats_errors == nil, "edge statistics reader failed")
+    assert(result.authority_instrument_errors == nil,
+        "edge statistics reader failed")
     return result
 end
 

@@ -93,22 +93,26 @@ local function selection_by_authority(events, authority, ordinal)
     return nil
 end
 
--- I07 switch: omitted stays v2, explicit v3 never dual-writes, and off is gated.
+-- I09 cutover: omitted selects canonical v3 and off remains test-gated.
 local default_packet, default_result = assert(tension_runner.run(
-    "i07 default v2",
+    "i09 default v3",
     fake,
     {
         router_mode = "legacy",
         work_mode = "plan",
         max_ticks = 0,
-        packet_options = packet_options("i07-default-v2"),
+        packet_options = packet_options("i09-default-v3"),
     }
 ))
-assert_eq(default_result.authority_instrument, "edge_stats_v2",
-    "omitted option retains v2")
-assert_true(default_result.edge_stats ~= nil, "v2 ledger exists")
-assert_eq(default_result.edge_stats_v3, nil, "v2 cannot dual-write v3")
-assert_eq(default_result.edge_credit, nil, "v2 cannot write edge credit")
+assert_eq(default_result.authority_instrument, "v3",
+    "omitted option selects v3")
+assert_eq(default_result.edge_stats.protocol_version, "edge-stats.v3",
+    "canonical v3 ledger exists")
+assert_eq(default_result.edge_evidence.protocol_version, "edge-stats.v3",
+    "canonical v3 summary exists")
+assert_eq(default_result.edge_stats_v3, nil, "temporary ledger alias is absent")
+assert_eq(default_result.edge_evidence_v3, nil, "temporary summary alias is absent")
+assert_true(default_result.edge_credit ~= nil, "v3 writes edge credit")
 
 local denied_off, denied_off_err = tension_runner.run("i07 denied off", fake, {
     authority_instrument = "off",
@@ -126,8 +130,8 @@ local off_packet, off_result = assert(tension_runner.run("i07 explicit off", fak
     max_ticks = 0,
     packet_options = packet_options("i07-off"),
 }))
-assert_eq(off_result.edge_stats, nil, "off writes no v2 ledger")
-assert_eq(off_result.edge_stats_v3, nil, "off writes no v3 ledger")
+assert_eq(off_result.edge_stats, nil, "off writes no canonical ledger")
+assert_eq(off_result.edge_evidence, nil, "off writes no canonical summary")
 assert_eq(off_result.edge_credit, nil, "off writes no credit ledger")
 
 -- EC05: a host ceiling closes the committed entry as pending, never executed.
@@ -140,10 +144,10 @@ local ec05_packet, ec05_result = assert(tension_runner.run("i07 EC05", fake, {
     edge_evidence = evidence("EC05"),
 }))
 assert_true(ec05_result.authority_epoch ~= nil, "legacy v3 epoch exists")
-assert_eq(ec05_result.edge_stats, nil, "v3 cannot dual-write v2")
-assert_eq(ec05_result.edge_evidence, nil, "v3 cannot project v2")
-assert_eq(ec05_result.edge_evidence_v3.ledger_status, "valid", "EC05 ledger")
-local ec05 = direction(ec05_result.edge_evidence_v3, "▽", "☴")
+assert_eq(ec05_result.edge_stats_v3, nil, "v3 has no temporary ledger alias")
+assert_eq(ec05_result.edge_evidence_v3, nil, "v3 has no temporary summary alias")
+assert_eq(ec05_result.edge_evidence.ledger_status, "valid", "EC05 ledger")
+local ec05 = direction(ec05_result.edge_evidence, "▽", "☴")
 assert_eq(ec05.physical.committed_count, 1, "EC05 committed")
 assert_eq(ec05.physical.pending_at_host_ceiling_count, 1, "EC05 pending")
 assert_eq(ec05.physical.executed_count, 0, "EC05 not executed")
@@ -164,9 +168,9 @@ local shadow_packet, shadow_result = assert(tension_runner.run(
     }
 ))
 assert_true(shadow_result.authority_epoch ~= nil, "shadow v3 epoch exists")
-assert_eq(shadow_result.edge_evidence_v3.ledger_status, "valid",
+assert_eq(shadow_result.edge_evidence.ledger_status, "valid",
     "shadow v3 ledger")
-assert_true(shadow_result.edge_evidence_v3.comparison_count > 0,
+assert_true(shadow_result.edge_evidence.comparison_count > 0,
     "shadow observer is captured")
 
 -- EC02: a body-grown fixture route executes but cannot receive promotion credit.
@@ -190,8 +194,8 @@ local ec02_packet, ec02_result = assert(tension_runner.run("i07 EC02", nil, {
     edge_evidence = evidence("EC02"),
 }))
 assert_true(ec02_result.authority_epoch ~= nil, "tree v3 epoch exists")
-assert_eq(ec02_result.edge_evidence_v3.ledger_status, "valid", "EC02 ledger")
-local ec02 = direction(ec02_result.edge_evidence_v3, "▽", "☰")
+assert_eq(ec02_result.edge_evidence.ledger_status, "valid", "EC02 ledger")
+local ec02 = direction(ec02_result.edge_evidence, "▽", "☰")
 assert_eq(ec02.physical.executed_count, 1, "EC02 physically executes")
 assert_eq(ec02.promotion.ineligible_executed_count, 1,
     "EC02 remains ineligible")
@@ -229,8 +233,8 @@ local ec06_packet, ec06_result = assert(tension_runner.run(
     }
 ))
 assert_eq(ec06_packet.death.cause, "effect_failure", "EC06 body death")
-assert_eq(ec06_result.edge_evidence_v3.ledger_status, "valid", "EC06 ledger")
-local ec06 = direction(ec06_result.edge_evidence_v3, "▽", "☴")
+assert_eq(ec06_result.edge_evidence.ledger_status, "valid", "EC06 ledger")
+local ec06 = direction(ec06_result.edge_evidence, "▽", "☴")
 assert_eq(ec06.physical.failed_count, 1, "EC06 failed")
 assert_eq(ec06.physical.executed_count, 0, "EC06 not executed")
 assert_eq(event_count(ec06_result.edge_credit.events, "edge_credit_decision"), 0,
@@ -247,7 +251,7 @@ local ec11_packet, ec11_result = assert(tension_runner.run("i07 EC11", fake, {
     packet_options = packet_options("i07-ec11"),
     edge_evidence = evidence("EC11"),
 }))
-assert_eq(ec11_result.edge_evidence_v3.ledger_status, "valid", "EC11 ledger")
+assert_eq(ec11_result.edge_evidence.ledger_status, "valid", "EC11 ledger")
 assert_eq(event_count(ec11_result.edge_credit.events, "authority_taint"), 1,
     "EC11 writes one monotonic taint")
 local post_harness = assert(selection_by_authority(
@@ -259,7 +263,7 @@ assert_true(contains(post_harness.eligibility.reasons, "authority_tainted"),
 assert_true(ec11_packet.status ~= "born", "EC11 executes real body tick")
 
 -- The v3 physical report closes every real route exactly once.
-local physical = totals(shadow_result.edge_evidence_v3)
+local physical = totals(shadow_result.edge_evidence)
 assert_eq(physical.selected, #shadow_result.routes + 1,
     "v3 selection count matches committed route attempts")
 assert_eq(physical.committed, #shadow_result.routes + 1,
@@ -286,7 +290,7 @@ local invalid_packet, invalid_result = assert(matched_epoch_run("malformed"))
 assert_eq(invalid_result.authority_epoch, nil, "invalid epoch is absent")
 assert_eq(invalid_result.authority_epoch_error.code,
     "invalid_authority_epoch_expectation", "invalid epoch is typed")
-assert_eq(invalid_result.edge_evidence_v3.ledger_status, "invalid",
+assert_eq(invalid_result.edge_evidence.ledger_status, "invalid",
     "invalid epoch invalidates measurement only")
 local valid_projection = assert(edge_life_projection.capture(
     valid_packet,

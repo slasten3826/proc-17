@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local authority_epoch = require("runtime.authority_epoch")
 local edge_catalog = require("runtime.edge_catalog")
 local edge_credit = require("runtime.edge_credit")
-local edge_stats = require("runtime.edge_stats_v3")
+local edge_stats = require("runtime.edge_stats")
 local json = require("core.json")
 local packet = require("core.packet")
 

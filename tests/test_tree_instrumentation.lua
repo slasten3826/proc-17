@@ -127,8 +127,10 @@ case("legacy_observer_cannot_change_tree_physics", function()
     assert_eq(with.manifest and with.manifest.output and with.manifest.output.type,
         without.manifest and without.manifest.output and without.manifest.output.type,
         "manifest type")
-    assert_eq(with_result.edge_stats_errors, nil, "enabled observer has no ledger errors")
-    assert_eq(without_result.edge_stats_errors, nil, "disabled observer has no ledger errors")
+    assert_eq(with_result.authority_instrument_errors, nil,
+        "enabled observer has no ledger errors")
+    assert_eq(without_result.authority_instrument_errors, nil,
+        "disabled observer has no ledger errors")
 end)
 
 case("tree_life_records_one_legacy_observer_per_derivation", function()
@@ -179,13 +181,14 @@ case("tree_derivations_feed_edge_statistics", function()
     assert_eq(with_result.edge_stats.tree_derivation_count, counts.derivations,
         "ledger reads every live tree derivation")
     local entry_edge = with_result.edge_stats.edges[assert(edge_catalog.get("▽", "☴")).edge]
-    assert_true(entry_edge.candidate_count > 0, "entry candidate is counted")
-    assert_true(entry_edge.selection_count > 0, "entry tree selection is counted")
-    assert_true(entry_edge.committed_count > 0, "entry tree route is committed")
-    assert_true(entry_edge.executed_count > 0, "entry destination executes")
-    assert_true((entry_edge.authority_counts or {}).tree > 0,
+    local entry = entry_edge.directions["▽->☴"].physical
+    assert_true(entry.candidate_count > 0, "entry candidate is counted")
+    assert_true(entry.selected_count > 0, "entry tree selection is counted")
+    assert_true(entry.committed_count > 0, "entry tree route is committed")
+    assert_true(entry.executed_count > 0, "entry destination executes")
+    assert_true((entry.authority_counts or {}).tree > 0,
         "committed edge names tree authority")
-    assert_true(#(entry_edge.derivation_refs or {}) > 0,
+    assert_true(#(entry.derivation_refs or {}) > 0,
         "committed edge retains derivation refs")
     local observers = with_result.edge_stats.observers or {}
     assert_eq(observers.legacy and observers.legacy.comparison_count, counts.derivations,
@@ -200,18 +203,21 @@ case("legacy_observer_does_not_pollute_tree_evidence", function()
         "observer cannot create tree derivations")
     for edge_id, with_edge in pairs(with_result.edge_stats.edges or {}) do
         local without_edge = without_result.edge_stats.edges[edge_id]
-        for _, key in ipairs({
-            "candidate_count",
-            "selection_count",
-            "committed_count",
-            "executed_count",
-            "failed_count",
-            "positive_sum",
-            "resistance_sum",
-            "total_sum",
-        }) do
-            assert_eq(with_edge[key], without_edge[key],
-                "observer polluted edge " .. tostring(edge_id) .. "." .. key)
+        for direction_id, with_direction in pairs(with_edge.directions or {}) do
+            local without_direction = without_edge.directions[direction_id]
+            for _, key in ipairs({
+                "candidate_count",
+                "selected_count",
+                "committed_count",
+                "executed_count",
+                "failed_count",
+                "pending_at_host_ceiling_count",
+            }) do
+                assert_eq(with_direction.physical[key],
+                    without_direction.physical[key],
+                    "observer polluted edge " .. tostring(edge_id)
+                        .. "." .. tostring(direction_id) .. "." .. key)
+            end
         end
     end
     for rail_id, with_rail in pairs(with_result.edge_stats.rails or {}) do

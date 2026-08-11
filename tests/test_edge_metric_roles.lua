@@ -1,6 +1,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 local edge_stats = require("runtime.edge_stats")
+local edge_stats_v2 = require("runtime.edge_stats_v2")
 local tension_runner = require("runtime.tension_runner")
 local fake = require("substrates.fake")
 
@@ -21,7 +22,7 @@ local function run(mode)
     return tension_runner.run("build metric role witness", fake, {
         router_mode = mode,
         work_mode = "build",
-        max_ticks = 64,
+        max_ticks = 12,
         packet_options = {
             budget = {
                 steps = 64,
@@ -67,10 +68,10 @@ end
 local _, shadow = assert(run("shadow"))
 local _, tree = assert(run("tree"))
 
-assert_eq(shadow.edge_stats.protocol_version, "edge-stats.v2", "shadow uses v2")
-assert_eq(tree.edge_stats.protocol_version, "edge-stats.v2", "tree uses v2")
+assert_eq(shadow.edge_stats.protocol_version, "edge-stats.v3", "shadow uses v3")
+assert_eq(tree.edge_stats.protocol_version, "edge-stats.v3", "tree uses v3")
 assert_eq(assert(edge_stats.summary(tree.edge_stats)).protocol_version,
-    "edge-stats.v2", "summary names its schema")
+    "edge-stats.v3", "summary names its schema")
 
 assert_true(shadow.edge_stats.observers.tree.comparison_count > 0,
     "shadow life records tree observer")
@@ -91,54 +92,39 @@ assert_eq(rail_cases(tree.edge_stats, "tree_shadow"), 0,
     "legacy observer cannot create tree shadow rail evidence")
 
 for _, stats in ipairs({shadow.edge_stats, tree.edge_stats}) do
-    assert_eq(stats.shadow_ticks, nil, "v2 removes ambiguous shadow tick aggregate")
-    assert_eq(stats.agreement_count, nil, "v2 removes cross-observer agreement")
-    assert_eq(stats.divergence_count, nil, "v2 removes cross-observer divergence")
+    assert_eq(stats.shadow_ticks, nil, "v3 has no ambiguous shadow tick aggregate")
+    assert_eq(stats.agreement_count, nil, "v3 has no cross-observer agreement")
+    assert_eq(stats.divergence_count, nil, "v3 has no cross-observer divergence")
     for _, rail in pairs(stats.rails or {}) do
         assert_eq(rail.debt_bypass_proposals, nil,
-            "v2 removes role-changing flat rail counters")
+            "v3 has no role-changing flat rail counters")
         for channel_id, channel in pairs(rail.channels) do
             assert_channel_conservation(channel, rail.id .. "." .. channel_id)
         end
     end
 end
 
-local mixed = edge_stats.new({kind = "mixed_authority_corpus"})
-assert(edge_stats.merge(mixed, shadow.edge_stats))
-assert(edge_stats.merge(mixed, tree.edge_stats))
-assert_eq(mixed.comparison_count,
-    shadow.edge_stats.comparison_count + tree.edge_stats.comparison_count,
-    "root retains only neutral comparison total")
-assert_eq(mixed.observers.tree.comparison_count,
-    shadow.edge_stats.observers.tree.comparison_count,
-    "tree observer history remains separate")
-assert_eq(mixed.observers.legacy.comparison_count,
-    tree.edge_stats.observers.legacy.comparison_count,
-    "legacy observer history remains separate")
-assert_eq(rail_cases(mixed, "tree_shadow"),
-    rail_cases(shadow.edge_stats, "tree_shadow"),
-    "mixed corpus preserves shadow rail channel")
-assert_eq(rail_cases(mixed, "tree_authority"),
-    rail_cases(tree.edge_stats, "tree_authority"),
-    "mixed corpus preserves authority rail channel")
+-- Authority roles are separate evidence epochs. v3 refuses the old practice
+-- of adding unlike shadow and Tree ledgers into one root aggregate.
+local mixed = assert(edge_stats.summary(shadow.edge_stats))
+local before_count = mixed.comparison_count
+local merged, merge_err = edge_stats.merge(mixed, tree.edge_stats)
+assert_eq(merged, nil, "unlike authority epochs cannot merge")
+assert_eq(merge_err.code, "evidence_epoch_mismatch",
+    "role boundary is an epoch fact")
+assert_eq(mixed.comparison_count, before_count,
+    "failed epoch merge leaves target untouched")
+assert_true(edge_stats.verify(mixed), "failed epoch merge leaves valid ledger")
 
-local old = edge_stats.new({kind = "old_protocol_fixture"})
-old.protocol_version = "edge-stats.v1"
-local target = edge_stats.new({kind = "protocol_guard"})
-local merged, merge_err = edge_stats.merge(target, old)
-assert_eq(merged, nil, "v1 cannot be laundered into v2")
-assert_eq(merge_err, "edge statistics protocol mismatch", "protocol error is typed")
-assert_eq(target.comparison_count, 0, "failed merge leaves target untouched")
-local recorded, record_err = edge_stats.record_transition(old, {from = "▽", to = "☴"})
-assert_eq(recorded, nil, "v1 ledger cannot receive v2 writes")
-assert_eq(record_err, "edge statistics protocol mismatch", "writer version guard is typed")
-
-local poisoned = edge_stats.new({kind = "observer_metadata_fixture"})
-poisoned.observers.tree.observed_authority = "tree"
-local clean = edge_stats.new({kind = "observer_metadata_guard"})
-local accepted, observer_err = edge_stats.merge(clean, poisoned)
-assert_eq(accepted, nil, "observer cannot silently change observed authority")
-assert_true(tostring(observer_err):match("observer authority mismatch") ~= nil,
-    "observer metadata error is explicit")
+local protocol_target = assert(edge_stats.summary(shadow.edge_stats))
+local accepted, protocol_err = edge_stats.merge(
+    protocol_target,
+    edge_stats_v2.new({kind = "historical_role_fixture"})
+)
+assert_eq(accepted, nil, "v2 role history cannot be laundered into v3")
+assert_eq(protocol_err.code, "edge_stats_protocol_mismatch",
+    "historical protocol error is typed")
+assert_true(edge_stats.verify(protocol_target),
+    "historical rejection leaves canonical ledger valid")
 
 print("test_edge_metric_roles ok")

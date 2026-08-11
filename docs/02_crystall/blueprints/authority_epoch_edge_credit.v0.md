@@ -3048,3 +3048,76 @@ implementation slices: I01-I10 ordered
 implementation authorization: measurement-only
 promotion/default change: blocked
 ```
+
+## 22. I09 Runtime Closure Precision Amendment
+
+Source:
+
+```text
+docs/00_chaos/authority_instrument_i09_cutover_observation_2026-08-11.md
+docs/01_table/yellowprints/authority_epoch_edge_credit_yellowprint.v0.md
+  Amendment A9
+```
+
+The canonical runner must not call the strict public transaction API for each
+tick. It uses these exact internal boundaries:
+
+```lua
+recorder = edge_stats.begin_runtime(epoch_record, life_source, epoch_error)
+edge_stats.runtime_record_tree_derivation(recorder, decision, sources)
+edge_stats.runtime_record_observer(recorder, observer, sources)
+edge_stats.runtime_record_selection(recorder, selection, sources)
+edge_stats.runtime_record_transition(recorder, commit, sources)
+edge_stats.runtime_record_arrival(recorder, arrival, credit, sources)
+edge_stats.runtime_record_failure(recorder, failure, sources)
+edge_stats.runtime_record_pending(recorder, pending, sources)
+edge_stats.runtime_note_error(recorder, err)
+ledger, summary = edge_stats.finish_runtime(recorder)
+```
+
+The recorder is an opaque weak-registry capability. Its table contains no
+caller-readable state. Every queued operation is deep-copied at entry. Closure
+replays the journal through the same private `*_on` writers used by public
+transactions and calls the complete public verifier before returning.
+
+If a replay operation rejects, closure discards that possibly touched working
+ledger, replays the accepted prefix from the verified base, appends one
+normalized instrument error, and continues. No partial mutation is accepted as
+diagnostic evidence.
+
+`source_usage_for_life` takes the constant-time global usage only when the
+ledger has exactly one life and that life matches the request. Merged ledgers
+retain indexed per-life derivation. No mutable usage cache is introduced.
+
+Credit uses the parallel runner-only API:
+
+```lua
+state = edge_credit.new_runtime(epoch_record, life_identity)
+selection = edge_credit.runtime_prepare(state, decision, context)
+commit, taint = edge_credit.runtime_record_commit(state, selection, route_event)
+arrival, decision = edge_credit.runtime_record_arrival(state, commit, input)
+failure = edge_credit.runtime_record_failure(state, commit, input)
+pending = edge_credit.runtime_record_pending(state, commit, input)
+state = edge_credit.finish_runtime(state)
+```
+
+Every credit writer records `#events` before mutation and truncates to that
+length on rejection. Only a state minted by `new_runtime` is admitted. Public
+states continue through strict copy-and-verify transactions.
+
+`tension_runner` publishes no statistics ledger during the life. It publishes
+the verified credit state, verified statistics ledger and detached summary only
+inside `finish_measurements`. Neither runtime surface is a Packet field or a
+route input.
+
+Acceptance:
+
+```text
+ER01-ER05 green
+I09 cutover controls green
+full suite green with v3 default
+mortality 8/8
+QA control matrix 84/84
+QA red baseline 5/5
+no live require of runtime.edge_stats_v2
+```

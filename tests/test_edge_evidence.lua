@@ -50,27 +50,44 @@ end
 local plan_packet, plan = assert(run("plan", 8))
 local build_packet, build = assert(run("build", 14))
 assert_true(plan_packet ~= nil and build_packet ~= nil, "both grown lives complete their harness run")
-assert_eq(plan.edge_stats_errors, nil, "plan evidence ledger has a reader for every record")
-assert_eq(build.edge_stats_errors, nil, "build evidence ledger has a reader for every record")
+assert_eq(plan.authority_instrument_errors, nil,
+    "plan evidence ledger has a reader for every record")
+assert_eq(build.authority_instrument_errors, nil,
+    "build evidence ledger has a reader for every record")
 
-local corpus = edge_stats.new({kind = "fake_plan_build_corpus"})
-assert(edge_stats.merge(corpus, plan.edge_stats))
+local corpus = assert(edge_stats.summary(plan.edge_stats))
 assert(edge_stats.merge(corpus, build.edge_stats))
 local summary = assert(edge_stats.summary(corpus))
 
-assert_eq(summary.edge_count, 22, "summary never drops unvisited edges")
+local function physical_total(edge, key)
+    local total = 0
+    for _, direction in pairs(edge.directions or {}) do
+        total = total + (direction.physical[key] or 0)
+    end
+    return total
+end
+
+assert_eq(#summary.edge_order, 22, "summary never drops unvisited edges")
 for _, id in ipairs({"E03", "E09", "E10", "E17", "E18", "E20"}) do
     local edge = assert(catalog.get(id))
-    assert_eq(corpus.edges[edge.edge].coverage, "complete", id .. " has grown all legal directions")
+    assert_eq(corpus.edges[edge.edge].physical_coverage, "complete",
+        id .. " has grown all legal directions")
 end
-assert_eq(corpus.edges[assert(catalog.get("E11")).edge].coverage, "partial",
+assert_eq(corpus.edges[assert(catalog.get("E11")).edge].physical_coverage, "partial",
     "cross-eye edge currently has only one grown direction")
-assert_eq(corpus.edges[assert(catalog.get("E01")).edge].coverage, "untested",
+assert_eq(corpus.edges[assert(catalog.get("E01")).edge].physical_coverage, "untested",
     "FLOW-CONNECT remains honestly untested, not inferred from candidate visibility")
-assert_true(#summary.untested_ids > 0, "incomplete corpus exposes its missing edge ids")
+local untested_count = 0
+for _, edge in pairs(summary.edges) do
+    if edge.physical_coverage == "untested" then
+        untested_count = untested_count + 1
+    end
+end
+assert_true(untested_count > 0, "incomplete corpus exposes untested edges")
 
 local plan_cycle_edge = plan.edge_stats.edges[assert(catalog.get("E18")).edge]
-assert_true(plan_cycle_edge.committed_count > plan_cycle_edge.executed_count,
+assert_true(physical_total(plan_cycle_edge, "committed_count")
+        > physical_total(plan_cycle_edge, "executed_count"),
     "the final committed route before tick_limit is not falsely counted as executed")
 
 for _, id in ipairs({
@@ -96,19 +113,33 @@ assert_true(corpus.rails["rail.cycle_runtime"].channels.tree_shadow.eye_debt_cas
 assert_true(corpus.rails["rail.logic_runtime"].channels.tree_shadow.eye_debt_cases > 0,
     "logic consequence creates bounded runtime reconciliation debt")
 
-local failure_source = edge_stats.new({kind = "failure_source"})
-local failed_route = {from = "▽", to = "☴"}
-assert(edge_stats.record_transition(failure_source, failed_route))
-assert(edge_stats.record_failure(failure_source, failed_route, {
-    kind = "effect_failure",
-    code = "connection_lost",
+local failing_substrate = {
+    ask = function()
+        return nil, {
+            kind = "effect_failure",
+            source = "substrate",
+            code = "connection_lost",
+            message = "edge evidence failure fixture",
+            source_refs = {},
+            retryability = "retryable",
+            cost = {substrate_calls = 1},
+            event_truth_status = "runtime_confirmed",
+        }
+    end,
+}
+local _, failed = assert(tension_runner.run("edge evidence failure", failing_substrate, {
+    work_mode = "plan",
+    router_mode = "shadow",
+    max_ticks = 8,
+    packet_options = {
+        budget = {steps = 32, substrate_calls = 8, encode_items = 8, loss = 10},
+    },
 }))
-local failure_corpus = edge_stats.new({kind = "failure_corpus"})
-assert(edge_stats.merge(failure_corpus, failure_source))
-local failed_edge = failure_corpus.edges[assert(catalog.get("▽", "☴")).edge]
-assert_eq(failed_edge.failed_count, 1, "corpus merge preserves failed arrivals")
+local failed_edge = failed.edge_stats.edges[assert(catalog.get("▽", "☴")).edge]
+    .directions["▽->☴"].physical
+assert_eq(failed_edge.failed_count, 1, "grown ledger preserves failed arrival")
 assert_eq(failed_edge.executed_count, 0, "failed arrival is not executed evidence")
-assert_eq(failed_edge.directions["▽->☴"].failure_kinds.connection_lost, 1,
-    "corpus merge preserves typed failure kind")
+assert_eq(failed_edge.failure_kinds.effect_failure, 1,
+    "grown ledger preserves typed failure class")
 
 print("test_edge_evidence ok")

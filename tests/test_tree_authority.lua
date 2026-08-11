@@ -158,6 +158,7 @@ case("typed_substrate_failure_becomes_body_terminal", function()
     local entry = result.entry_route
     local edge = assert(edge_catalog.get(entry.from, entry.to))
     local evidence = result.edge_stats.edges[edge.edge]
+        .directions[entry.from .. "->" .. entry.to].physical
     assert_eq(evidence.failed_count, 1, "failed arrival is counted once")
     assert_eq(evidence.executed_count, 0, "failed arrival is not executed evidence")
     assert_eq(instance.runtime.budget.spent.substrate_calls, 1,

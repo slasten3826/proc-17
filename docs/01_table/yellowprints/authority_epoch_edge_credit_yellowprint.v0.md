@@ -1431,3 +1431,72 @@ Permanent controls:
 | MI06a | Long completed observer off/on pair | same retained corpse body tail |
 | MI06b | Budget-dead observer off/on pair | same residue body tail |
 | MI06c | Packet-memory capsules from MI06b | exact equality |
+
+## Amendment A9: Runtime Observation Closes Before Publication
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-11
+found during: I09 canonical v3 cutover
+source:
+  docs/00_chaos/authority_instrument_i09_cutover_observation_2026-08-11.md
+retains:
+  every public record_* transaction remains adversarial and atomic
+  every durable source is verified cryptographically
+  instrument failure has zero Packet mass
+```
+
+The live runner owns one unfinished observation. Re-verifying its complete
+history after every append is not an evidence law; it is an accidental
+quadratic implementation. The unfinished observation therefore has two
+distinct internal forms with exact ceilings:
+
+| Form | Writer | Named reader | May be evidence? | Closure |
+|---|---|---|---|---|
+| pending statistics journal | live runner | `edge_stats.finish_runtime` | no | deterministic replay plus complete `edge_stats.verify` |
+| live credit event tail | edge-credit runtime writer | next credit phase, then `edge_credit.finish_runtime` | phase-local only | complete `edge_credit.verify` |
+
+The pending statistics journal carries detached input records in causal order.
+It has no protocol id, truth status, counters, merge operation, corpus reader or
+result field. A process loss before closure yields no evidence. A rejected
+operation is converted to a typed instrument error only after the accepted
+prefix has been reconstructed, so it cannot leave partial source or counter
+mass.
+
+For an unmerged one-life ledger,
+`source_usage_for_life(life_id) == source_usage` by construction. The recorder
+may use that equality as a derivation, not a cache. A multi-life merged ledger
+must count the requested life from its source index.
+
+The live credit tail may mint records because later route phases need their
+exact ids. It is append-only under one runner owner. A rejected operation rolls
+back only the newly appended tail before returning its typed error. It is not
+published until the final state verifier succeeds.
+
+Public `record_*`, `merge`, `summary` and corpus APIs remain strict boundaries:
+their caller may hold a mutated plain table, so they continue to verify the old
+state and the candidate result transactionally. Runtime closure does not create
+a bypass callable on a state produced by the public constructor.
+
+Publication order is exact:
+
+```text
+close and verify edge credit
+replay and verify edge statistics
+publish result.edge_credit
+publish result.edge_stats
+publish detached result.edge_evidence
+discard runtime-only journal capability
+```
+
+Permanent controls:
+
+| ID | Control | Required result |
+|---|---|---|
+| ER01 | strict/runtime credit matched life | byte-equal closed states |
+| ER02 | rejected runtime credit operation | no appended event |
+| ER03 | strict/deferred statistics matched life | byte-equal ledger and summary |
+| ER04 | invalid deferred observation | typed error, zero partial source/counter |
+| ER05 | closed runtime capability | every later append denied |

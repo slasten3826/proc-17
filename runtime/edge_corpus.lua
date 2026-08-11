@@ -1,7 +1,7 @@
 local digest = require("core.digest")
 local json = require("core.json")
 local edge_catalog = require("runtime.edge_catalog")
-local edge_stats = require("runtime.edge_stats_v3")
+local edge_stats = require("runtime.edge_stats")
 local life_projection = require("runtime.edge_life_projection")
 local case_manifest = require("runtime.edge_case_manifest")
 
@@ -269,7 +269,7 @@ local function extract_ledger(runner_result)
         return nil, corpus_error("runner_result_required")
     end
     local found
-    for _, key in ipairs({"edge_evidence_v3", "edge_stats_v3", "edge_evidence"}) do
+    for _, key in ipairs({"edge_evidence", "edge_stats"}) do
         local candidate = runner_result[key]
         if type(candidate) == "table"
             and candidate.protocol_version == edge_stats.protocol_version then

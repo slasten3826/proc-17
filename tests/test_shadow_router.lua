@@ -72,8 +72,9 @@ assert_eq(tree_observer.agreement_count + tree_observer.divergence_count,
     #shadow_result.routes, "every prediction is classified")
 assert_true(tree_observer.divergence_count > 0, "fixture exposes migration divergences")
 assert_eq(shadow_result.edge_stats.agreement_count, nil,
-    "v2 has no cross-observer agreement aggregate")
-assert_eq(shadow_result.edge_stats_errors, nil, "edge statistics reader stays connected")
+    "v3 has no cross-observer agreement aggregate")
+assert_eq(shadow_result.authority_instrument_errors, nil,
+    "edge statistics reader stays connected")
 
 local shadow_events, pressure_events = shadow_trace_count(shadow)
 assert_eq(shadow_events, #shadow_result.routes, "shadow decisions are append-only trace records")
