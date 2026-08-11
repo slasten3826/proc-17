@@ -1,4 +1,4 @@
-# Current State - 2026-08-01
+# Current State - 2026-08-11
 
 Status: active packet-first body
 
@@ -12,6 +12,7 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> private QA RUN v1 witness + QN17-QN20 containment campaigns
 -> deterministic current-candidate QA verdict and shadow work projection
 -> exact terminal QA projection, corpse retention and inherited history
+-> canonical authority instrument v3 and reproducible diagnostic report
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -43,6 +44,14 @@ terminal manifest. The corpse retains that chain outside its bounded trace
 tail, and a carrier can transport it only as inherited history. Automatic QA
 routing, automatic rejected-generation recovery and lineage software
 acceptance remain closed.
+
+The canonical authority observer is now `edge-stats.v3` by default for every
+ordinary tension-runner life. Its runner-only journal closes into verified
+credit, statistics and detached evidence without entering Packet physics. A
+fresh seven-life diagnostic campaign retained five evidence epochs separately,
+observed three physical directions and one corpus-eligible direction, and kept
+all current promotion case gates missing. Its exact non-promotion record is
+[`authority_instrument_current_evidence.v0.md`](authority_instrument_current_evidence.v0.md).
 
 ## Runtime Shape
 
@@ -212,12 +221,14 @@ The accepted plan terminal extension is recorded in
 
 `runtime/router.lua` records pressure snapshots and immutable route derivations
 as append-only trace data. In the default shadow mode it also records the
-legacy/tree comparison. `runtime/edge_stats.lua` reads those records into the
-run report. Its v1 ledger distinguishes candidate, committed transition,
-executed destination, and failed-arrival evidence and preallocates all E01-E22
-rows through `runtime/edge_catalog.lua`. It also audits the four temporary eye
-rails. `legacy`, `shadow`, and explicit `tree` authority modes are available;
-only the first two currently have comparison instrumentation.
+legacy/tree comparison. `runtime/edge_stats.lua` is now the canonical v3
+facade. Its ledger distinguishes selection, committed transition, executed
+arrival, failed arrival and host-ceiling pending evidence; it separately records
+physical movement, promotion eligibility and rejection reasons for all E01-E22
+rows from `runtime/edge_catalog.lua`. Authority epochs bind topology, movement
+owner, live policy, observer policy and instrument bounds. `legacy`, `shadow`,
+and explicit `tree` authority modes are measured without pretending that their
+unlike epoch records form one promotable world.
 
 ### Task-shaped field
 
@@ -402,12 +413,13 @@ is not selected by automatic pressure or exposed as CLI release acceptance.
 Current local audit results:
 
 ```text
-lua tests/run.lua                   114 listed suites passed
+lua tests/run.lua                   127 listed suites passed
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
 tests/test_tree_instrumentation.lua  7/7 Gate B cases passed
 tests/test_edge_metric_roles.lua     passed
+tests/test_edge_current_report.lua   passed deterministic current report
 tests/test_tree_manifest_honesty.lua 4/4 Gate 4.2 cases passed
 tests/test_structure_formation.lua   passed
 tests/test_choice_need.lua           passed
@@ -484,13 +496,17 @@ removed. Legacy agreed twice, diverged five times, and reported one typed
 unavailable source at CONNECT. The complete record is preserved in
 [`../00_chaos/tree_legacy_shadow_flip_results_2026-07-17.md`](../00_chaos/tree_legacy_shadow_flip_results_2026-07-17.md).
 
-Promotion measurements now use `edge-stats.v2`. Route comparisons are keyed by
-the observer and observed authority; rail evidence is split between
-`tree_shadow` counterfactual predictions and `tree_authority` derivations. The
-old cross-observer agreement totals and role-changing flat rail counters were
-removed. Mixed v1/v2 ledgers fail loudly instead of silently promoting
-historical evidence. The contract is recorded in
-[`../02_crystall/blueprints/edge_evidence_roles.v0.md`](../02_crystall/blueprints/edge_evidence_roles.v0.md).
+Promotion measurements now use canonical `edge-stats.v3`. Physical execution,
+qualified credit, ineligibility reasons, source usage and authority epochs are
+separate records. The live runner publishes them only after complete closure;
+the strict public transactions remain adversarial boundaries. v2 is exact
+archaeology and cannot enter the live runner or merge with v3. The first current
+report retained five evidence epochs separately and fixed
+`promotion_authorized=false`; its cross-epoch union is diagnostic only. The
+contracts are recorded in
+[`../02_crystall/blueprints/authority_epoch_edge_credit.v0.md`](../02_crystall/blueprints/authority_epoch_edge_credit.v0.md)
+and the measured result in
+[`authority_instrument_current_evidence.v0.md`](authority_instrument_current_evidence.v0.md).
 
 Manifest honesty step 4.2 closes the rejected-validation laundering defect.
 MANIFEST reads both the validation record and the latest runtime reconciliation,
@@ -633,10 +649,12 @@ completion and repository manifestation inside the body.
 7. **Lineage is not persistent.** The linear runner owns automatic birth,
    corpse, grave, carrier and rebirth in memory, but cannot survive host restart,
    branch descendants or own a provider conversation session yet.
-8. **Tree authority is opt-in v0.** It is a deterministic, binary function of
-   explicit Packet records and can manifest a build life, but its constants are
-   unmeasured. The legacy observer and v2 evidence roles are isolated and
-   measured; the promotion corpus is still open.
+8. **Tree authority is opt-in v0.** It is a deterministic function of explicit
+   Packet records and can manifest a build life, but its constants are
+   unmeasured. The massless v3 observer is canonical and its current report is
+   reproducible, but only 3/38 directions were physically present in that
+   bounded campaign, only 1/38 was corpus-eligible, all 18 case gates were
+   missing and no target epoch decision exists. The promotion corpus is open.
 9. **The first user surface is machine-only.** The JSON CLI runs one explicit
    plan or one exact create-only build Packet, starts fresh sessions by default,
    and resumes only an explicitly named session. It does not provide persistent
@@ -674,6 +692,7 @@ The active roadmap is deliberately ordered so new power follows owned facts:
    - exact ☵/☳ formation and collapse                        complete
    - complete plan assessment and delivery                    complete
    - bounded repository execution / evidence                  complete, routed v0
+   - canonical v3 instrument and current report                 complete
    - full promotion measurement                              blocked by coverage
 6. implement the outer lineage runner                         complete (in-memory v0)
 7. add capability-safe repository hands                       complete (7.1-7.10)
