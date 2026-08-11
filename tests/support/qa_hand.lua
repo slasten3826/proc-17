@@ -307,6 +307,9 @@ function qa_fixture.grow_body(options)
         qa_contract = contract,
         items = options.items,
         provider_options = options.provider_options,
+        runner_options = options.runner_options,
+        packet_options = options.packet_options,
+        capture_runner_packet_digest = options.capture_runner_packet_digest,
     })
     local qa_registry = assert(qa_capability.new(
         session_id,
@@ -345,7 +348,7 @@ function qa_fixture.grow_sealed(options)
         packet_options.qa_contract = copy(options.qa_contract)
     end
 
-    local instance = fixture.packet(options.items or {{
+    local instance, runner_result = fixture.packet(options.items or {{
         path = "tests/run.lua",
         content = "return true\n",
     }}, {
@@ -354,7 +357,12 @@ function qa_fixture.grow_sealed(options)
         lineage_id = lineage_id,
         repository_id = repository_id,
         packet_options = packet_options,
+        runner_options = options.runner_options,
     })
+    local runner_packet_digest
+    if options.capture_runner_packet_digest == true then
+        runner_packet_digest = "sha256:" .. assert(digest.record(instance))
+    end
     local intent = assert(repository_intent.derive(instance, {
         max_items = instance.regime.encoding.bounds.max_output_units,
     }))
@@ -408,6 +416,8 @@ function qa_fixture.grow_sealed(options)
         seal_event = sealed.event,
         closure = sealed.closure,
         services = services,
+        runner_result = runner_result,
+        runner_packet_digest = runner_packet_digest,
     }
 end
 
@@ -636,6 +646,8 @@ function qa_fixture.grow_terminal_qa_life(options)
         check = copy(check_event.payload),
         verdict = copy(verdict_event.payload),
         corpse_record = record,
+        runner_result = grown.runner_result,
+        runner_packet_digest = grown.runner_packet_digest,
         corpse = {
             record = record,
             qa = {

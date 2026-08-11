@@ -144,6 +144,43 @@ local function next_id(prefix)
     return string.format("%s-%d", prefix, id_counter)
 end
 
+local observer_event_kinds = {
+    shadow_route_decision = true,
+    edge_pressure_snapshot = true,
+    qualified_pressure_snapshot = true,
+}
+
+local function trace_identity_lane(event)
+    local lane = event.identity_lane or "body"
+    if lane ~= "body" and lane ~= "observer_instrumentation" then
+        return nil, "invalid trace identity lane"
+    end
+    if lane == "observer_instrumentation"
+        and (event.type ~= "tension_measure"
+            or type(event.payload) ~= "table"
+            or not observer_event_kinds[event.payload.kind]) then
+        return nil, "observer trace identity lane requires observer evidence"
+    end
+    return lane
+end
+
+local function next_trace_id(instance, lane)
+    local prefix = lane == "observer_instrumentation"
+        and "observer-event-" or "event-"
+    local highest = 0
+    for _, stored in ipairs(instance.trace or {}) do
+        local suffix
+        if type(stored.id) == "string"
+            and stored.id:sub(1, #prefix) == prefix then
+            local candidate = stored.id:sub(#prefix + 1)
+            if candidate:match("^%d+$") then suffix = candidate end
+        end
+        local ordinal = suffix and tonumber(suffix) or nil
+        if ordinal and ordinal > highest then highest = ordinal end
+    end
+    return prefix .. tostring(highest + 1)
+end
+
 local function shallow_copy(source)
     local result = {}
     for key, value in pairs(source or {}) do
@@ -164,6 +201,47 @@ local function deep_copy(value, seen)
     seen[value] = result
     for key, child in pairs(value) do
         result[deep_copy(key, seen)] = deep_copy(child, seen)
+    end
+    return result
+end
+
+local function stored_trace_identity_lane(event)
+    if type(event) ~= "table" then return "body" end
+    if event.identity_lane == "observer_instrumentation" then
+        return "observer_instrumentation"
+    end
+    -- Compatibility for observer events written before the lane tag became
+    -- part of the stored trace record.
+    if event.identity_lane == nil
+        and type(event.id) == "string"
+        and event.id:match("^observer%-event%-%d+$")
+        and event.type == "tension_measure"
+        and type(event.payload) == "table"
+        and observer_event_kinds[event.payload.kind] then
+        return "observer_instrumentation"
+    end
+    return "body"
+end
+
+function packet.body_trace_tail(source, count)
+    if type(source) ~= "table" then
+        return nil, "trace source must be table"
+    end
+    if type(count) ~= "number" or count < 0 or count ~= math.floor(count) then
+        return nil, "trace tail count must be integer >= 0"
+    end
+    if count == 0 then return {} end
+    local reversed = {}
+    for index = #source, 1, -1 do
+        local event = source[index]
+        if stored_trace_identity_lane(event) == "body" then
+            reversed[#reversed + 1] = deep_copy(event)
+            if #reversed == count then break end
+        end
+    end
+    local result = {}
+    for index = #reversed, 1, -1 do
+        result[#result + 1] = reversed[index]
     end
     return result
 end
@@ -472,8 +550,17 @@ local function append_trace(instance, event)
         error(err)
     end
 
+    local lane, lane_err = trace_identity_lane(event)
+    if not lane then error(lane_err) end
+    local event_id = event.id or next_trace_id(instance, lane)
+    for _, existing in ipairs(instance.trace or {}) do
+        if existing.id == event_id then
+            error("duplicate Packet trace event id")
+        end
+    end
+
     local stored = {
-        id = event.id or next_id("event"),
+        id = event_id,
         packet_id = instance.id,
         lineage_id = instance.lineage_id,
         generation = instance.generation,
@@ -485,6 +572,9 @@ local function append_trace(instance, event)
         cost = normalize_cost(event.cost),
         time = event.time or os.time(),
     }
+    if lane == "observer_instrumentation" then
+        stored.identity_lane = lane
+    end
 
     instance.trace[#instance.trace + 1] = stored
     return deep_copy(stored)
@@ -940,6 +1030,9 @@ function packet.commit_transition(instance, decision)
             policy = decision.policy,
             policy_status = decision.policy_status,
             threshold = decision.threshold,
+            promotion_eligible = decision.promotion_eligible,
+            promotion_ineligibility_reasons = decision.promotion_ineligibility_reasons,
+            promotion_eligibility_basis = decision.promotion_eligibility_basis,
         },
         cost = decision.cost or {},
     })

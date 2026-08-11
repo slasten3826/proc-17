@@ -23,6 +23,109 @@ function router.legacy_descriptor()
     }
 end
 
+local function copy_value(value, seen)
+    if type(value) ~= "table" then
+        return value
+    end
+    seen = seen or {}
+    if seen[value] then
+        return seen[value]
+    end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy_value(key, seen)] = copy_value(child, seen)
+    end
+    return result
+end
+
+local function sorted_unique_strings(values)
+    if type(values) ~= "table" then
+        return nil
+    end
+    local seen = {}
+    local result = {}
+    for _, value in ipairs(values) do
+        if type(value) ~= "string" or value == "" or seen[value] then
+            return nil
+        end
+        seen[value] = true
+        result[#result + 1] = value
+    end
+    for key in pairs(values) do
+        if type(key) ~= "number" or key < 1 or key > #values or key % 1 ~= 0 then
+            return nil
+        end
+    end
+    table.sort(result)
+    for index, value in ipairs(result) do
+        if values[index] ~= value then
+            return nil
+        end
+    end
+    return result
+end
+
+local function normalized_eligibility(value)
+    if type(value) ~= "table" or type(value.promotion_eligible) ~= "boolean" then
+        return nil
+    end
+    local reasons = sorted_unique_strings(value.promotion_ineligibility_reasons)
+    local basis = value.promotion_eligibility_basis
+    if not reasons or type(basis) ~= "table"
+        or type(basis.unqualified_snapshot) ~= "boolean" then
+        return nil
+    end
+    local basis_key_count = 0
+    for key in pairs(basis) do
+        if key ~= "witness_ids" and key ~= "unqualified_snapshot"
+            and key ~= "fixture_witness_ids" then
+            return nil
+        end
+        basis_key_count = basis_key_count + 1
+    end
+    if basis_key_count ~= 3 then
+        return nil
+    end
+    local witness_ids = sorted_unique_strings(basis.witness_ids)
+    local fixture_witness_ids = sorted_unique_strings(basis.fixture_witness_ids)
+    if not witness_ids or not fixture_witness_ids then
+        return nil
+    end
+    return {
+        promotion_eligible = value.promotion_eligible,
+        promotion_ineligibility_reasons = reasons,
+        promotion_eligibility_basis = {
+            witness_ids = witness_ids,
+            unqualified_snapshot = basis.unqualified_snapshot,
+            fixture_witness_ids = fixture_witness_ids,
+        },
+    }
+end
+
+local function write_eligibility(target, eligibility)
+    target.promotion_eligible = eligibility.promotion_eligible
+    target.promotion_ineligibility_reasons = copy_value(
+        eligibility.promotion_ineligibility_reasons
+    )
+    target.promotion_eligibility_basis = copy_value(
+        eligibility.promotion_eligibility_basis
+    )
+end
+
+local function ineligible(reasons, basis)
+    table.sort(reasons)
+    return {
+        promotion_eligible = false,
+        promotion_ineligibility_reasons = reasons,
+        promotion_eligibility_basis = copy_value(basis or {
+            witness_ids = {},
+            unqualified_snapshot = false,
+            fixture_witness_ids = {},
+        }),
+    }
+end
+
 local hard_next = {
     ["☵"] = "☴",
     ["☳"] = "☴",
@@ -256,13 +359,15 @@ local function legacy_after_tick(instance, tick, options)
     return decision(from, to, reason, pressure)
 end
 
-local function record_pressure_snapshot(instance, snapshot)
+local function record_pressure_snapshot(instance, snapshot, observer_instrumentation)
     local event, err = packet_core.append_trace(instance, {
         type = "tension_measure",
         operator = snapshot.current_operator,
         truth_status = "runtime_confirmed",
         payload = snapshot,
         cost = {},
+        identity_lane = observer_instrumentation
+            and "observer_instrumentation" or nil,
     })
     if not event then
         return nil, err
@@ -278,6 +383,7 @@ local function record_shadow(instance, shadow)
         truth_status = "runtime_confirmed",
         payload = shadow,
         cost = {},
+        identity_lane = "observer_instrumentation",
     })
     if not event then
         return nil, err
@@ -295,6 +401,41 @@ local function selected_candidate(prediction)
     return nil
 end
 
+local function normalize_tree_eligibility(snapshot, prediction)
+    local selected = selected_candidate(prediction)
+    if snapshot.kind == "edge_pressure_snapshot" then
+        local reasons = {"binary_policy_control"}
+        if prediction.reason == "highest_pressure_canonical_tie_break" then
+            reasons[#reasons + 1] = "tie_only_selection"
+        end
+        local eligibility = ineligible(reasons)
+        if selected then
+            write_eligibility(selected, eligibility)
+        end
+        write_eligibility(prediction, eligibility)
+        return prediction
+    end
+
+    if prediction.kind == "control_selected" then
+        local existing = normalized_eligibility(prediction)
+        if existing then
+            write_eligibility(prediction, existing)
+            return prediction
+        end
+        local basis = normalized_eligibility(selected or {})
+        basis = basis and basis.promotion_eligibility_basis or nil
+        write_eligibility(prediction, ineligible({"control_fallback"}, basis))
+        return prediction
+    end
+
+    local selected_eligibility = normalized_eligibility(selected or {})
+    local decision_eligibility = normalized_eligibility(prediction)
+    if selected_eligibility and not decision_eligibility then
+        write_eligibility(prediction, selected_eligibility)
+    end
+    return prediction
+end
+
 local function record_derivation(instance, snapshot, prediction)
     local selected = selected_candidate(prediction)
     local payload = {
@@ -305,6 +446,7 @@ local function record_derivation(instance, snapshot, prediction)
         outcome = prediction.kind == "tree_route_decision"
             and "selected" or prediction.kind,
         selected_to = prediction.to,
+        selected_candidate = copy_value(selected),
         selected_action_plan_id = selected and selected.action_plan
             and selected.action_plan.plan_id or nil,
         no_viable_cause = prediction.kind == "no_viable_edge"
@@ -312,6 +454,13 @@ local function record_derivation(instance, snapshot, prediction)
         policy = prediction.policy,
         policy_status = prediction.policy_status,
         threshold = prediction.threshold,
+        promotion_eligible = prediction.promotion_eligible,
+        promotion_ineligibility_reasons = copy_value(
+            prediction.promotion_ineligibility_reasons
+        ),
+        promotion_eligibility_basis = copy_value(
+            prediction.promotion_eligibility_basis
+        ),
     }
     local event, err = packet_core.append_trace(instance, {
         type = "route_derivation",
@@ -350,6 +499,7 @@ local function derive_tree_authority(instance, tick, options)
     if not prediction then
         return nil, prediction_err
     end
+    normalize_tree_eligibility(snapshot, prediction)
     local derivation_event, derivation_err = record_derivation(instance, snapshot, prediction)
     if not derivation_event then
         return nil, derivation_err
@@ -384,6 +534,13 @@ local function derive_tree_authority(instance, tick, options)
         policy_status = prediction.policy_status,
         threshold = prediction.threshold,
         winning_total = prediction.winning_total,
+        promotion_eligible = prediction.promotion_eligible,
+        promotion_ineligibility_reasons = copy_value(
+            prediction.promotion_ineligibility_reasons
+        ),
+        promotion_eligibility_basis = copy_value(
+            prediction.promotion_eligibility_basis
+        ),
         truth_status = "runtime_confirmed",
     }
 end
@@ -416,7 +573,7 @@ local function derive_shadow(instance, tick, live, options)
     if not snapshot then
         return shadow_error(live.from, live, snapshot_err)
     end
-    local pressure_event, pressure_err = record_pressure_snapshot(instance, snapshot)
+    local pressure_event, pressure_err = record_pressure_snapshot(instance, snapshot, true)
     if not pressure_event then
         return shadow_error(live.from, live, pressure_err)
     end

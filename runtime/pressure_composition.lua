@@ -42,6 +42,19 @@ local function same_value(left, right)
     return json.encode(left) == json.encode(right)
 end
 
+local function sorted_unique(values)
+    local seen = {}
+    local result = {}
+    for _, value in ipairs(values or {}) do
+        if type(value) == "string" and value ~= "" and not seen[value] then
+            seen[value] = true
+            result[#result + 1] = value
+        end
+    end
+    table.sort(result)
+    return result
+end
+
 local function edge(left, right)
     if canonical_index[left] <= canonical_index[right] then
         return left .. "-" .. right
@@ -206,6 +219,62 @@ local function witnesses_for(snapshot, target)
     return result
 end
 
+local function eligibility_basis(snapshot, witnesses)
+    local witness_ids = {}
+    local fixture_witness_ids = {}
+    for _, witness in ipairs(witnesses or {}) do
+        witness_ids[#witness_ids + 1] = witness.witness_id
+        if witness.promotion_source == "fixture" then
+            fixture_witness_ids[#fixture_witness_ids + 1] = witness.witness_id
+        end
+    end
+    return {
+        witness_ids = sorted_unique(witness_ids),
+        unqualified_snapshot = #(snapshot.unqualified or {}) > 0,
+        fixture_witness_ids = sorted_unique(fixture_witness_ids),
+    }
+end
+
+local function apply_candidate_eligibility(candidate, snapshot)
+    local basis = eligibility_basis(snapshot, candidate.witnesses)
+    local reasons = {}
+    if basis.unqualified_snapshot then
+        reasons[#reasons + 1] = "candidate_unqualified"
+    end
+    if #basis.fixture_witness_ids > 0 then
+        reasons[#reasons + 1] = "fixture_witness"
+    end
+    candidate.promotion_eligible = #reasons == 0
+    candidate.promotion_ineligibility_reasons = sorted_unique(reasons)
+    candidate.promotion_eligibility_basis = basis
+end
+
+local function empty_eligibility_basis()
+    return {
+        witness_ids = {},
+        unqualified_snapshot = false,
+        fixture_witness_ids = {},
+    }
+end
+
+local function carry_eligibility(value)
+    return {
+        promotion_eligible = value.promotion_eligible == true,
+        promotion_ineligibility_reasons = copy_value(
+            value.promotion_ineligibility_reasons or {}
+        ),
+        promotion_eligibility_basis = copy_value(
+            value.promotion_eligibility_basis or empty_eligibility_basis()
+        ),
+    }
+end
+
+local function add_reason(reasons, reason)
+    local values = copy_value(reasons or {})
+    values[#values + 1] = reason
+    return sorted_unique(values)
+end
+
 local function merge_plans(witnesses)
     local merged
     for _, witness in ipairs(witnesses) do
@@ -277,13 +346,8 @@ function composition.candidates(instance, snapshot, context)
                 witness_exclusions = {},
                 exclusions = {},
                 excluded = false,
-                promotion_eligible = #snapshot.unqualified == 0,
             }
-            for _, witness in ipairs(witnesses) do
-                if witness.promotion_source == "fixture" then
-                    candidate.promotion_eligible = false
-                end
-            end
+            apply_candidate_eligibility(candidate, snapshot)
 
             if #witnesses == 0 then
                 add_exclusion(candidate, "pressure", "no_qualified_need")
@@ -418,6 +482,8 @@ local function outcome(kind, candidates, extra)
         policy_status = composition.policy_status,
         event_truth_status = "runtime_confirmed",
         promotion_eligible = false,
+        promotion_ineligibility_reasons = {},
+        promotion_eligibility_basis = empty_eligibility_basis(),
     }
     for key, value in pairs(extra or {}) do
         result[key] = value
@@ -492,16 +558,24 @@ function composition.select(instance, candidates, options)
             return canonical_index[left.to] < canonical_index[right.to]
         end)
         local selected = relevant[1]
+        local eligibility = carry_eligibility(selected)
         return outcome("control_selected", candidates, {
             from = instance.operator,
             to = selected.to,
             selected_candidate = selected,
             original_outcome = ambiguity,
             selection_reason = "canonical_control_fallback",
+            promotion_eligible = false,
+            promotion_ineligibility_reasons = add_reason(
+                eligibility.promotion_ineligibility_reasons,
+                "control_fallback"
+            ),
+            promotion_eligibility_basis = eligibility.promotion_eligibility_basis,
         })
     end
 
     local selected = relevant[1]
+    local eligibility = carry_eligibility(selected)
     return {
         kind = "tree_route_decision",
         composition_outcome = "selected",
@@ -513,7 +587,9 @@ function composition.select(instance, candidates, options)
         selected_candidate = selected,
         reason = "highest_causal_class_unique_executable_need",
         causal_class = selected.highest_class,
-        promotion_eligible = selected.promotion_eligible == true,
+        promotion_eligible = eligibility.promotion_eligible,
+        promotion_ineligibility_reasons = eligibility.promotion_ineligibility_reasons,
+        promotion_eligibility_basis = eligibility.promotion_eligibility_basis,
         event_truth_status = "runtime_confirmed",
     }
 end

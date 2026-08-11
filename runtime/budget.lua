@@ -298,13 +298,12 @@ function budget.exhaustion_residue(instance, options)
     options = options or {}
     local snapshot = budget.snapshot(instance)
     local progress = options.progress or {}
-    local trace = instance.trace or {}
-    local trace_tail = {}
     local tail_count = options.trace_tail_count or 5
-    local start = math.max(1, #trace - tail_count + 1)
-    for index = start, #trace do
-        trace_tail[#trace_tail + 1] = copy_value(trace[index])
-    end
+    local trace_tail, trace_tail_err = packet_core.body_trace_tail(
+        instance.trace or {},
+        tail_count
+    )
+    if not trace_tail then error(trace_tail_err, 0) end
     return {
         cause = "budget_exhausted",
         exhausted_keys = {table.unpack(snapshot.exhausted_keys or {})},

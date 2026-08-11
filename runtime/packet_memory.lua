@@ -125,11 +125,11 @@ function packet_memory.capsule(instance, options)
     end
     trace_tail_count = math.floor(trace_tail_count)
 
-    local trace = instance.trace or {}
-    local tail_start = #trace - trace_tail_count + 1
-    if tail_start < 1 then
-        tail_start = 1
-    end
+    local trace_tail, trace_tail_err = packet_core.body_trace_tail(
+        instance.trace or {},
+        trace_tail_count
+    )
+    if not trace_tail then return nil, trace_tail_err end
 
     return {
         kind = "packet_memory_capsule",
@@ -148,7 +148,7 @@ function packet_memory.capsule(instance, options)
         death = copy_value(instance.death),
         residue = copy_value(instance.residue or {}),
         manifest = copy_value(instance.manifest),
-        trace_tail = copy_array(trace, tail_start),
+        trace_tail = trace_tail,
         loss_records = copy_array(instance.boundary and instance.boundary.loss_records or {}),
         runtime = {
             foundation = copy_value(instance.runtime and instance.runtime.foundation or {}),

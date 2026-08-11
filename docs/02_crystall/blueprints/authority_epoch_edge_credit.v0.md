@@ -14,6 +14,9 @@ table:
   including Amendment A3: Corpus Life Identity And Replay Rejection
   including Amendment A4: Corpus-Bound Source Evidence
   including Amendment A5: Observer Family Scope At Harness Failure
+  including Amendment A6: Packet-Local Trace Identity And Neutral Host Time
+  including Amendment A7: Target Evidence Versus Observer-Control Evidence
+  including Amendment A8: Observer Lane Has Zero Retention Mass
 protocols:
   authority_epoch.v0
   authority-instrument-bounds.v0
@@ -1129,8 +1132,11 @@ options.edge_evidence = {
 }
 ```
 
-`prepare_options` normalizes an omitted value to `{}`, validates and deep-copies
-the table, and never mirrors it into `packet_options` or Packet metadata.
+`prepare_options` validates and deep-copies a supplied value into runner-local
+state. An omitted value is treated as empty only by the instrument; the shared
+body option table is not normalized or enlarged. `edge_evidence` and every
+other instrument-only option are removed at each organ/router context boundary
+and are never mirrored into `packet_options` or Packet metadata.
 
 After Packet birth hooks and before FLOW:
 
@@ -1146,12 +1152,12 @@ life_source = edge_stats.make_life_source({
   corpus_layer = options.edge_evidence.corpus_layer,
   evidence_run_id = options.edge_evidence.evidence_run_id,
   model = options.model,
-  prompt_hash = digest.sha256(instance.prompt),
+  prompt_hash = digest.sha256(instance.chaos.raw_prompt),
 })
 
 result.authority_epoch = epoch_record
 result.authority_epoch_diagnostics = epoch_diagnostics
-result.edge_stats = edge_stats.new(epoch_record, life_source)
+result.edge_stats_v3 = edge_stats.new(epoch_record, life_source)
 result.edge_credit = edge_credit.new(epoch_record, {
   life_id = life_source.life_id,
   packet_id = instance.id,
@@ -1203,6 +1209,21 @@ observer        -> observer event + every pressure ref named by it
 selection       -> route request when legacy/harness + eligibility record when present
 commit          -> Packet route trace event + authority-taint record when emitted
 ```
+
+Every source record crosses this boundary as an alias-free plain-data value
+snapshot. Repeated Lua table identity is not evidence identity and is not
+preserved. Cycles, metatables, functions and live handles still invalidate the
+instrument record; they are never admitted by falling back to the live source.
+
+The body-owned `route_derivation` event carries the already selected candidate
+as `selected_candidate`. This is the named writer consumed by the eligibility
+chain verifier; it records an existing Tree decision and cannot alter ranking.
+
+Tree may audit excluded adjacency candidates that are not directions in the
+38-direction authority surface. Packet trace retains the complete derivation.
+The v3 statistics projection intersects its candidate list with the versioned
+authority surface before counting directions, so an audited one-way boundary
+reverse such as `☴->▽` remains body evidence without becoming a physical edge.
 
 If Packet commit fails, the selected phase remains physical evidence but cannot
 receive committed or executed credit.
@@ -1280,11 +1301,33 @@ edge_stats.note_error(result.edge_stats, structured_error)
 At finish:
 
 ```lua
-result.edge_evidence = edge_stats.summary(result.edge_stats)
-result.edge_stats_errors = result.edge_evidence.errors_or_nil
+result.edge_evidence_v3 = edge_stats.summary(result.edge_stats_v3)
+result.authority_instrument_errors =
+  result.edge_evidence_v3.errors_or_nil
 ```
 
-There is no second mutable error list.
+These v3 names remain distinct from the temporary v2 `edge_stats` and
+`edge_evidence` fields. Exactly one family exists in a life. There is no second
+mutable v3 error list; `authority_instrument_errors` is a derived result view.
+
+### 8.7 I07 runtime precision amendment
+
+The first runner-grown v3 lives fixed the following implementation readings
+without changing TABLE physics:
+
+```text
+raw task carrier:            instance.chaos.raw_prompt
+instrument option locality:  runner only; absent from all body contexts
+durable source values:       alias-free detached plain data
+Tree statistics domain:      canonical authority directions only
+Tree eligibility writer:     route_derivation.selected_candidate
+v3 result namespace:         edge_stats_v3 / edge_evidence_v3
+```
+
+The corresponding runtime evidence is recorded in
+`docs/00_chaos/authority_runner_v3_i07_observation_2026-08-01.md`. These are
+precision amendments to the runner choreography, not permission to change
+route, pressure, readiness, effect, budget, loss or finality behavior.
 
 ## 9. Edge Statistics v3
 
@@ -1835,13 +1878,41 @@ live authority and expected payload kind. It then:
 ```text
 removes exactly those trace events
 applies the same removal to corpse.trace_tail
-removes raw corpse_hash only when that hash committed to the changed trace_tail
+normalizes only the host-time paths authorized by TABLE Amendment A6
+removes raw corpse_hash from every observer-neutral corpse
 retains every other component byte-for-byte
 ```
 
 No payload-kind-wide filter exists. An unverified or absent named ref rejects
-capture. With no body-trace observer records, exact and observer-neutral
-components/digests are identical.
+capture. Exact components always retain raw time and raw corpse identity.
+
+Trace ids obey two Packet-local derived lanes:
+
+```text
+body event:                 event-<body ordinal>
+observer instrumentation:  observer-event-<observer ordinal>
+```
+
+Observer insertion cannot consume a body ordinal. Cross-life source identity
+continues to bind `life_id` as specified by Amendments A3/A4.
+
+Closed neutral host-time paths are:
+
+```text
+packet_trace[*].time
+packet_trace[death|manifest].payload.residue.trace_tail[*].time
+manifest_death_residue_terminal.death.time
+manifest_death_residue_terminal.residue.trace_tail[*].time
+corpse.residue.trace_tail[*].time
+corpse.trace_tail[*].time
+corpse.trace_tail[death|manifest].payload.residue.trace_tail[*].time
+corpse.frozen_at
+```
+
+They become `host_wall_time_excluded.v0`. No recursive key-name or string
+filter exists; an unrelated `metadata.time` remains comparison-significant.
+Runner `legacy` and `shadow` both project as live authority `legacy_control`;
+the observer arrangement itself is absent from the physical component map.
 
 ### 12.4 Pair laws
 
@@ -1859,6 +1930,27 @@ Digest equality is an accelerator, not the only assertion. A green comparator
 also performs exact normalized component equality and returns the component
 names that differ on red.
 
+### 12.5 Bounded body-retention tails
+
+`core.packet.body_trace_tail(trace, count)` is the sole bounded tail selector
+for Packet-derived durable body history. It scans backward over the complete
+trace, counts only records whose Packet-owned lane is `body`, returns at most
+`count` detached records in original order, and does not mutate the trace.
+
+The helper is consumed by:
+
+```text
+runtime/corpse.lua
+runtime/budget.lua exhaustion residue
+runtime/packet_memory.lua capsule
+```
+
+Observer records remain in the complete Packet trace and in runner-side
+evidence, but never occupy these bounded stores. Historical records without a
+stored lane tag are recognized only through the closed
+`observer-event-<ordinal>` plus observer-payload contract. No generic event or
+payload filter exists.
+
 ## 13. Required Case Manifest
 
 ### 13.1 Module
@@ -1872,6 +1964,9 @@ manifest = cases.current()
 ok, err = cases.verify_manifest(manifest)
 record, err = cases.evaluate_l0(case_id, immutable_corpus_view, evidence_input)
 record, err = cases.verify_l1_document(live_document_evidence)
+record, err = cases.l1_document(fields)
+record, err = cases.harness_evidence(fields)
+ok, err = cases.verify_harness_evidence(record)
 ok, err = cases.verify_case_evidence(record, manifest)
 ```
 
@@ -2008,7 +2103,9 @@ L0:
   runtime_confirmed evaluator
   exact manifest evaluator id/version
   all life/control/pair/evidence refs resolve in the corpus
-  all cited valid lives use the target evidence epoch and implementation revision
+  all primary and non-observer control lives use the target evidence epoch
+  all cited lives use the target physics epoch and implementation revision
+  an observer pair may cross evidence epochs but must contain the target epoch
 
 L1:
   document_decision evaluation
@@ -2018,7 +2115,15 @@ L1:
 P12:
   green observer pair for P01, P02, P03, P04, P05, P06a, P06b, P07,
   P08, P09, P10 and P11
+  each pair contains one target-evidence life and one same-physics control life
 ```
+
+The immutable corpus view therefore carries both `target_evidence_epoch_id`
+and `target_physics_epoch_id`. Evidence-epoch equality is a primary-life law,
+not a pair-wide law: observer configuration is part of evidence identity and a
+real enabled/disabled pair must normally cross evidence epochs. Teaching the
+pair evaluator to require one evidence id for both sides would make only
+synthetic observer fixtures green.
 
 P13 is a harness-failure boundary without a completed life projection; its own
 matched valid/invalid control is mandatory, but it is not forged into a
@@ -2107,6 +2212,7 @@ ok, err = corpus.add_life(
   record, runner_result, life_projection, implementation_provenance
 )
 pair, err = corpus.add_observer_pair(record, enabled_life_id, disabled_life_id)
+record, err = corpus.add_harness_evidence(record, harness_boundary_evidence)
 case_record, err = corpus.evaluate_l0_case(record, case_id, evidence_input)
 case_record, err = corpus.add_l1_document(record, live_document_evidence)
 report, err = corpus.closure(record, {
@@ -2201,8 +2307,9 @@ never sums across bucket ids
 ```
 
 `add_life`, `add_observer_pair`, `evaluate_l0_case` and `add_l1_document` are
-deep-copy transactions. Any projection, provenance, merge, pair or case failure
-leaves the corpus digest unchanged.
+deep-copy transactions. `add_harness_evidence` follows the same law. Any
+projection, provenance, merge, pair, harness or case failure leaves the corpus
+digest unchanged.
 Omitted defaults are 1024 lives, 1024 observer pairs, 4096 case records, 256
 documents and 256 harness records. Crossing any bound rejects before mutation;
 the corpus cannot evict or compost evidence implicitly.
@@ -2288,6 +2395,12 @@ comparison; raw ledgers remain in separate evidence buckets.
 A body difference produces and stores `status=red`; red is valid negative
 evidence, not an API failure. A malformed projection or identity mismatch that
 prevents comparison rejects the transaction instead.
+
+A physics-epoch delta also produces a retained red pair with
+`differing_fields={"physics_epoch_id", ...}`. It proves that the attempted
+ablation changed the body configuration and therefore cannot satisfy an
+observer gate; the enabled side remains the pair's declared target coordinate,
+while both immutable evidence epochs remain bound by `pair_id`.
 
 This exception does not apply to the new authority instrument. Its records live
 outside Packet trace, so `off` versus `v3` requires exact raw Packet and corpse
@@ -2394,6 +2507,11 @@ target gate.
 counts but are filtered out of `corpus_eligible_executed_refs`. The corpus never
 recomputes route eligibility; it only resolves each credited route's immutable
 life id and applies the closed layer/provenance gate.
+
+`evaluate_l0_case` infers its target without a caller-authored verdict. Primary
+life refs determine the evidence epoch. P12 uses the one evidence epoch common
+to every supplied observer pair, and P13 uses its matching valid-life ref.
+Ambiguous or absent targets reject before mutation.
 
 For `authority_claim=diagnostic`, the report uses the same 38-direction
 denominator but can return only `diagnostic` or `blocked`. It may report counts
@@ -2579,6 +2697,9 @@ LP06 mutate caller Packet/result/corpse after capture -> projection unchanged
 LP07 cycle/metatable/function/live handle in selected component -> reject
 LP08 discard source objects -> stored projections still compare deterministically
 LP09 projection byte bound -> reject projection, body digest unchanged
+LP10 grown Tree observer off/on pair with corpse -> neutral maps equal
+LP11 observer append cannot shift later body event ids
+LP12 unrelated metadata.time delta -> neutral maps differ
 ```
 
 ### 17.5 Merge EM01-EM11
@@ -2779,6 +2900,21 @@ tests:
 exit:
   instrument has zero Packet/repository/QA/economic mass
   observer semantic projection follows Amendment A2 exactly
+```
+
+Runtime observation:
+
+```text
+status: complete
+date: 2026-08-09
+evidence:
+  docs/00_chaos/authority_instrument_masslessness_i08_observation_2026-08-09.md
+result:
+  MI01-MI06 green
+  TABLE Amendment A8 closes observer retention mass
+  full suite, mortality and QA red-hand gates green
+default authority:
+  unchanged edge_stats_v2
 ```
 
 ### I09 Canonical v3 cutover

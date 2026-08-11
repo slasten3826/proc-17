@@ -49,12 +49,18 @@ assert_true(bounded_result.selected_candidate.action_plan ~= nil,
 local function synthetic(to, class, extra)
     local value = {
         to = to,
-        witnesses = {{causal_class = class}},
+        witnesses = {{witness_id = "synthetic:" .. to, causal_class = class}},
         witness_count = 1,
         highest_class = class,
         action_status = "validated",
         excluded = false,
         promotion_eligible = true,
+        promotion_ineligibility_reasons = {},
+        promotion_eligibility_basis = {
+            witness_ids = {"synthetic:" .. to},
+            unqualified_snapshot = false,
+            fixture_witness_ids = {},
+        },
     }
     for key, child in pairs(extra or {}) do
         value[key] = child
@@ -104,6 +110,8 @@ assert_eq(fallback.to, "☰", "control fallback is deterministic")
 assert_eq(fallback.selection_reason, "canonical_control_fallback",
     "fallback reason cannot masquerade as pressure")
 assert_eq(fallback.promotion_eligible, false, "fallback remains promotion-ineligible")
+assert_eq(fallback.promotion_ineligibility_reasons[1], "control_fallback",
+    "fallback names the exact ineligibility reason")
 
 -- PR-C6: incompatible actions on one edge produce their own typed result.
 local action_ambiguity = assert(pressure_composition.select(ranked, {

@@ -1,4 +1,5 @@
 local digest = require("core.digest")
+local packet_core = require("core.packet")
 local qa_evidence = require("runtime.qa_evidence")
 local qa_evidence_schema = require("core.qa_evidence_schema")
 local qa_schema = require("core.qa_schema")
@@ -19,15 +20,6 @@ local function copy_value(value, seen)
     seen[value] = result
     for key, child in pairs(value) do
         result[copy_value(key, seen)] = copy_value(child, seen)
-    end
-    return result
-end
-
-local function tail(source, count)
-    local result = {}
-    local first = math.max(1, #(source or {}) - count + 1)
-    for index = first, #(source or {}) do
-        result[#result + 1] = copy_value(source[index])
     end
     return result
 end
@@ -176,6 +168,12 @@ function corpse.capture(instance, options)
     end
     append_refs(evidence_refs, qa_envelope.source_refs)
 
+    local trace_tail, trace_tail_err = packet_core.body_trace_tail(
+        instance.trace,
+        trace_tail_count
+    )
+    if not trace_tail then return nil, trace_tail_err end
+
     local record = {
         kind = "proc17_corpse",
         protocol_version = corpse.protocol_version,
@@ -204,7 +202,7 @@ function corpse.capture(instance, options)
         final_loss = copy_value(instance.terminal.loss_snapshot or {}),
         final_budget = copy_value(instance.terminal.budget_snapshot or {}),
         terminal_trace_ref = instance.terminal.event_id,
-        trace_tail = tail(instance.trace, trace_tail_count),
+        trace_tail = trace_tail,
         completion_evidence_refs = unique_refs(evidence_refs),
         frozen_at = instance.death.time,
         truth_status = "runtime_confirmed",

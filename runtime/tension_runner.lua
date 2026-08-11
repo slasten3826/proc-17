@@ -3,7 +3,11 @@ local packet_birth = require("runtime.packet_birth")
 local operator_registry = require("runtime.operator_registry")
 local body = require("runtime.body")
 local router = require("runtime.router")
-local edge_stats = require("runtime.edge_stats")
+local edge_stats_v2 = require("runtime.edge_stats")
+local authority_epoch = require("runtime.authority_epoch")
+local edge_catalog = require("runtime.edge_catalog")
+local edge_credit = require("runtime.edge_credit")
+local edge_stats_v3 = require("runtime.edge_stats_v3")
 local budget = require("runtime.budget")
 local loss = require("runtime.loss")
 local grave = require("runtime.grave")
@@ -87,6 +91,45 @@ local function prepare_options(options)
         and type(prepared.work_layer_contract) ~= "table" then
         return nil, "work_layer_contract must be table"
     end
+    if prepared.authority_instrument ~= nil
+        and prepared.authority_instrument ~= "edge_stats_v2"
+        and prepared.authority_instrument ~= "v3"
+        and prepared.authority_instrument ~= "off" then
+        return nil, "authority_instrument must be edge_stats_v2, v3, or off"
+    end
+    if prepared.authority_instrument == "off"
+        and prepared.authority_instrument_test_override ~= true then
+        return nil, "authority_instrument off requires test override"
+    end
+    if prepared.edge_evidence ~= nil and type(prepared.edge_evidence) ~= "table" then
+        return nil, "edge_evidence must be table"
+    end
+    local evidence = copy_value(prepared.edge_evidence or {})
+    local evidence_keys = {
+        case_id = true,
+        corpus_layer = true,
+        evidence_run_id = true,
+    }
+    local corpus_layers = {
+        L0 = true,
+        L1 = true,
+        unit = true,
+        archaeology = true,
+    }
+    for key, value in pairs(evidence) do
+        if not evidence_keys[key] then
+            return nil, "edge_evidence contains unknown key: " .. tostring(key)
+        end
+        if type(value) ~= "string" or value == "" then
+            return nil, "edge_evidence values must be non-empty strings"
+        end
+    end
+    if evidence.corpus_layer ~= nil and not corpus_layers[evidence.corpus_layer] then
+        return nil, "edge_evidence corpus_layer is invalid"
+    end
+    if prepared.edge_evidence ~= nil then
+        prepared.edge_evidence = evidence
+    end
     return prepared
 end
 
@@ -104,18 +147,51 @@ local function append_tick(result, operator, payload)
     return tick
 end
 
-local function note_stats_error(result, err)
+local function note_v2_stats_error(result, err)
     result.edge_stats_errors = result.edge_stats_errors or {}
     result.edge_stats_errors[#result.edge_stats_errors + 1] = tostring(err)
 end
 
-local function finish_measurements(result)
-    local summary, err = edge_stats.summary(result.edge_stats)
-    if summary then
-        result.edge_evidence = summary
-    else
-        note_stats_error(result, err)
+local function note_instrument_error(result, instrument, err)
+    if instrument.mode == "edge_stats_v2" then
+        note_v2_stats_error(result, err)
+        return true
     end
+    if instrument.mode == "off" then
+        return true
+    end
+    local recorded, record_err = edge_stats_v3.note_error(instrument.stats, err)
+    if not recorded then
+        return nil, record_err
+    end
+    return true
+end
+
+local function finish_measurements(result, instrument)
+    if instrument.mode == "off" then
+        return true
+    end
+    if instrument.mode == "edge_stats_v2" then
+        local summary, err = edge_stats_v2.summary(instrument.stats)
+        if summary then
+            result.edge_evidence = summary
+        else
+            note_v2_stats_error(result, err)
+        end
+        return true
+    end
+    local summary, err = edge_stats_v3.summary(instrument.stats)
+    if not summary then
+        return nil, err
+    end
+    result.edge_evidence_v3 = summary
+    if #summary.errors > 0 or summary.error_overflow ~= nil then
+        result.authority_instrument_errors = {
+            errors = copy_value(summary.errors),
+            error_overflow = copy_value(summary.error_overflow),
+        }
+    end
+    return true
 end
 
 local function observe_work_layer(instance, result, options, phase)
@@ -152,10 +228,28 @@ local function observe_work_layer(instance, result, options, phase)
     return true
 end
 
+local runner_only_option_keys = {
+    authority_instrument = true,
+    authority_instrument_test_override = true,
+    authority_instrument_bounds = true,
+    expected_authority_epoch = true,
+    edge_evidence = true,
+}
+
+local function body_options(options)
+    local projected = {}
+    for key, value in pairs(options or {}) do
+        if not runner_only_option_keys[key] then
+            projected[key] = value
+        end
+    end
+    return projected
+end
+
 local function operator_context(substrate, options, result)
     return {
         substrate = substrate,
-        options = options,
+        options = body_options(options),
         result = result,
         host_services = options and options.host_services,
     }
@@ -385,6 +479,168 @@ local function event_refs(instance, first_index)
     return refs
 end
 
+local function trace_event_by_id(instance, event_id)
+    for _, event in ipairs(instance.trace or {}) do
+        if event.id == event_id then
+            return event
+        end
+    end
+    return nil
+end
+
+local function detached_plain(value, active)
+    if type(value) ~= "table" then
+        return value
+    end
+    if getmetatable(value) ~= nil then
+        return nil
+    end
+    active = active or {}
+    if active[value] then
+        return nil
+    end
+    active[value] = true
+    local result = {}
+    for key, child in pairs(value) do
+        local key_copy = detached_plain(key, active)
+        local child_copy = detached_plain(child, active)
+        if key_copy == nil or (child ~= nil and child_copy == nil) then
+            active[value] = nil
+            return nil
+        end
+        result[key_copy] = child_copy
+    end
+    active[value] = nil
+    return result
+end
+
+local function source_descriptor(kind, original_id, record)
+    if type(original_id) ~= "string" or original_id == ""
+        or type(record) ~= "table" then
+        return nil
+    end
+    local snapshot = detached_plain(record)
+    return {
+        source_kind = kind,
+        original_source_id = original_id,
+        source_record = snapshot or record,
+    }
+end
+
+local function source_bundle(instrument, records)
+    return {
+        life_id = instrument.life.life_id,
+        records = records or {},
+    }
+end
+
+local function append_source(records, kind, original_id, record)
+    local descriptor = source_descriptor(kind, original_id, record)
+    if descriptor then
+        records[#records + 1] = descriptor
+    end
+end
+
+local function authority_surface_decision(decision)
+    local projected = copy_value(decision)
+    projected.candidates = {}
+    for _, candidate in ipairs(decision.candidates or {}) do
+        local definition = edge_catalog.get(decision.from, candidate.to)
+        local direction = tostring(decision.from) .. "->" .. tostring(candidate.to)
+        local legal = false
+        for _, candidate_direction in ipairs(definition and definition.directions or {}) do
+            if candidate_direction == direction then
+                legal = true
+                break
+            end
+        end
+        if legal then
+            projected.candidates[#projected.candidates + 1] = copy_value(candidate)
+        end
+    end
+    return projected
+end
+
+local function initialize_instrument(instance, result, options)
+    local mode = options.authority_instrument or "edge_stats_v2"
+    local instrument = {mode = mode}
+    result.authority_instrument = mode
+    if mode == "off" then
+        return instrument
+    end
+    if mode == "edge_stats_v2" then
+        instrument.stats = edge_stats_v2.new({
+            work_mode = options.work_mode or "build",
+            router_mode = options.router_mode or "shadow",
+        })
+        result.edge_stats = instrument.stats
+        return instrument
+    end
+
+    local epoch_record, diagnostics_or_err = authority_epoch.resolve(options)
+    if not epoch_record and diagnostics_or_err
+        and diagnostics_or_err.fatal_to_harness == true then
+        return nil, diagnostics_or_err
+    end
+    local prompt_digest, prompt_digest_err = digest.sha256(
+        instance.chaos and instance.chaos.raw_prompt
+    )
+    if not prompt_digest then
+        return nil, prompt_digest_err
+    end
+    local evidence = options.edge_evidence or {}
+    local life, life_err = edge_stats_v3.make_life_source({
+        packet_id = instance.id,
+        lineage_id = instance.lineage_id,
+        generation = instance.generation,
+        session_id = instance.session_id,
+        work_mode = instance.regime.work.mode,
+        case_id = evidence.case_id,
+        corpus_layer = evidence.corpus_layer,
+        evidence_run_id = evidence.evidence_run_id,
+        model = type(options.model) == "string" and options.model or nil,
+        prompt_hash = "sha256:" .. prompt_digest,
+    })
+    if not life then
+        return nil, life_err
+    end
+    local epoch_error
+    if not epoch_record then
+        epoch_error = diagnostics_or_err
+    end
+    local stats_state, stats_err = edge_stats_v3.new(
+        epoch_record,
+        life,
+        epoch_error
+    )
+    if not stats_state then
+        return nil, stats_err
+    end
+    local credit_state, credit_err = edge_credit.new(epoch_record, {
+        life_id = life.life_id,
+        packet_id = instance.id,
+        lineage_id = instance.lineage_id,
+        generation = instance.generation,
+    })
+    if not credit_state then
+        return nil, credit_err
+    end
+    instrument.epoch = epoch_record
+    instrument.life = life
+    instrument.stats = stats_state
+    instrument.credit = credit_state
+    instrument.next_route_ordinal = 1
+    result.authority_epoch = copy_value(epoch_record)
+    if epoch_record then
+        result.authority_epoch_diagnostics = copy_value(diagnostics_or_err)
+    else
+        result.authority_epoch_error = copy_value(diagnostics_or_err)
+    end
+    result.edge_stats_v3 = stats_state
+    result.edge_credit = credit_state
+    return instrument
+end
+
 local function ledger_refs(prefix, first_index, last_index)
     local refs = {}
     for index = first_index, last_index do
@@ -393,29 +649,116 @@ local function ledger_refs(prefix, first_index, last_index)
     return refs
 end
 
-local function record_decision_evidence(result, decision, observer)
+local function record_decision_evidence(instance, result, instrument, decision, observer)
+    if observer then
+        result.shadow_routes[#result.shadow_routes + 1] = observer
+    end
+    if instrument.mode == "off" then
+        return true
+    end
+    if instrument.mode == "edge_stats_v2" then
+        if decision.authority == "tree" then
+            local recorded, stats_err = edge_stats_v2.record_tree_derivation(
+                instrument.stats,
+                decision
+            )
+            if not recorded then
+                note_v2_stats_error(result, stats_err)
+            end
+        end
+        if observer then
+            local recorded, stats_err = edge_stats_v2.record(
+                instrument.stats,
+                observer
+            )
+            if not recorded then
+                note_v2_stats_error(result, stats_err)
+            end
+        end
+        return true
+    end
+
     if decision.authority == "tree" then
-        local recorded, stats_err = edge_stats.record_tree_derivation(
-            result.edge_stats,
-            decision
+        local measured_decision = authority_surface_decision(decision)
+        local records = {}
+        append_source(records, "packet_trace", decision.derivation_ref,
+            trace_event_by_id(instance, decision.derivation_ref))
+        append_source(records, "policy_evidence", decision.pressure_snapshot_ref,
+            trace_event_by_id(instance, decision.pressure_snapshot_ref))
+        local recorded, stats_err = edge_stats_v3.record_tree_derivation(
+            instrument.stats,
+            measured_decision,
+            source_bundle(instrument, records)
         )
         if not recorded then
-            note_stats_error(result, stats_err)
+            local noted, note_err = note_instrument_error(result, instrument, stats_err)
+            if not noted then return nil, note_err end
         end
     end
     if observer then
-        result.shadow_routes[#result.shadow_routes + 1] = observer
-        local recorded, stats_err = edge_stats.record(result.edge_stats, observer)
+        local records = {}
+        append_source(records, "observer", observer.trace_event_id,
+            trace_event_by_id(instance, observer.trace_event_id))
+        append_source(records, "policy_evidence", observer.pressure_snapshot_ref,
+            trace_event_by_id(instance, observer.pressure_snapshot_ref))
+        local recorded, stats_err = edge_stats_v3.record_observer(
+            instrument.stats,
+            observer,
+            source_bundle(instrument, records)
+        )
         if not recorded then
-            note_stats_error(result, stats_err)
+            local noted, note_err = note_instrument_error(result, instrument, stats_err)
+            if not noted then return nil, note_err end
         end
     end
+    return true
 end
 
-local function commit_route(instance, result, route, include_in_routes)
+local function commit_route(instance, result, instrument, route, include_in_routes)
     -- Observer output is reported separately; it is not committed route evidence.
     local observer = route.shadow
     route.shadow = nil
+    local selection
+    if instrument.mode == "v3" then
+        local ordinal = instrument.next_route_ordinal
+        instrument.next_route_ordinal = ordinal + 1
+        local selection_err
+        selection, selection_err = edge_credit.prepare(instrument.credit, route, {
+            route_ordinal = ordinal,
+            derivation_event = trace_event_by_id(instance, route.derivation_ref),
+        })
+        if not selection then
+            local noted, note_err = note_instrument_error(
+                result,
+                instrument,
+                selection_err
+            )
+            if not noted then return nil, note_err end
+        end
+        local observed, observe_err = record_decision_evidence(
+            instance,
+            result,
+            instrument,
+            route,
+            observer
+        )
+        if not observed then return nil, observe_err end
+        if selection then
+            local recorded, stats_err = edge_stats_v3.record_selection(
+                instrument.stats,
+                selection,
+                source_bundle(instrument)
+            )
+            if not recorded then
+                local noted, note_err = note_instrument_error(
+                    result,
+                    instrument,
+                    stats_err
+                )
+                if not noted then return nil, note_err end
+            end
+        end
+    end
     local route_event, commit_err = packet_core.commit_transition(instance, route)
     if not route_event then
         return nil, commit_err
@@ -424,15 +767,62 @@ local function commit_route(instance, result, route, include_in_routes)
     if include_in_routes ~= false then
         result.routes[#result.routes + 1] = route
     end
-    record_decision_evidence(result, route, observer)
-    local recorded, stats_err = edge_stats.record_transition(result.edge_stats, route)
-    if not recorded then
-        note_stats_error(result, stats_err)
+    local credit_commit
+    if instrument.mode ~= "v3" then
+        local observed, observe_err = record_decision_evidence(
+            instance,
+            result,
+            instrument,
+            route,
+            observer
+        )
+        if not observed then return nil, observe_err end
+    end
+    if instrument.mode == "edge_stats_v2" then
+        local recorded, stats_err = edge_stats_v2.record_transition(
+            instrument.stats,
+            route
+        )
+        if not recorded then
+            note_v2_stats_error(result, stats_err)
+        end
+    elseif instrument.mode == "v3" and selection then
+        local taint
+        local credit_err
+        credit_commit, taint, credit_err = edge_credit.record_commit(
+            instrument.credit,
+            selection,
+            route_event
+        )
+        if not credit_commit then
+            local noted, note_err = note_instrument_error(
+                result,
+                instrument,
+                credit_err
+            )
+            if not noted then return nil, note_err end
+        else
+            local records = {}
+            append_source(records, "packet_trace", route_event.id, route_event)
+            local recorded, stats_err = edge_stats_v3.record_transition(
+                instrument.stats,
+                credit_commit,
+                source_bundle(instrument, records)
+            )
+            if not recorded then
+                local noted, note_err = note_instrument_error(
+                    result,
+                    instrument,
+                    stats_err
+                )
+                if not noted then return nil, note_err end
+            end
+        end
     end
     local committed_arrival = route_event.payload
     committed_arrival.trace_event_id = route_event.id
     committed_arrival.truth_status = route_event.truth_status
-    return route, committed_arrival
+    return route, committed_arrival, credit_commit
 end
 
 local function is_committable_route(value)
@@ -440,10 +830,17 @@ local function is_committable_route(value)
         and (value.kind == "route_decision" or value.kind == "tree_route_decision")
 end
 
-local function die_from_no_viable(instance, result, outcome)
+local function die_from_no_viable(instance, result, instrument, outcome)
     local observer = outcome.shadow
     outcome.shadow = nil
-    record_decision_evidence(result, outcome, observer)
+    local observed, observe_err = record_decision_evidence(
+        instance,
+        result,
+        instrument,
+        outcome,
+        observer
+    )
+    if not observed then return nil, observe_err end
     if die_from_mortality(instance, result, instance.operator) then
         return instance
     end
@@ -464,7 +861,8 @@ local function die_from_no_viable(instance, result, outcome)
     result.stop_reason = cause
     result.final_status = instance.status
     result.no_viable_edge = outcome
-    finish_measurements(result)
+    local finished, finish_err = finish_measurements(result, instrument)
+    if not finished then return nil, finish_err end
     return instance
 end
 
@@ -478,6 +876,141 @@ local function failed_effect_residue(instance, operator, failure, pending_arriva
         progress = body.progress(instance),
         do_not_repeat = "repeat only after external effect failure pressure changes",
     }
+end
+
+local function tick_effect_sources(instance, instrument, trace_start, tick_event)
+    local records = {}
+    local effect_refs = {}
+    append_source(records, "runner_tick", tick_event.id, tick_event)
+    for index = trace_start, #(instance.trace or {}) do
+        local event = instance.trace[index]
+        if event and event.id and event.id ~= tick_event.id then
+            effect_refs[#effect_refs + 1] = event.id
+            append_source(records, "runner_effect", event.id, event)
+        end
+    end
+    table.sort(effect_refs)
+    return effect_refs, source_bundle(instrument, records)
+end
+
+local function record_arrival_evidence(instance, result, instrument,
+    pending_arrival, pending_credit, tick_event, payload, trace_start)
+    if instrument.mode == "off" or not pending_arrival then
+        return true
+    end
+    if instrument.mode == "edge_stats_v2" then
+        local arrival, arrival_err = edge_stats_v2.record_arrival(
+            instrument.stats,
+            pending_arrival,
+            payload
+        )
+        if not arrival then
+            note_v2_stats_error(result, arrival_err)
+        end
+        return true
+    end
+    if not pending_credit then
+        return true
+    end
+    local effect_refs, bundle = tick_effect_sources(
+        instance,
+        instrument,
+        trace_start,
+        tick_event
+    )
+    local arrival, decision, arrival_err = edge_credit.record_arrival(
+        instrument.credit,
+        pending_credit,
+        {
+            destination_tick_ref = tick_event.id,
+            effect_refs = effect_refs,
+            payload_kind = type(payload.kind) == "string" and payload.kind
+                or "operator_payload",
+        }
+    )
+    if not arrival then
+        return note_instrument_error(result, instrument, arrival_err)
+    end
+    local recorded, stats_err = edge_stats_v3.record_arrival(
+        instrument.stats,
+        arrival,
+        decision,
+        bundle
+    )
+    if not recorded then
+        return note_instrument_error(result, instrument, stats_err)
+    end
+    return true
+end
+
+local function record_failure_evidence(instance, result, instrument,
+    pending_arrival, pending_credit, tick_event, failure_event, failure)
+    if instrument.mode == "off" or not pending_arrival then
+        return true
+    end
+    if instrument.mode == "edge_stats_v2" then
+        local failed, failed_err = edge_stats_v2.record_failure(
+            instrument.stats,
+            pending_arrival,
+            failure,
+            failure_event.id
+        )
+        if not failed then
+            note_v2_stats_error(result, failed_err)
+        end
+        return true
+    end
+    if not pending_credit then
+        return true
+    end
+    local record, record_err = edge_credit.record_failure(
+        instrument.credit,
+        pending_credit,
+        {
+            destination_tick_ref = tick_event.id,
+            failure_ref = failure_event.id,
+            failure_kind = type(failure.kind) == "string" and failure.kind
+                or (type(failure.code) == "string" and failure.code
+                    or "effect_failure"),
+        }
+    )
+    if not record then
+        return note_instrument_error(result, instrument, record_err)
+    end
+    local records = {}
+    append_source(records, "runner_tick", tick_event.id, tick_event)
+    append_source(records, "runner_effect", failure_event.id, failure_event)
+    local recorded, stats_err = edge_stats_v3.record_failure(
+        instrument.stats,
+        record,
+        source_bundle(instrument, records)
+    )
+    if not recorded then
+        return note_instrument_error(result, instrument, stats_err)
+    end
+    return true
+end
+
+local function record_pending_evidence(result, instrument, pending_credit)
+    if instrument.mode ~= "v3" or not pending_credit then
+        return true
+    end
+    local record, record_err = edge_credit.record_pending(
+        instrument.credit,
+        pending_credit,
+        {stop_reason = "tick_limit"}
+    )
+    if not record then
+        return note_instrument_error(result, instrument, record_err)
+    end
+    local recorded, stats_err = edge_stats_v3.record_pending(
+        instrument.stats,
+        record
+    )
+    if not recorded then
+        return note_instrument_error(result, instrument, stats_err)
+    end
+    return true
 end
 
 local function current_tick_was_charged(instance, tick_event_id)
@@ -841,10 +1374,6 @@ function tension_runner.run(prompt, substrate, options)
         ticks = {},
         routes = {},
         shadow_routes = {},
-        edge_stats = edge_stats.new({
-            work_mode = options.work_mode or "build",
-            router_mode = options.router_mode or "shadow",
-        }),
         router_mode = options.router_mode or "shadow",
         legacy_shadow = (options.router_mode or "shadow") == "tree"
             and options.legacy_shadow ~= false or false,
@@ -854,6 +1383,17 @@ function tension_runner.run(prompt, substrate, options)
         final_status = instance.status,
         birth = birth_receipt,
     }
+    local instrument, instrument_err = initialize_instrument(
+        instance,
+        result,
+        options
+    )
+    if not instrument then
+        local detail = type(instrument_err) == "table"
+            and (instrument_err.code or instrument_err.message)
+            or instrument_err
+        return nil, stage_error("authority_instrument", detail)
+    end
 
     if vertical_life and prepared_graves ~= nil then
         local grave_payload, grave_err = grave.attach(instance, prepared_graves)
@@ -892,7 +1432,7 @@ function tension_runner.run(prompt, substrate, options)
             mode = "tree",
             substrate = substrate,
             capabilities = options.capabilities,
-            options = options,
+            options = body_options(options),
             result = result,
             tree = options.tree_router,
             legacy_shadow = options.legacy_shadow,
@@ -902,7 +1442,12 @@ function tension_runner.run(prompt, substrate, options)
         end
         if not is_committable_route(derived_entry) then
             result.entry_derivation = derived_entry
-            local dead, death_err = die_from_no_viable(instance, result, derived_entry)
+            local dead, death_err = die_from_no_viable(
+                instance,
+                result,
+                instrument,
+                derived_entry
+            )
             if not dead then
                 return nil, stage_error("entry", death_err)
             end
@@ -922,9 +1467,10 @@ function tension_runner.run(prompt, substrate, options)
         }
     end
 
-    local committed_entry, entry_arrival_or_err = commit_route(
+    local committed_entry, entry_arrival_or_err, entry_credit = commit_route(
         instance,
         result,
+        instrument,
         entry_decision,
         false
     )
@@ -937,6 +1483,7 @@ function tension_runner.run(prompt, substrate, options)
     local current = instance.operator
     local max_ticks = options.max_ticks or default_max_ticks(instance)
     local pending_arrival = entry_arrival_or_err
+    local pending_credit = entry_credit
 
     while #result.ticks < max_ticks do
         local revisions_before, revisions_err = camera.revision_snapshot(instance)
@@ -1008,16 +1555,18 @@ function tension_runner.run(prompt, substrate, options)
             result_tick.readiness = execution.readiness
             result_tick.registry = operator_registry.protocol_version
             result_tick.status = "effect_failure"
-            if pending_arrival then
-                local failed, failed_err = edge_stats.record_failure(
-                    result.edge_stats,
-                    pending_arrival,
-                    failure,
-                    failure_event.id
-                )
-                if not failed then
-                    note_stats_error(result, failed_err)
-                end
+            local failure_recorded, failure_record_err = record_failure_evidence(
+                instance,
+                result,
+                instrument,
+                pending_arrival,
+                pending_credit,
+                tick_event,
+                failure_event,
+                failure
+            )
+            if not failure_recorded then
+                return nil, stage_error("authority_instrument", failure_record_err)
             end
 
             local clock = instance.physis and instance.physis.clock
@@ -1084,7 +1633,10 @@ function tension_runner.run(prompt, substrate, options)
             result.final_status = instance.status
             result.effect_failure = failure
             observe_work_layer(instance, result, options, "post_effect_failure")
-            finish_measurements(result)
+            local finished, finish_err = finish_measurements(result, instrument)
+            if not finished then
+                return nil, stage_error("authority_instrument", finish_err)
+            end
             return instance, result
         end
 
@@ -1113,15 +1665,21 @@ function tension_runner.run(prompt, substrate, options)
         result_tick.readiness = readiness
         result_tick.registry = operator_registry.protocol_version
         if pending_arrival then
-            local arrival, arrival_err = edge_stats.record_arrival(
-                result.edge_stats,
+            local arrival_recorded, arrival_record_err = record_arrival_evidence(
+                instance,
+                result,
+                instrument,
                 pending_arrival,
-                payload
+                pending_credit,
+                tick_event,
+                payload,
+                trace_start
             )
-            if not arrival then
-                note_stats_error(result, arrival_err)
+            if not arrival_recorded then
+                return nil, stage_error("authority_instrument", arrival_record_err)
             end
             pending_arrival = nil
+            pending_credit = nil
         end
         local clock = instance.physis and instance.physis.clock
         if clock then
@@ -1177,13 +1735,19 @@ function tension_runner.run(prompt, substrate, options)
             result.stop_reason = "manifested"
             result.final_status = instance.status
             observe_work_layer(instance, result, options, "post_terminal_tick")
-            finish_measurements(result)
+            local finished, finish_err = finish_measurements(result, instrument)
+            if not finished then
+                return nil, stage_error("authority_instrument", finish_err)
+            end
             return instance, result
         end
 
         if die_from_mortality(instance, result, current) then
             observe_work_layer(instance, result, options, "post_mortality_tick")
-            finish_measurements(result)
+            local finished, finish_err = finish_measurements(result, instrument)
+            if not finished then
+                return nil, stage_error("authority_instrument", finish_err)
+            end
             return instance, result
         end
 
@@ -1197,7 +1761,7 @@ function tension_runner.run(prompt, substrate, options)
             mode = options.router_mode or "shadow",
             substrate = substrate,
             capabilities = options.capabilities,
-            options = options,
+            options = body_options(options),
             result = result,
             tree = options.tree_router,
             legacy_shadow = options.legacy_shadow,
@@ -1207,24 +1771,46 @@ function tension_runner.run(prompt, substrate, options)
         end
 
         if not is_committable_route(route) then
-            local dead, death_err = die_from_no_viable(instance, result, route)
+            local dead, death_err = die_from_no_viable(
+                instance,
+                result,
+                instrument,
+                route
+            )
             if not dead then
                 return nil, stage_error("router", death_err)
             end
             return instance, result
         end
 
-        local committed, committed_arrival_or_err = commit_route(instance, result, route)
+        local committed, committed_arrival_or_err, committed_credit = commit_route(
+            instance,
+            result,
+            instrument,
+            route
+        )
         if not committed then
             return nil, stage_error("route", committed_arrival_or_err)
         end
         pending_arrival = committed_arrival_or_err
+        pending_credit = committed_credit
         current = instance.operator
     end
 
     result.stop_reason = "tick_limit"
     result.final_status = instance.status
-    finish_measurements(result)
+    local pending_recorded, pending_record_err = record_pending_evidence(
+        result,
+        instrument,
+        pending_credit
+    )
+    if not pending_recorded then
+        return nil, stage_error("authority_instrument", pending_record_err)
+    end
+    local finished, finish_err = finish_measurements(result, instrument)
+    if not finished then
+        return nil, stage_error("authority_instrument", finish_err)
+    end
     return instance, result
 end
 

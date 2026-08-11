@@ -1253,3 +1253,181 @@ its own required matched valid/invalid harness control and implementation
 ablation, but no synthetic life is invented solely to fit the observer-pair
 schema. A future runner that can expose a complete immutable failed-run
 projection may extend P12 through a versioned case manifest.
+
+## Amendment A6: Packet-Local Trace Identity And Neutral Host Time
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: I06 real observer-pair falsification
+source:
+  docs/00_chaos/authority_observer_reference_cascade_i06_notes_2026-08-01.md
+supersedes:
+  Amendment A2 reading that removing observer events alone is sufficient
+retains:
+  exact comparison for the new external authority instrument
+  exact named-ref verification before observer removal
+  every semantic/body delta remains comparison-significant
+```
+
+### A6.1 Trace identity ownership
+
+Event ids are unique inside one Packet. Cross-life archival uniqueness is
+provided by the existing A3/A4 source identity, not by a process-global Lua
+counter.
+
+| Lane | Id form | Writer | Reader |
+|---|---|---|---|
+| body | `event-<packet-local ordinal>` | Packet append path | all body/corpus ref readers |
+| observer | `observer-event-<packet-local observer ordinal>` | named router observer only | post-life projector |
+
+Each ordinal is derived from the append-only trace already owned by the Packet.
+There is no second counter or cache. Observer-lane insertion cannot renumber a
+body-lane event.
+
+### A6.2 Closed observer-neutral normalization
+
+After observer refs are verified and removed, the neutral projection may
+normalize only:
+
+```text
+trace-event wall time at packet_trace[*].time
+death.time
+event wall time inside residue.trace_tail
+the same residue trace-tail wall time when embedded in corpse.residue
+the same trace-tail wall time inside a death/manifest event residue payload
+corpse trace-tail event wall time
+corpse.frozen_at
+corpse.corpse_hash
+```
+
+The normalized value for host time is the fixed marker
+`host_wall_time_excluded.v0`. `corpse_hash` is absent from every neutral corpse
+because it commits to the raw tail representation. Exact components retain all
+raw values.
+
+No payload-kind filter and no generic key-name filter exists. In particular,
+`metadata.time`, tool output timestamps and semantic content remain exact.
+
+I08 precision: `corpse.v0` embeds the Packet residue as well as maintaining its
+own bounded `trace_tail`. The embedded `corpse.residue.trace_tail[*].time` is
+the same A6 host-wall-time fact, not a second semantic clock. It receives the
+same fixed marker in the observer-neutral projection; exact corpse components
+retain the raw value. A `death` or `manifest` trace event may itself carry that
+same residue snapshot in `payload.residue`; its bounded nested trace times are
+the same closed fact. Only these two event kinds and this exact structural path
+are normalized.
+
+### A6.3 Revised pair acceptance
+
+```text
+new instrument off/on:
+  exact components and raw corpse equal
+
+existing observer off/on:
+  same physics epoch
+  same explicit Packet/work/FLOW prerequisites
+  runner mode projects to live authority (tree or legacy_control), not observer arrangement
+  observer body refs verified
+  observer-lane events removed
+  closed host-time paths normalized
+  neutral components equal
+```
+
+Permanent controls:
+
+| ID | Control | Required result |
+|---|---|---|
+| LP10 | Independently grown Tree observer off/on pair with corpse | neutral equality |
+| LP11 | Observer append followed by body append | body id sequence unchanged |
+| LP12 | `metadata.time` differs | neutral pair remains red |
+
+## Amendment A7: Target Evidence Versus Observer-Control Evidence
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: I06.4 corpus assembly
+reason:
+  the first stateless manifest fixture assigned one evidence epoch to both
+  sides of an observer pair, although observer configuration is part of
+  evidence identity by D09 and section 10.3
+```
+
+The target coordinate of a case has two distinct laws:
+
+```text
+primary life and ordinary control life:
+  target evidence_epoch_id
+  target physics_epoch_id
+  target implementation revision
+
+observer-control life:
+  its own evidence_epoch_id
+  target physics_epoch_id
+  target implementation revision
+```
+
+Every observer pair cited by a target case contains at least one life from the
+target evidence epoch. The other life normally belongs to a different evidence
+epoch because its observer configuration differs. Requiring one evidence id
+for both sides makes only a synthetic ablation fixture green and contradicts
+the raw no-merge law.
+
+For P12, the target evidence epoch is the unique epoch common to all twelve
+family pairs. No caller-authored target field or verdict is accepted by the
+case evaluator. An absent or ambiguous intersection rejects before corpus
+mutation.
+
+A pair whose physics epoch differs is retained as `status=red`, not admitted as
+an ablation success. A malformed life/work identity still rejects the pair
+transaction entirely.
+
+## Amendment A8: Observer Lane Has Zero Retention Mass
+
+Status:
+
+```text
+layer: TABLE AMENDMENT
+date: 2026-08-01
+found during: I08 MI06 full masslessness campaign
+reason:
+  observer ids did not shift body ids, but observer events still occupied
+  slots in bounded corpse trace_tail and displaced retained body history
+```
+
+The Packet trace remains append-only and retains both lanes. Every stored
+observer event is tagged `identity_lane=observer_instrumentation`; the
+`observer-event-*` identity plus the closed observer payload family remains a
+compatibility reader for older in-memory records.
+
+Bounded body-retention views count only body-lane events:
+
+```text
+corpse.trace_tail
+budget_exhaustion residue.trace_tail
+packet_memory capsule.trace_tail
+```
+
+Observer events are evidence for the runner-side observer/corpus channel. They
+cannot consume body retention capacity, enter graves through displacement, or
+change what a descendant inherits. The bound remains exact: a body tail of
+size N contains at most N records; observer records are not appended outside
+the bound.
+
+This does not authorize filtering by payload wording. The Packet append path
+owns the lane tag. Post-life projection retains its exact named-ref verifier
+and its compatibility removal for archaeological corpses that may still
+contain observer records.
+
+Permanent controls:
+
+| ID | Control | Required result |
+|---|---|---|
+| MI06a | Long completed observer off/on pair | same retained corpse body tail |
+| MI06b | Budget-dead observer off/on pair | same residue body tail |
+| MI06c | Packet-memory capsules from MI06b | exact equality |
