@@ -6,6 +6,7 @@ local plan_completion = require("runtime.plan_completion")
 local structure_inspection = require("runtime.structure_inspection")
 local repository_action = require("runtime.repository_action")
 local repository_result = require("runtime.repository_result")
+local dissolve_schema = require("core.dissolve_schema")
 
 local action = {
     protocol_version = "pressure.action_plan.v0",
@@ -25,6 +26,7 @@ local mode_targets = {
     repository_effect = "☶",
     repository_reconcile = "☱",
     repository_delivery = "△",
+    inherited_rejected_form_release = "☷",
 }
 
 local mode_option_roots = {
@@ -41,6 +43,7 @@ local mode_option_roots = {
     repository_effect = "logic",
     repository_reconcile = "runtime",
     repository_delivery = "manifest",
+    inherited_rejected_form_release = "dissolve",
 }
 
 local mode_effect_types = {
@@ -57,6 +60,7 @@ local mode_effect_types = {
     repository_effect = "logic_validation_payload",
     repository_reconcile = "runtime_eye_payload",
     repository_delivery = "manifest_payload",
+    inherited_rejected_form_release = "dissolve_organ_payload",
 }
 
 local repository_option_keys = {
@@ -216,6 +220,51 @@ local function normalize_revisions(value)
         result[key] = revision
     end
     return result
+end
+
+local function valid_unit_id(value)
+    if type(value) ~= "string" then return false end
+    local suffix = value:match("^unit:(%d+)$")
+    return suffix ~= nil and tonumber(suffix) >= 1
+        and tostring(tonumber(suffix)) == suffix
+end
+
+local function normalize_dissolve_input(value)
+    local valid, valid_err = validate_keys(value, {
+        scope = true,
+        target = true,
+        reason = true,
+        preserve_residue = true,
+    }, "inherited-form DISSOLVE action")
+    if not valid then return nil, valid_err end
+    if value.scope ~= "unit" or value.preserve_residue ~= true then
+        return nil, "inherited-form DISSOLVE action requires preserved unit scope"
+    end
+    local target_ok, target_err = validate_keys(value.target, {
+        kind = true,
+        id = true,
+        version = true,
+    }, "inherited-form DISSOLVE target")
+    if not target_ok then return nil, target_err end
+    if value.target.kind ~= "unit" or not valid_unit_id(value.target.id)
+        or type(value.target.version) ~= "number" or value.target.version < 1
+        or value.target.version ~= math.floor(value.target.version) then
+        return nil, "inherited-form DISSOLVE target is invalid"
+    end
+    local reason, reason_err = dissolve_schema.normalize_inherited_reason(
+        value.reason
+    )
+    if not reason then return nil, reason_err end
+    return {
+        scope = "unit",
+        target = {
+            kind = "unit",
+            id = value.target.id,
+            version = value.target.version,
+        },
+        reason = reason,
+        preserve_residue = true,
+    }
 end
 
 local function normalize_bounds(value)
@@ -653,6 +702,12 @@ local function normalize_options(mode, options)
         }}
     end
 
+    if mode == "inherited_rejected_form_release" then
+        local input, input_err = normalize_dissolve_input(configured)
+        if not input then return nil, input_err end
+        return {dissolve = input}
+    end
+
     if mode == "relation_formation" then
         local valid, valid_err = validate_keys(configured, {
             relation_input = true,
@@ -730,6 +785,7 @@ local function normalize_options(mode, options)
             sensor = true,
             unit_ids = true,
             unit_versions = true,
+            presentation_policy = true,
         }, "observe action")
         if not valid then
             return nil, valid_err
@@ -737,6 +793,12 @@ local function normalize_options(mode, options)
         local expected_sensor = mode == "semantic_observe" and "semantic" or "field_native"
         if configured.sensor ~= expected_sensor then
             return nil, "observe action sensor does not match mode"
+        end
+        if configured.presentation_policy ~= nil
+            and (mode ~= "semantic_observe"
+                or configured.presentation_policy
+                    ~= "network.rejected_form_after_release.v0") then
+            return nil, "observe presentation policy does not match mode"
         end
         local ids, ids_err = normalize_string_array(configured.unit_ids, "observe unit_ids")
         if not ids then
@@ -758,6 +820,7 @@ local function normalize_options(mode, options)
             sensor = expected_sensor,
             unit_ids = ids,
             unit_versions = versions,
+            presentation_policy = configured.presentation_policy,
         }}
     end
 
@@ -788,6 +851,7 @@ local function normalize_preconditions(value)
         object_versions = true,
         raw_epoch = true,
         relevant_revisions = true,
+        planned_residue_unit_id = true,
     }, "action preconditions")
     if not valid then
         return nil, valid_err
@@ -815,16 +879,61 @@ local function normalize_preconditions(value)
     if not revisions then
         return nil, revisions_err
     end
+    if value.planned_residue_unit_id ~= nil
+        and not valid_unit_id(value.planned_residue_unit_id) then
+        return nil, "action planned_residue_unit_id must be a field unit id"
+    end
     return {
         packet_id = value.packet_id,
         generation = value.generation,
         object_versions = versions,
         raw_epoch = value.raw_epoch,
         relevant_revisions = revisions,
+        planned_residue_unit_id = value.planned_residue_unit_id,
     }
 end
 
 local function validate_mode_contract(mode, scope_refs, preconditions, options)
+    if mode ~= "inherited_rejected_form_release"
+        and preconditions.planned_residue_unit_id ~= nil then
+        return nil, mode .. " cannot reserve a DISSOLVE residue unit"
+    end
+    if mode == "inherited_rejected_form_release" then
+        local input = options.dissolve
+        local target = input.target
+        local reason = input.reason
+        local count = 0
+        for _ in pairs(preconditions.object_versions) do count = count + 1 end
+        if count ~= 1
+            or preconditions.object_versions[target.id] ~= target.version
+            or preconditions.planned_residue_unit_id == nil
+            or preconditions.planned_residue_unit_id == target.id
+            or preconditions.raw_epoch ~= nil
+            or preconditions.relevant_revisions.potential == nil then
+            return nil, "inherited-form DISSOLVE preconditions are not exact"
+        end
+        local revision_count = 0
+        for _ in pairs(preconditions.relevant_revisions) do
+            revision_count = revision_count + 1
+        end
+        if revision_count ~= 1 then
+            return nil, "inherited-form DISSOLVE requires only potential revision"
+        end
+        local expected = {
+            exact_unit_ref(target.id, target.version),
+            reason.network_projection_id,
+            reason.carrier_id,
+            reason.source_corpse_id,
+            reason.historical_qa_id,
+            reason.candidate_seal_id,
+            reason.verdict_id,
+        }
+        table.sort(expected)
+        if not same_value(scope_refs, expected) then
+            return nil, "inherited-form DISSOLVE requires exact release scope"
+        end
+        return true
+    end
     local repository_key = repository_option_keys[mode]
     if repository_key then
         local root = mode_option_roots[mode]
@@ -1343,6 +1452,13 @@ function action.verify_preconditions(plan, instance)
             return nil, "pressure action revision precondition mismatch"
         end
     end
+    if plan.preconditions.planned_residue_unit_id ~= nil then
+        local planned, planned_err = field.plan_unit_ids(instance, 1)
+        if not planned then return nil, planned_err end
+        if planned[1] ~= plan.preconditions.planned_residue_unit_id then
+            return nil, "pressure action residue allocation precondition mismatch"
+        end
+    end
     return true
 end
 
@@ -1398,6 +1514,12 @@ function action.registry_context(plan, base_context)
         plan_id = plan.plan_id,
         scope_refs = copy_value(plan.scope_refs),
     }
+    if plan.mode == "inherited_rejected_form_release" then
+        options[root].qualified_action.planned_residue_unit_id =
+            plan.preconditions.planned_residue_unit_id
+        options[root].qualified_action.potential_revision =
+            plan.preconditions.relevant_revisions.potential
+    end
     context.options = options
     context.qualified_action_plan = copy_value(plan)
     context.instance = nil
@@ -1445,6 +1567,47 @@ function action.verify_effect(plan, payload, instance)
     end
     if not same_value(refs, plan.scope_refs) then
         return nil, "pressure action effect scope mismatch"
+    end
+    if plan.mode == "inherited_rejected_form_release" then
+        local input = plan.options.dissolve
+        local release = payload.dissolution
+        local release_ok, release_err = dissolve_schema.verify_release(release)
+        if not release_ok then return nil, release_err end
+        if payload.mode ~= plan.mode or payload.status ~= "applied"
+            or release.target.id ~= input.target.id
+            or release.target.before_version ~= input.target.version
+            or not dissolve_schema.same(release.reason, input.reason)
+            or release.residue_unit_id
+                ~= plan.preconditions.planned_residue_unit_id
+            or not same_value(release.source_refs, plan.scope_refs)
+            or type(payload.residue) ~= "table"
+            or payload.residue.id ~= release.residue_unit_id
+            or payload.residue.kind ~= "rejected_form_residue"
+            or not dissolve_schema.verify_residue_carrier(
+                payload.residue.carrier
+            )
+            or payload.residue.carrier.release_id ~= release.release_id
+            or type(payload.trace_event_id) ~= "string" then
+            return nil, "inherited-form DISSOLVE effect identity mismatch"
+        end
+        local event
+        for _, candidate in ipairs(instance.trace or {}) do
+            if candidate.id == payload.trace_event_id then
+                event = candidate
+                break
+            end
+        end
+        local target = field.get_unit(instance, input.target.id)
+        local residue = field.get_unit(instance, release.residue_unit_id)
+        if not event or event.type ~= "unit_dissolution"
+            or not dissolve_schema.same(event.payload, release)
+            or not target or target.activation ~= "dissolved"
+            or target.version ~= release.target.after_version
+            or not residue or not same_value(residue, payload.residue)
+            or residue.created_event_id ~= event.id then
+            return nil, "inherited-form DISSOLVE effect contradicts body state"
+        end
+        return true
     end
     local repository_key = repository_option_keys[plan.mode]
     if repository_key then

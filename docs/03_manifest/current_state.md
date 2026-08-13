@@ -1,4 +1,4 @@
-# Current State - 2026-08-11
+# Current State - 2026-08-13
 
 Status: active packet-first body
 
@@ -13,6 +13,8 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> deterministic current-candidate QA verdict and shadow work projection
 -> exact terminal QA projection, corpse retention and inherited history
 -> canonical authority instrument v3 and reproducible diagnostic report
+-> exact QA-rejected NETWORK reentry and qualified inherited-form DISSOLVE
+-> exact direct-treatment P10 evidence and executable no-rigidity control
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -42,8 +44,10 @@ ordinary runtime camera and feeds pure completion/work-layer readers. One
 explicit actor-valid `△` action now projects the exact current QA chain into a
 terminal manifest. The corpse retains that chain outside its bounded trace
 tail, and a carrier can transport it only as inherited history. Automatic QA
-routing, automatic rejected-generation recovery and lineage software
-acceptance remain closed.
+routing and lineage software acceptance remain closed. QA-rejected recovery is
+now exact through completion, carrier, NETWORK, birth and FLOW, but an ancestor
+repository requires a separately verified fresh child root; without that
+allocator fact the lineage suspends instead of reusing the ancestor root.
 
 The canonical authority observer is now `edge-stats.v3` by default for every
 ordinary tension-runner life. Its runner-only journal closes into verified
@@ -132,7 +136,9 @@ referent change creates one validation debt and a recast discharges it.
 - `organs/connect.lua`: records bounded candidate relations as one transient
   `field.raw_relations.v1` epoch with exact object-version probe coverage.
 - `organs/dissolve.lua`: releases raw vertical relations without activation,
-  while preserving the legacy formed-relation weakening path.
+  preserves the legacy formed-relation weakening path, and under one exact
+  qualified action atomically releases an inherited rejected-form unit into
+  bounded residue.
 - `organs/observe.lua`: offers semantic, relation-native and field-native
   sensors; native sight requires no substrate and emits no proposal unit.
 - `organs/encode.lua`: retains text and relation compatibility paths, and under
@@ -163,8 +169,10 @@ operator `if` chain. These rights are declarations in v0; lower storage APIs
 remain responsible for enforcing their concrete mutations.
 
 CONNECT and DISSOLVE are registered, implemented, and directly testable. They
-remain unreachable from the live legacy router, but CONNECT has now executed in
-an opt-in tree-authority life. DISSOLVE still lacks a live rigidity corpus.
+remain unreachable from the live legacy router. CONNECT has executed in an
+opt-in tree-authority life. One body-grown QA-rejected descendant now executes
+the direct DISSOLVE route `▽ -> ☷ -> ☴`; the broader raw-stale relation corpus
+still lacks its ordinary writer.
 
 ### Named pressure and shadow routing
 
@@ -183,9 +191,10 @@ creates no CHOOSE loss.
 
 Alongside that historical control, `pressure_policy=qualified_need_v0` derives
 `pressure.witness.v1` records for relation recognition, relation formation,
-versioned upper sight, strict structure formation, and exact alternative
-collapse, plus exact plan completion review and delivery. Every witness carries
-a validated `pressure.action_plan.v0`.
+versioned upper sight, strict structure formation, exact alternative collapse,
+exact plan completion review and delivery, and one direct inherited
+rejected-form release. Every witness carries a validated
+`pressure.action_plan.v0`.
 `runtime/pressure_composition.lua` orders terminal, blocking and affordance
 classes without numeric weights, preserves typed ambiguity, and rejects
 unavailable actions before selection. The committed route event carries the
@@ -218,6 +227,11 @@ recorded in
 [`qualified_encode_choose_treatment.v0.md`](qualified_encode_choose_treatment.v0.md).
 The accepted plan terminal extension is recorded in
 [`post_collapse_plan_delivery.v0.md`](post_collapse_plan_delivery.v0.md).
+The direct inherited-form release and its unchanged general-promotion boundary
+are recorded in
+[`qualified_dissolve_inherited_form.v0.md`](qualified_dissolve_inherited_form.v0.md).
+Its treatment-specific P10 evidence reader and matched corpus are recorded in
+[`dissolve_p10_evidence.v0.md`](dissolve_p10_evidence.v0.md).
 
 `runtime/router.lua` records pressure snapshots and immutable route derivations
 as append-only trace data. In the default shadow mode it also records the
@@ -375,7 +389,10 @@ current verdict and exact terminal projection; its corpse freezes a hashed
 carrier may expose that envelope only through `carrier.qa_history.v1`, where
 the ancestor event remains `runtime_confirmed` and descendant applicability is
 only `inherited_proposal`. The descendant receives no current QA check from its
-ancestor.
+ancestor. For a rejected ancestor, NETWORK now derives one exact bounded
+projection; FLOW materializes current work and the inherited rejected form as
+separate units. DISSOLVE can remove only the descendant applicability of that
+form. It cannot rewrite the ancestor verdict or task identity.
 
 ### Substrates and tools
 
@@ -413,7 +430,11 @@ is not selected by automatic pressure or exposed as CLI release acceptance.
 Current local audit results:
 
 ```text
-lua tests/run.lua                   127 listed suites passed
+lua tests/run.lua                   136 listed suites passed
+tests/test_inherited_form_dissolve.lua passed exact release/observation/replay
+tests/test_inherited_form_dissolve_hostile.lua passed rollback/finality/policy controls
+tests/test_inherited_form_dissolve_life.lua passed E02/E07/ablation/masslessness
+tests/test_dissolve_p10_evidence.lua passed grown P10/control/false-green corpus
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -628,11 +649,14 @@ completion and repository manifestation inside the body.
    inputs still retain compatibility projections.
 3. **Qualified pressure is partial.** Relation recognition/formation, upper
    sight, strict structure formation, exact alternative collapse and complete
-   plan delivery now have route-carried witnesses and actions. Generic semantic
-   ENCODE, DISSOLVE, broader build execution and most of the lower triangle
-   still need equivalent producers. Exact choice loss is a provisional count
-   proxy, not calibrated potential mass. Bounded chains prove mechanics, not
-   production promotion. ☱ does not yet apply formed relation momentum.
+   plan delivery now have route-carried witnesses and actions. One exact
+   inherited rejected-form DISSOLVE treatment and its direct P10 reader are
+   complete. Generic
+   semantic ENCODE, raw-stale/formed DISSOLVE, broader build execution and most
+   of the lower triangle still need equivalent producers. Exact choice loss is
+   a provisional count proxy, not calibrated potential mass. Bounded chains
+   prove mechanics, not production promotion. ☱ does not yet apply formed
+   relation momentum.
 4. **Camera pressure is uncalibrated.** Reconciliation debt can govern explicit
    tree lives, but all coefficients remain one and the default mode still grants
    movement to legacy control.
@@ -671,7 +695,7 @@ completion and repository manifestation inside the body.
     massless completion/work-layer readers. One explicit actor-valid `△` action
     projects the verdict into an honest terminal manifest; corpse and carrier
     preserve it outside the trace tail as bounded history only. Automatic QA
-    routing, automatic recovery, multiple checks, lineage acceptance and CLI
+    routing, fresh-root allocation, multiple checks, lineage acceptance and CLI
     release policy remain deliberately unauthorized.
 
 Several modules are currently standalone or partially integrated, including
@@ -693,6 +717,8 @@ The active roadmap is deliberately ordered so new power follows owned facts:
    - complete plan assessment and delivery                    complete
    - bounded repository execution / evidence                  complete, routed v0
    - canonical v3 instrument and current report                 complete
+   - direct inherited-form DISSOLVE treatment                    complete
+   - direct inherited-form P10 evidence reader                   complete
    - full promotion measurement                              blocked by coverage
 6. implement the outer lineage runner                         complete (in-memory v0)
 7. add capability-safe repository hands                       complete (7.1-7.10)
@@ -730,8 +756,10 @@ provider lives and native analyzer/sanitizer corpus are green. The audit closed
 action-to-lease validation, exact request shape, stale grant leases, bounded
 provider residue, dedicated repository event writing and reread completion
 truth. Roadmap 7.9 promoted only this demonstrated surface and connected
-qualified review, effect and reconciliation dispatch. Qualified DISSOLVE
-remains a separate repair treatment. Roadmap 7.10 added the named terminal
+qualified review, effect and reconciliation dispatch. The later direct
+inherited-form DISSOLVE campaign is now complete as a separate bounded
+treatment, including its exact direct P10 reader and matched control; it does
+not promote general DISSOLVE. Roadmap 7.10 added the named terminal
 reader and exact one-artifact projection without giving △ host authority.
 
 The first real repository work loop is now lawful inside the body:

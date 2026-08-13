@@ -1,5 +1,8 @@
 local qa_schema = require("core.qa_schema")
 local qa_evidence_schema = require("core.qa_evidence_schema")
+local network_projection_schema = require("core.network_projection_schema")
+local dissolve_schema = require("core.dissolve_schema")
+local json = require("core.json")
 local topology = require("core.topology")
 
 local packet = {}
@@ -62,6 +65,7 @@ packet.event_types = {
     manifest = true,
     death = true,
     terminal = true,
+    unit_dissolution = true,
 }
 
 packet.death_causes = {
@@ -95,6 +99,7 @@ local dedicated_event_types = {
     qa_check = true,
     qa_execution_failure = true,
     qa_candidate_verdict = true,
+    unit_dissolution = true,
 }
 
 local repository_body_event_types = {
@@ -132,6 +137,7 @@ local event_actor_rights = {
     qa_check = {['☶'] = true},
     qa_execution_failure = {['☶'] = true},
     qa_candidate_verdict = {['☱'] = true},
+    unit_dissolution = {['☷'] = true},
     cycle = {['☲'] = true},
     runtime_reconciliation = {['☱'] = true},
     plan_completion_assessment = {['☱'] = true},
@@ -580,7 +586,17 @@ local function append_trace(instance, event)
     return deep_copy(stored)
 end
 
-local function init_ingress(options)
+local ingress_keys = {
+    protocol_version = true,
+    integration_protocol = true,
+    flow_mark = true,
+    l1_projection = true,
+    carrier_ref = true,
+    inherited_grave_refs = true,
+    network_projection = true,
+}
+
+local function init_ingress(prompt, options, identity, work_contract)
     local input = options.ingress
     if input == nil then
         return {
@@ -590,10 +606,16 @@ local function init_ingress(options)
             l1_projection = nil,
             carrier_ref = options.carrier_id,
             inherited_grave_refs = {},
+            network_projection = nil,
         }
     end
     if type(input) ~= "table" or input.protocol_version ~= "packet.ingress.v0" then
         error("invalid packet ingress contract")
+    end
+    for key in pairs(input) do
+        if not ingress_keys[key] then
+            error("packet ingress contains unknown key: " .. tostring(key))
+        end
     end
     if input.integration_protocol ~= "vertical_packet_life.v0" then
         error("invalid packet ingress integration protocol")
@@ -647,6 +669,32 @@ local function init_ingress(options)
             error("invalid ingress grave ref")
         end
     end
+    local network_projection = input.network_projection
+    if network_projection ~= nil then
+        local projection_ok, projection_err =
+            network_projection_schema.verify_projection(network_projection)
+        if not projection_ok then
+            error("invalid NETWORK ingress projection: " .. tostring(projection_err))
+        end
+        if identity.birth_kind ~= "recovery"
+            or network_projection.lineage_id ~= identity.lineage_id
+            or network_projection.target_generation ~= identity.generation
+            or network_projection.source_generation ~= identity.generation - 1
+            or network_projection.source_packet_id ~= options.parent_id
+            or network_projection.source_corpse_id ~= identity.parent_corpse_id
+            or network_projection.carrier_id ~= identity.carrier_id
+            or input.carrier_ref ~= identity.carrier_id
+            or network_projection.process_contract_id
+                ~= work_contract.process_contract_id
+            or network_projection.context ~= work_contract.context
+            or network_projection.stage_id ~= work_contract.stage_id
+            or network_projection.terminal_recovery_basis ~= "qa_rejected"
+            or prompt ~= json.encode(network_projection.current_work) then
+            error("NETWORK ingress projection diverged from Packet birth")
+        end
+    elseif identity.birth_kind == "user" and input.carrier_ref ~= nil then
+        error("user Packet ingress cannot name carrier")
+    end
     return {
         protocol_version = "packet.ingress.v0",
         integration_protocol = input.integration_protocol,
@@ -654,6 +702,7 @@ local function init_ingress(options)
         l1_projection = deep_copy(input.l1_projection),
         carrier_ref = input.carrier_ref,
         inherited_grave_refs = deep_copy(input.inherited_grave_refs or {}),
+        network_projection = deep_copy(network_projection),
     }
 end
 
@@ -767,7 +816,7 @@ function packet.new(prompt, options)
         metadata
     )
     local areas = init_areas(prompt, options)
-    local ingress = init_ingress(options)
+    local ingress = init_ingress(prompt, options, identity, work_contract)
     local instance = {
         protocol_version = packet.protocol_version,
         id = packet_id,
@@ -833,6 +882,8 @@ function packet.new(prompt, options)
             ingress_protocol = instance.ingress.protocol_version,
             integration_protocol = instance.ingress.integration_protocol,
             flow_mark = instance.ingress.flow_mark,
+            network_projection_id = instance.ingress.network_projection
+                and instance.ingress.network_projection.projection_id or nil,
         },
         cost = {},
     })
@@ -1492,6 +1543,68 @@ function packet.append_qa_event(instance, event)
     end
     instance.revisions.evidence = instance.revisions.evidence + 1
     return appended
+end
+
+function packet.append_unit_dissolution(instance, event)
+    local mutable, mutable_err = packet.assert_mutable(
+        instance,
+        "append unit dissolution"
+    )
+    if not mutable then return nil, mutable_err end
+    if type(event) ~= "table" or getmetatable(event) ~= nil then
+        return nil, "unit dissolution event must be a plain table"
+    end
+    local keys = {
+        type = true,
+        operator = true,
+        truth_status = true,
+        payload = true,
+        cost = true,
+    }
+    for key in pairs(event) do
+        if not keys[key] then
+            return nil, "unit dissolution event contains unknown key: "
+                .. tostring(key)
+        end
+    end
+    for key in pairs(keys) do
+        if event[key] == nil then
+            return nil, "unit dissolution event is missing key: " .. key
+        end
+    end
+    if event.type ~= "unit_dissolution" or event.operator ~= "☷"
+        or event.truth_status ~= "runtime_confirmed"
+        or type(event.cost) ~= "table" or next(event.cost) ~= nil then
+        return nil, "invalid unit dissolution event"
+    end
+    local lease, lease_err = packet.assert_actor_tick(
+        instance,
+        "☷",
+        "append unit dissolution"
+    )
+    if not lease then return nil, lease_err end
+    local normalized, normalized_err = dissolve_schema.normalize_release(
+        event.payload
+    )
+    if not normalized then return nil, normalized_err end
+    if not dissolve_schema.same(event.payload, normalized) then
+        return nil, "unit dissolution payload is not normalized"
+    end
+    local copied = deep_copy(normalized)
+    local copied_normalized, copied_err = dissolve_schema.normalize_release(
+        copied
+    )
+    if not copied_normalized then return nil, copied_err end
+    if not dissolve_schema.same(copied, copied_normalized) then
+        return nil, "copied unit dissolution payload is not normalized"
+    end
+    return append_actor_event(instance, {
+        type = "unit_dissolution",
+        operator = "☷",
+        truth_status = "runtime_confirmed",
+        payload = copied,
+        cost = {},
+    })
 end
 
 packet.append_event = packet.append_trace

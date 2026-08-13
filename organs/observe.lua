@@ -5,9 +5,18 @@ local field = require("runtime.field")
 local object_coverage = require("runtime.object_coverage")
 local system_prompt = require("runtime.system_prompt")
 local substrate_contract = require("substrates.contract")
+local network_projection_schema = require("core.network_projection_schema")
+local dissolve_schema = require("core.dissolve_schema")
 
 local observe = {}
 local ingress_refs
+
+local function trace_event(instance, id)
+    for _, event in ipairs(instance.trace or {}) do
+        if event.id == id then return event end
+    end
+    return nil
+end
 
 local function exact_ref(id, version)
     return table.concat({"coverage", "field_unit", id, tostring(version)}, ":")
@@ -131,6 +140,77 @@ local function field_native_scope(instance, options)
     }
 end
 
+local function network_release_presentation(instance, units, policy)
+    if policy == nil then
+        for _, unit in ipairs(units) do
+            if unit.kind == "network_current_work"
+                or unit.kind == "inherited_rejected_form"
+                or unit.kind == "rejected_form_residue" then
+                return nil, "NETWORK semantic scope requires presentation policy"
+            end
+        end
+        return nil
+    end
+    if policy ~= "network.rejected_form_after_release.v0" then
+        return nil, "unsupported semantic presentation policy"
+    end
+    if #units ~= 3 then
+        return nil, "network release presentation requires three exact units"
+    end
+    local by_kind = {}
+    for _, unit in ipairs(units) do
+        if by_kind[unit.kind] ~= nil then
+            return nil, "network release presentation contains duplicate kind"
+        end
+        by_kind[unit.kind] = unit
+    end
+    local current = by_kind.network_current_work
+    local inherited = by_kind.inherited_rejected_form
+    local residue = by_kind.rejected_form_residue
+    local projection = instance.ingress and instance.ingress.network_projection
+    local projection_ok, projection_err =
+        network_projection_schema.verify_projection(projection)
+    if not projection_ok then return nil, projection_err end
+    if not current or not inherited or not residue
+        or current.activation ~= "live"
+        or inherited.activation ~= "dissolved"
+        or residue.activation ~= "live"
+        or not network_projection_schema.same(
+            current.carrier,
+            projection.current_work
+        )
+        or not network_projection_schema.same(
+            inherited.carrier,
+            projection.rejected_form
+        ) then
+        return nil, "network release presentation units contradict projection"
+    end
+    local release_event = inherited.activation_source
+        and trace_event(instance, inherited.activation_source.event_id)
+    if not release_event or release_event.type ~= "unit_dissolution" then
+        return nil, "network release presentation has no release event"
+    end
+    local release_ok, release_err = dissolve_schema.verify_release(
+        release_event.payload
+    )
+    if not release_ok then return nil, release_err end
+    local residue_ok, residue_err = dissolve_schema.verify_residue_carrier(
+        residue.carrier
+    )
+    if not residue_ok then return nil, residue_err end
+    if release_event.payload.target.id ~= inherited.id
+        or release_event.payload.target.after_version ~= inherited.version
+        or release_event.payload.residue_unit_id ~= residue.id
+        or residue.created_event_id ~= release_event.id
+        or residue.carrier.release_id ~= release_event.payload.release_id
+        or instance.chaos.raw_prompt ~= json.encode(projection.current_work) then
+        return nil, "network release presentation causal join is invalid"
+    end
+    return instance.chaos.raw_prompt
+        .. "\n\n[rejected form residue]\n"
+        .. json.encode(residue.carrier)
+end
+
 local function qualified_semantic_scope(instance, options)
     if type(options.qualified_action) ~= "table" then
         return nil
@@ -164,11 +244,18 @@ local function qualified_semantic_scope(instance, options)
         units[#units + 1] = unit
     end
     table.sort(refs)
+    local presentation, presentation_err = network_release_presentation(
+        instance,
+        units,
+        options.presentation_policy
+    )
+    if presentation_err then return nil, presentation_err end
     return {
         entries = entries,
         source_refs = refs,
         unit_ids = options.unit_ids,
         units = units,
+        presentation_payload = presentation,
     }
 end
 
@@ -590,7 +677,16 @@ function observe.run(instance, substrate, options)
     end
 
     local call_options = options
-    if qualified_scope and options.prompt_payload == nil then
+    if qualified_scope and qualified_scope.presentation_payload ~= nil then
+        if options.prompt_payload ~= nil then
+            return nil, "presentation policy forbids caller prompt override"
+        end
+        call_options = {}
+        for key, value in pairs(options) do
+            call_options[key] = value
+        end
+        call_options.prompt_payload = qualified_scope.presentation_payload
+    elseif qualified_scope and options.prompt_payload == nil then
         local material = {}
         for _, unit in ipairs(qualified_scope.units) do
             if unit.kind ~= "user_prompt" and unit.kind ~= "network_carrier" then

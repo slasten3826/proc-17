@@ -452,3 +452,50 @@ release is append-only and exactly-once
 same-session user birth is not mislabeled network_reentry
 no claim of successful artifact repair is introduced
 ```
+
+## Amendment A2: QA-Rejected Ownership Supersession
+
+Status:
+
+```text
+TABLE PRECISION AMENDMENT
+date: 2026-08-12
+source:
+  docs/00_chaos/dissolve_network_rejected_generation_target_notes_2026-08-12.md
+  docs/01_table/yellowprints/qa_rejected_lineage_recovery_yellowprint.v0.md
+  docs/01_table/yellowprints/network_rejected_form_materialization_yellowprint.v0.md
+scope: exact qa.terminal_projection.v1 with verdict=rejected only
+production code change authorized: no
+cross-table audit:
+  docs/00_chaos/dissolve_network_table_cross_audit_2026-08-12.md
+crystallization readiness: ready for the exact QA supersession only
+crystallization authorized: no; next machinist instruction required
+```
+
+For an exact QA-rejected generation, sections 1-7 and Amendment A1 are
+superseded where they assign recovery transport or applicability to grave.
+
+```text
+superseded QA path:
+  blocked -> grave repair bequest -> grave_repair_pressure -> ☷
+
+selected QA path:
+  rejected QA corpse -> lineage assessment -> recovery carrier
+  -> NETWORK projection -> FLOW inherited_rejected_form -> ☷
+```
+
+Reason:
+
+```text
+QA rejection is exact generation evidence
+grave classification is death-only and cannot grant continuation
+lineage owns recovery authorization and ancestry
+NETWORK owns verified carrier projection
+```
+
+The direct-unit insight in Amendment A1 remains valid. The grave/session
+transport does not.
+
+This amendment does not decide the fate of a future non-QA generic blocked
+validation carrier. That branch remains archaeological/open and cannot be used
+as evidence for the QA DISSOLVE treatment.

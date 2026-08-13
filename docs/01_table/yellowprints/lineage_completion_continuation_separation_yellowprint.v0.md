@@ -220,3 +220,44 @@ repository hands
 ```
 
 It repairs the information boundary required before those readers exist.
+
+## Amendment A1: Exact QA-Rejected Contract Result
+
+Status:
+
+```text
+TABLE PRECISION AMENDMENT
+date: 2026-08-12
+source:
+  docs/01_table/yellowprints/qa_rejected_lineage_recovery_yellowprint.v0.md
+production code change authorized: no
+cross-table audit:
+  docs/00_chaos/dissolve_network_table_cross_audit_2026-08-12.md
+crystallization readiness: ready for the exact QA amendment only
+crystallization authorized: no; next machinist instruction required
+```
+
+Section 4's generic row for terminal causes outside the v0 allowlist is applied
+only after contract-specific completion facts are derived.
+
+For `software.create.v0`, an exact verified tuple:
+
+```text
+rejected qa.check.v0
++ rejected qa.candidate_verdict.v0
++ rejected qa.terminal_projection.v1
++ manifest death cause blocked
+```
+
+derives:
+
+```text
+task_state = unfinished
+terminal_recoverable = true
+terminal_recovery_basis = qa_rejected
+```
+
+This does not add generic `blocked` to the terminal allowlist. Missing,
+partial, infrastructure-failed or contradictory QA evidence does not satisfy
+the exception. Wallet and recovery policy remain downstream and cannot change
+the assessment.

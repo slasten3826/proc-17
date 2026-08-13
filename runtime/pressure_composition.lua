@@ -101,7 +101,8 @@ local function provenance_resolves(instance, ref)
         or ref == "consumer:runtime.repository_action_review.v0"
         or ref == "consumer:logic.repository_effect.v0"
         or ref == "consumer:runtime.repository_reconcile.v0"
-        or ref == "consumer:manifest.repository_result.v0" then
+        or ref == "consumer:manifest.repository_result.v0"
+        or ref == "consumer:dissolve.inherited_rejected_form.v0" then
         return true
     end
     for _, event in ipairs(instance.trace or {}) do

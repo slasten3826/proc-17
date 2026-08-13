@@ -1,6 +1,8 @@
 local digest = require("core.digest")
+local dissolve_schema = require("core.dissolve_schema")
 local life_projection = require("runtime.edge_life_projection")
 local json = require("core.json")
+local network_projection_schema = require("core.network_projection_schema")
 
 local cases = {
     protocol_version = "tree-authority-cases.v0",
@@ -10,6 +12,12 @@ local cases = {
 }
 
 local evaluator_version = "edge-case-evaluator.v0"
+local evaluator_overrides = {
+    P10 = {
+        evaluator_id = "tree-authority.case.P10.unit_dissolution.v1",
+        evaluator_version = "edge-case-evaluator.p10.release.v1",
+    },
+}
 local source_table = "tree_authority_promotion_corpus_yellowprint.v0"
 
 local control_kinds = {
@@ -169,15 +177,17 @@ end
 local function definition_record(raw)
     local case_id, layer, evidence_kind, required, pair_required, families =
         raw[1], raw[2], raw[3], raw[4], raw[5], raw[6]
-    local evaluator_id = layer == "L0"
+    local override = evaluator_overrides[case_id]
+    local evaluator_id = override and override.evaluator_id or (layer == "L0"
         and ("tree-authority.case." .. case_id .. ".v0")
-        or ("tree-authority.live." .. case_id .. ".document.v0")
+        or ("tree-authority.live." .. case_id .. ".document.v0"))
     return {
         case_id = case_id,
         layer = layer,
         evidence_kind = evidence_kind,
         evaluator_id = evaluator_id,
-        evaluator_version = evaluator_version,
+        evaluator_version = override and override.evaluator_version
+            or evaluator_version,
         required_control_kinds = copy_value(required),
         observer_pair_required = pair_required,
         observer_family_case_ids = copy_value(families or {}),
@@ -514,6 +524,200 @@ local function has_direction(life, glyph)
     return false
 end
 
+local function has_credited_arrival(life, glyph)
+    local suffix = "->" .. glyph
+    for _, direction in ipairs(life.eligible_directions or {}) do
+        if type(direction) == "string"
+            and direction:sub(-#suffix) == suffix then
+            return true
+        end
+    end
+    return false
+end
+
+local function projection_parts(life)
+    local exact = life and life.projection and life.projection.exact_components
+    if type(exact) ~= "table" then return nil end
+    local identity = exact.identity_and_work_contract
+    local physical = exact.chaos_calm_field_revisions_effects
+    return identity and identity.packet,
+        physical,
+        exact.packet_trace
+end
+
+local function zero_trace_cost(value)
+    if type(value) ~= "table" or getmetatable(value) ~= nil then return false end
+    local expected = {
+        steps = true,
+        substrate_calls = true,
+        tool_calls = true,
+        file_writes = true,
+        test_runs = true,
+        loss = true,
+    }
+    for key, amount in pairs(value) do
+        if not expected[key] or amount ~= 0 then return false end
+        expected[key] = nil
+    end
+    return next(expected) == nil
+end
+
+local function release_residue_refs(release)
+    local refs = {}
+    for index, ref in ipairs(release.source_refs or {}) do refs[index] = ref end
+    refs[#refs + 1] = release.release_id
+    table.sort(refs)
+    return refs
+end
+
+local function direct_release_evidence(life)
+    local packet, physical, trace = projection_parts(life)
+    local field = physical and physical.field
+    if type(packet) ~= "table" or type(field) ~= "table"
+        or type(field.units) ~= "table" or type(trace) ~= "table" then
+        return false
+    end
+
+    local release_event
+    for _, event in ipairs(trace) do
+        if type(event) == "table" and event.type == "unit_dissolution" then
+            if release_event ~= nil then return false end
+            release_event = event
+        end
+    end
+    if not release_event or type(release_event.id) ~= "string"
+        or release_event.id == "" or release_event.operator ~= "☷"
+        or release_event.truth_status ~= "runtime_confirmed"
+        or not zero_trace_cost(release_event.cost) then
+        return false
+    end
+    local release = release_event.payload
+    if not dissolve_schema.verify_release(release) then return false end
+
+    local ingress = packet.ingress
+    local network_projection = ingress and ingress.network_projection
+    if not network_projection_schema.verify_projection(network_projection)
+        or network_projection.projection_id
+            ~= release.reason.network_projection_id
+        or network_projection.carrier_id ~= release.reason.carrier_id
+        or network_projection.source_corpse_id
+            ~= release.reason.source_corpse_id
+        or network_projection.historical_qa_id
+            ~= release.reason.historical_qa_id then
+        return false
+    end
+
+    local target = field.units[release.target.id]
+    local residue = field.units[release.residue_unit_id]
+    if type(target) ~= "table" or type(residue) ~= "table"
+        or target.kind ~= "inherited_rejected_form"
+        or target.generation ~= packet.generation
+        or target.created_by ~= "▽"
+        or target.event_truth_status ~= "runtime_confirmed"
+        or target.version ~= release.target.after_version
+        or target.activation ~= release.target.after_activation
+        or target.content_truth_status ~= "inherited_proposal"
+        or not network_projection_schema.same(
+            target.source_refs,
+            network_projection.rejected_form.source_refs
+        )
+        or not network_projection_schema.verify_rejected_form(target.carrier)
+        or not network_projection_schema.same(
+            target.carrier,
+            network_projection.rejected_form
+        ) then
+        return false
+    end
+    local activation = target.activation_source
+    local migration = target.migration
+    if type(activation) ~= "table"
+        or activation.event_id ~= release_event.id
+        or activation.actor ~= "☷"
+        or activation.reason ~= "inherited_rejected_form_release"
+        or type(migration) ~= "table"
+        or migration.projection_id ~= network_projection.projection_id
+        or migration.rejected_form_id
+            ~= network_projection.rejected_form.projection_id
+        or migration.projection_role ~= "rejected_form" then
+        return false
+    end
+
+    if residue.kind ~= "rejected_form_residue"
+        or residue.generation ~= packet.generation
+        or residue.created_by ~= "☷"
+        or residue.activation ~= "live"
+        or residue.created_event_id ~= release_event.id
+        or residue.event_truth_status ~= "runtime_confirmed"
+        or residue.content_truth_status ~= "mixed"
+        or not network_projection_schema.same(
+            residue.source_refs,
+            release_residue_refs(release)
+        )
+        or not dissolve_schema.verify_residue_carrier(residue.carrier)
+        or residue.carrier.release_id ~= release.release_id then
+        return false
+    end
+    local residue_migration = residue.migration
+    if type(residue_migration) ~= "table"
+        or residue_migration.status ~= "inherited_form_released"
+        or residue_migration.release_id ~= release.release_id
+        or residue_migration.target_unit_id ~= release.target.id
+        or residue.carrier.source_corpse_id
+            ~= release.reason.source_corpse_id
+        or residue.carrier.historical_qa_id
+            ~= release.reason.historical_qa_id
+        or residue.carrier.candidate_seal_id
+            ~= release.reason.candidate_seal_id
+        or residue.carrier.verdict_id ~= release.reason.verdict_id then
+        return false
+    end
+    return true
+end
+
+local function active_inherited_form(life)
+    local _, physical = projection_parts(life)
+    local field = physical and physical.field
+    for _, unit in pairs(field and field.units or {}) do
+        if type(unit) == "table"
+            and unit.kind == "inherited_rejected_form"
+            and (unit.activation == "live" or unit.activation == "selected") then
+            return true
+        end
+    end
+    return false
+end
+
+local function has_release_surface(life)
+    local _, physical, trace = projection_parts(life)
+    for _, event in ipairs(trace or {}) do
+        if type(event) == "table" and event.type == "unit_dissolution" then
+            return true
+        end
+    end
+    local field = physical and physical.field
+    for _, unit in pairs(field and field.units or {}) do
+        if type(unit) == "table" and unit.kind == "rejected_form_residue" then
+            return true
+        end
+    end
+    return false
+end
+
+local function no_rigidity_control(primary, control)
+    local primary_packet, primary_physical = projection_parts(primary)
+    local control_packet, control_physical = projection_parts(control)
+    local primary_prompt = primary_physical and primary_physical.chaos
+        and primary_physical.chaos.raw_prompt
+    local control_prompt = control_physical and control_physical.chaos
+        and control_physical.chaos.raw_prompt
+    return type(primary_prompt) == "string"
+        and primary_prompt == control_prompt
+        and work_mode(primary_packet) == work_mode(control_packet)
+        and not active_inherited_form(control)
+        and not has_release_surface(control)
+        and not has_credited_arrival(control, "☷")
+end
+
 local function semantic_l0(case_id, life)
     local terminal, identity, status, field, budget_loss = terminal_view(life)
     local cause = death_cause(terminal)
@@ -555,8 +759,8 @@ local function semantic_l0(case_id, life)
             and ((revisions.relations_raw or 0) > 0
                 or (revisions.relations_active or 0) > 0)
     elseif case_id == "P10" then
-        return has_direction(life, "☷")
-            and #(budget_loss.loss_records or {}) > 0
+        return has_credited_arrival(life, "☷")
+            and direct_release_evidence(life)
     elseif case_id == "P11" then
         for _, choice in ipairs(field.boundary.choices or {}) do
             local before = choice.before or choice.alternative_count or 0
@@ -762,6 +966,7 @@ function cases.evaluate_l0(case_id, view, evidence_input)
         return nil, case_error("case_controls_invalid")
     end
     local required_controls = {}
+    local resolved_controls = {}
     for _, required_kind in ipairs(definition.required_control_kinds) do
         required_controls[required_kind] = true
     end
@@ -771,6 +976,7 @@ function cases.evaluate_l0(case_id, view, evidence_input)
         end
     end
     for _, required_kind in ipairs(definition.required_control_kinds) do
+        resolved_controls[required_kind] = {}
         local slot = normalize_control_slot(controls[required_kind])
         if not slot then
             status = status == "red" and "red" or "blocked"
@@ -796,6 +1002,8 @@ function cases.evaluate_l0(case_id, view, evidence_input)
                 )
                 if not life then return nil, life_err end
                 refs.control_life_ids[#refs.control_life_ids + 1] = life_id
+                resolved_controls[required_kind][#resolved_controls[required_kind] + 1] =
+                    life
             end
             for _, pair_ref in ipairs(slot.observer_pair_refs) do
                 local pair, pair_err = resolve_pair(
@@ -898,6 +1106,23 @@ function cases.evaluate_l0(case_id, view, evidence_input)
         else
             for _, life in ipairs(primary_lives) do
                 if not semantic_l0(case_id, life) then status = "red" end
+            end
+            if case_id == "P10" then
+                local controls_for_case = resolved_controls.no_rigidity or {}
+                if #controls_for_case == 0 then
+                    status = status == "red" and "red" or "blocked"
+                else
+                    for _, primary in ipairs(primary_lives) do
+                        local matched = false
+                        for _, control in ipairs(controls_for_case) do
+                            if no_rigidity_control(primary, control) then
+                                matched = true
+                                break
+                            end
+                        end
+                        if not matched then status = "red" end
+                    end
+                end
             end
         end
     end

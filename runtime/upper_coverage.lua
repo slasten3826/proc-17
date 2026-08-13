@@ -190,11 +190,28 @@ end
 
 local function classify(unit)
     local activation_actor = unit.activation_source and unit.activation_source.actor
-    if activation_actor == "☳" or activation_actor == "☷" then
-        return "material", "field_native", "activation_version_changed"
-    end
     if unit.kind == "user_prompt" or unit.kind == "network_carrier" then
         return "semantic", "semantic", "semantic_ingress_unobserved"
+    end
+    if unit.kind == "network_current_work" then
+        return "semantic", "semantic", "network_current_work_unobserved"
+    end
+    if unit.kind == "inherited_rejected_form" then
+        if unit.activation == "live" or unit.activation == "selected" then
+            return nil
+        end
+        if unit.activation == "dissolved"
+            and unit.activation_source
+            and unit.activation_source.actor == "☷" then
+            return "material", "semantic", "released_form_unobserved"
+        end
+        return false, nil, "unclassified_upper_mutation"
+    end
+    if unit.kind == "rejected_form_residue" and unit.activation == "live" then
+        return "semantic", "semantic", "rejected_form_residue_unobserved"
+    end
+    if activation_actor == "☳" or activation_actor == "☷" then
+        return "material", "field_native", "activation_version_changed"
     end
     if unit.kind == "l1_physical_sample"
         or unit.kind == "grave_warning"

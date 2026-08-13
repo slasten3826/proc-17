@@ -1,5 +1,6 @@
 local digest = require("core.digest")
 local lineage_budget = require("runtime.lineage_budget")
+local network_projection = require("runtime.network_projection")
 
 local lineage = {
     protocol_version = "lineage.in_memory.v0",
@@ -49,6 +50,34 @@ end
 
 local function now(input)
     return input and input.time or os.time()
+end
+
+local function sorted_unique(values)
+    local result, seen = {}, {}
+    for _, value in ipairs(values or {}) do
+        if type(value) == "string" and value ~= "" and not seen[value] then
+            seen[value] = true
+            result[#result + 1] = value
+        end
+    end
+    table.sort(result)
+    return result
+end
+
+local function event_by_id(events, id)
+    for _, event in ipairs(events or {}) do
+        if event.id == id then return event end
+    end
+    return nil
+end
+
+local function qa_rejected_carrier(value)
+    local evidence = value and value.payload and value.payload.qa_history
+        and value.payload.qa_history.qa_evidence
+    return evidence and evidence.verdict
+        and evidence.verdict.verdict == "rejected"
+        and evidence.terminal_projection
+        and evidence.terminal_projection.verdict == "rejected"
 end
 
 local function validate_state(state)
@@ -392,14 +421,55 @@ function lineage.mark_continued(state, corpse, carrier, input)
     if state.continued_corpses[corpse.corpse_id] ~= nil then
         return nil, "source corpse already produced a child"
     end
+    input = input or {}
+    local projection = input.network_projection
+    local completion_event
+    if qa_rejected_carrier(carrier) then
+        if type(projection) ~= "table" then
+            return nil, "QA-rejected continuation requires NETWORK projection"
+        end
+        completion_event = event_by_id(
+            state.ledger,
+            projection.completion_event_ref
+        )
+        if not completion_event then
+            return nil, "NETWORK projection completion event is absent"
+        end
+        local projection_ok, projection_err = network_projection.verify(
+            projection,
+            {
+                lineage = state,
+                corpse = corpse,
+                assessment_event = completion_event,
+                carrier = carrier,
+                max_carrier_bytes = state.policy.carrier.max_bytes,
+            }
+        )
+        if not projection_ok then return nil, projection_err end
+    elseif projection ~= nil then
+        return nil, "ordinary recovery cannot attach QA NETWORK projection"
+    end
+    local payload = {
+        decision = "continue",
+        target_generation = carrier.target_generation,
+    }
+    local source_refs = {corpse.corpse_id, carrier.carrier_id}
+    if projection then
+        payload.network_projection_id = projection.projection_id
+        payload.completion_assessment_id = projection.completion_assessment_id
+        payload.completion_event_ref = projection.completion_event_ref
+        source_refs[#source_refs + 1] = projection.projection_id
+        source_refs[#source_refs + 1] = projection.completion_assessment_id
+        source_refs[#source_refs + 1] = projection.completion_event_ref
+    end
     local event, event_err = lineage.append_event(state, {
         kind = "continuation_decided",
         generation = corpse.generation,
         packet_id = corpse.packet_id,
         corpse_id = corpse.corpse_id,
         carrier_id = carrier.carrier_id,
-        payload = {decision = "continue", target_generation = carrier.target_generation},
-        source_refs = {corpse.corpse_id, carrier.carrier_id},
+        payload = payload,
+        source_refs = sorted_unique(source_refs),
         time = input and input.time,
     })
     if not event then

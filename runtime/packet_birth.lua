@@ -34,6 +34,13 @@ function packet_birth.create(domain, prompt, options)
     if packet_options.ingress ~= nil then
         return nil, "packet ingress is owned by packet_birth"
     end
+    if packet_options.network_projection ~= nil then
+        return nil, "NETWORK projection is owned by trusted packet life"
+    end
+    if options.network_projection ~= nil
+        and type(options.network_projection) ~= "table" then
+        return nil, "network_projection must be table"
+    end
 
     if options.inherited_graves ~= nil and type(options.inherited_graves) ~= "table" then
         return nil, "packet birth inherited_graves must be table"
@@ -67,6 +74,7 @@ function packet_birth.create(domain, prompt, options)
             l1_projection = projected,
             carrier_ref = packet_options.carrier_id,
             inherited_grave_refs = copy_value(inherited_grave_refs),
+            network_projection = copy_value(options.network_projection),
         }
         return packet_core.new(prompt, packet_options)
     end)

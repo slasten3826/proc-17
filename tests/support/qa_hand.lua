@@ -659,21 +659,24 @@ function qa_fixture.grow_terminal_qa_life(options)
     }
 end
 
-function qa_fixture.grow_qa_descendant()
+function qa_fixture.grow_qa_recovery_boundary(options)
+    options = options or {}
     local carrier = require("runtime.carrier")
+    local completion = require("runtime.completion")
     local lineage = require("runtime.lineage")
-    local network_ingress = require("runtime.network_ingress")
-    local packet_core = require("core.packet")
-    local qa_evidence = require("runtime.qa_evidence")
+    local network_projection = require("runtime.network_projection")
 
     local ancestor = assert(qa_fixture.grow_terminal_qa_life({
-        label = "qa-historical-descendant",
+        label = options.label or "qa-historical-descendant",
+        process_contract_id = "software.create.v0",
         adapter_options = {reason = "unexpected_exit", exit_code = 70},
+        tail_events = options.tail_events,
+        packet_options = copy(options.packet_options),
     }))
     local dead = ancestor.corpse_record
     local state = assert(lineage.create("replace rejected candidate", {
         lineage_id = dead.lineage_id,
-        session_id = "session-qa-historical-descendant",
+        session_id = options.session_id or "session-qa-historical-descendant",
         work_mode = "build",
         completion_contract_id = "software.create.v0",
         carrier = {max_bytes = 1048576},
@@ -687,39 +690,117 @@ function qa_fixture.grow_qa_descendant()
     state.current_generation = dead.generation
     state.current_packet_id = dead.packet_id
     state.current_corpse_id = dead.corpse_id
-    local assessment = {
-        kind = "lineage_completion_assessment",
-        assessment_id = "assessment:" .. dead.corpse_hash,
-        task_state = "unfinished",
-        terminal_recoverable = true,
-        terminal_recovery_basis = "qa_rejected",
-        remaining_work = {count = 1},
-    }
+    local assessment = assert(completion.evaluate(state, dead))
+    local assessment_event = assert(lineage.append_event(state, {
+        kind = "completion_evaluated",
+        generation = dead.generation,
+        packet_id = dead.packet_id,
+        corpse_id = dead.corpse_id,
+        payload = assessment,
+        source_refs = assessment.evidence_refs,
+        content_truth_statuses = assessment.basis_truth_statuses,
+    }))
     local record = assert(carrier.build_recovery(state, dead, assessment, {
         carrier_id = "carrier:" .. dead.corpse_id .. ":qa-recovery",
         max_bytes = 1048576,
     }))
-    assert(lineage.mark_continued(state, dead, record))
+    local projection = assert(network_projection.derive(
+        state,
+        dead,
+        assessment_event,
+        record
+    ))
+    return {
+        ancestor = ancestor,
+        corpse = dead,
+        lineage = state,
+        assessment = assessment,
+        assessment_event = assessment_event,
+        carrier = record,
+        network_projection = projection,
+    }
+end
+
+function qa_fixture.grow_qa_descendant(options)
+    options = options or {}
+    local lineage = require("runtime.lineage")
+    local network_ingress = require("runtime.network_ingress")
+    local flow_domain = require("runtime.flow_domain")
+    local packet_birth = require("runtime.packet_birth")
+    local flow = require("organs.flow")
+    local qa_evidence = require("runtime.qa_evidence")
+
+    local boundary = assert(qa_fixture.grow_qa_recovery_boundary(options))
+    local ancestor = boundary.ancestor
+    local dead = boundary.corpse
+    local state = boundary.lineage
+    local record = boundary.carrier
+    local projection = boundary.network_projection
+    assert(lineage.mark_continued(state, dead, record, {
+        network_projection = projection,
+    }))
     local ingress = assert(network_ingress.prepare(state, record, {
+        network_projection = projection,
+        source_corpse = dead,
+        assessment_event = boundary.assessment_event,
         max_bytes = 1048576,
     }))
-    local descendant = packet_core.new(ingress.prompt, ingress.packet_options)
+    local ancestor_root = assert(ancestor.grown.repository_state.root_identity)
+    local fresh_repository_id = options.fresh_repository_id
+        or ("repo-qa-child-" .. tostring(record.target_generation))
+    local _, _, _, fresh_repository_state = fixture.new_registry(capabilities, {
+        session_id = state.session_id,
+        grant = {
+            lineage_id = state.lineage_id,
+            repository_id = fresh_repository_id,
+            repository_path = fresh_repository_id,
+        },
+        provider_options = {
+            root_identity = {
+                device = ancestor_root.device + 1,
+                inode = ancestor_root.inode + 1,
+            },
+        },
+    })
+    local child_packet_options = copy(ingress.packet_options)
+    child_packet_options.id = options.child_packet_id
+    child_packet_options.repository_id = fresh_repository_id
+    local domain = assert(flow_domain.new({2, 3, 5, 7, 11}, {
+        stream_id = options.child_stream_id
+            or ("network-qa-child-" .. tostring(record.target_generation)),
+        source_ref = projection.projection_id,
+    }))
+    local descendant = assert(packet_birth.create(domain, ingress.prompt, {
+        packet_options = child_packet_options,
+        network_projection = ingress.network_projection,
+    }))
+    local _, flow_payload = assert(flow.run(descendant))
     local current = assert(qa_evidence.current(
         descendant,
         ancestor.verdict.candidate_seal_id,
         ancestor.verdict.qa_contract_id
     ))
     local current_check_count = current.check and 1 or 0
-    local history = assert(ingress.carrier.payload.qa_history)
+    local history = assert(record.payload.qa_history)
     return {
         ancestor = ancestor,
         carrier = record,
+        assessment = boundary.assessment,
+        assessment_event = boundary.assessment_event,
+        network_projection = projection,
+        lineage = state,
+        corpse = dead,
         ingress = ingress,
         descendant = descendant,
+        flow = flow_payload,
         descendant_current_check_count = current_check_count,
         historical_verdict_id = history.qa_evidence.verdict.verdict_id,
         ancestor_verdict_id = ancestor.verdict.verdict_id,
         applicability_truth_status = history.applicability_truth_status,
+        ancestor_repository_id = dead.repository_id,
+        ancestor_root_identity = copy(ancestor_root),
+        fresh_repository_id = fresh_repository_id,
+        fresh_root_identity = copy(fresh_repository_state.root_identity),
     }
 end
 

@@ -114,8 +114,20 @@ local descriptors = {
         module = dissolve,
         required_capabilities = {},
         loss_profile = "conditional",
-        reads = {"field.relations.active", "boundary.validations", "trace"},
-        writes = {"field.relations.active", "field.potential", "loss"},
+        reads = {
+            "field.relations.active",
+            "field.potential.units",
+            "ingress.network_projection",
+            "boundary.validations",
+            "trace",
+        },
+        writes = {
+            "field.relations.active",
+            "field.potential.activation",
+            "field.potential.residue",
+            "unit_dissolution",
+            "loss",
+        },
         readiness = function(instance, context)
             return dissolve.readiness(instance, option(context, "dissolve"))
         end,
@@ -167,7 +179,14 @@ local descriptors = {
             return {"substrate.ask"}
         end,
         loss_profile = "zero",
-        reads = {"chaos", "field.potential", "field.relations", "substrate.current"},
+        reads = {
+            "chaos",
+            "field.potential",
+            "field.relations",
+            "ingress.network_projection",
+            "dissolve.rejected_form_residue",
+            "substrate.current",
+        },
         writes = {"boundary.observations.upper", "chaos.fragments", "field.potential"},
         readiness = function(instance, context)
             return observe.readiness(instance, option(context, "observe"))

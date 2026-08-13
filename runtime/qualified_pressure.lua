@@ -9,6 +9,8 @@ local relation_inspection = require("runtime.relation_inspection")
 local repository_inspection = require("runtime.repository_inspection")
 local structure_inspection = require("runtime.structure_inspection")
 local upper_coverage = require("runtime.upper_coverage")
+local network_projection_schema = require("core.network_projection_schema")
+local dissolve_schema = require("core.dissolve_schema")
 
 local qualified = {
     derivation_version = "pressure.qualified_need.v0",
@@ -70,6 +72,11 @@ local repository_reconcile_consumer = {
 local repository_delivery_consumer = {
     id = "manifest.repository_result.v0",
     causal_class = "terminal_boundary",
+}
+
+local inherited_form_consumer = {
+    id = "dissolve.inherited_rejected_form.v0",
+    causal_class = "blocking_demand",
 }
 
 local normal_plan_absence = {
@@ -142,6 +149,141 @@ local function content_truth(instance, versions)
         end
     end
     return status or "unknown"
+end
+
+local function trace_event(instance, id)
+    for _, event in ipairs(instance.trace or {}) do
+        if event.id == id then return event end
+    end
+    return nil
+end
+
+local function inherited_form_state(instance)
+    local projection = instance.ingress and instance.ingress.network_projection
+    if projection == nil then return nil, "absent" end
+    local projection_ok, projection_err =
+        network_projection_schema.verify_projection(projection)
+    if not projection_ok then return nil, projection_err end
+    if projection.terminal_recovery_basis ~= "qa_rejected"
+        or type(projection.rejected_form) ~= "table" then
+        return nil, "NETWORK projection has no exact inherited rejected form"
+    end
+    local view, view_err = field.view(instance, {
+        kinds = {inherited_rejected_form = true},
+        generation = instance.generation,
+        activation = {
+            live = true,
+            selected = true,
+            dissolved = true,
+        },
+        limit = 3,
+    })
+    if not view then return nil, view_err end
+    if view.total_count ~= 1 then
+        return nil, "NETWORK projection requires exactly one inherited form unit"
+    end
+    local unit = view.units[1]
+    local migration = unit.migration or {}
+    local created = trace_event(instance, unit.created_event_id)
+    if unit.created_by ~= "▽"
+        or unit.generation ~= instance.generation
+        or unit.event_truth_status ~= "runtime_confirmed"
+        or unit.content_truth_status ~= "inherited_proposal"
+        or not network_projection_schema.same(
+            unit.carrier,
+            projection.rejected_form
+        )
+        or not network_projection_schema.same(
+            unit.source_refs,
+            projection.rejected_form.source_refs
+        )
+        or migration.status ~= "network_reentry_v1"
+        or migration.projection_id ~= projection.projection_id
+        or migration.rejected_form_id ~= projection.rejected_form.projection_id
+        or migration.projection_role ~= "rejected_form"
+        or type(created) ~= "table" or created.type ~= "birth"
+        or created.operator ~= "▽"
+        or created.payload.network_projection_id ~= projection.projection_id then
+        return nil, "inherited form unit contradicts NETWORK projection"
+    end
+    local releases = {}
+    for _, event in ipairs(instance.trace or {}) do
+        local payload = event.payload or {}
+        local target = payload.target or {}
+        local reason = payload.reason or {}
+        if event.type == "unit_dissolution"
+            and target.id == unit.id
+            and reason.network_projection_id == projection.projection_id then
+            releases[#releases + 1] = event
+        end
+    end
+    if #releases > 1 then
+        return nil, "inherited form has multiple release events"
+    end
+    if unit.activation == "dissolved" then
+        if #releases ~= 1 then
+            return nil, "dissolved inherited form has no exact release event"
+        end
+        local release = releases[1].payload
+        local release_ok, release_err = dissolve_schema.verify_release(release)
+        if not release_ok then return nil, release_err end
+        local residue = field.get_unit(instance, release.residue_unit_id)
+        local residue_ok = residue and dissolve_schema.verify_residue_carrier(
+            residue.carrier
+        )
+        if release.target.id ~= unit.id
+            or release.target.after_version ~= unit.version
+            or release.target.after_activation ~= unit.activation
+            or not residue_ok or residue.kind ~= "rejected_form_residue"
+            or residue.generation ~= instance.generation
+            or residue.activation ~= "live" or residue.created_by ~= "☷"
+            or residue.created_event_id ~= releases[1].id
+            or residue.carrier.release_id ~= release.release_id then
+            return nil, "released inherited form contradicts residue state"
+        end
+        return {
+            status = "released",
+            projection = projection,
+            unit = unit,
+            release_event = releases[1],
+            release = release,
+            residue = residue,
+        }
+    end
+    if unit.activation ~= "live" and unit.activation ~= "selected" then
+        return nil, "inherited form activation is invalid"
+    end
+    if #releases ~= 0 then
+        return nil, "live inherited form already has a release event"
+    end
+    return {
+        status = "pending",
+        projection = projection,
+        unit = unit,
+    }
+end
+
+local function current_work_unit(instance, projection)
+    local view, view_err = field.view(instance, {
+        kinds = {network_current_work = true},
+        generation = instance.generation,
+        activation = {live = true, selected = true},
+        limit = 3,
+    })
+    if not view then return nil, view_err end
+    if view.total_count ~= 1 then
+        return nil, "NETWORK projection requires exactly one current-work unit"
+    end
+    local unit = view.units[1]
+    local migration = unit.migration or {}
+    if unit.created_by ~= "▽" or unit.version < 1
+        or not network_projection_schema.same(unit.carrier, projection.current_work)
+        or migration.status ~= "network_reentry_v1"
+        or migration.projection_id ~= projection.projection_id
+        or migration.projection_role ~= "current_work" then
+        return nil, "current-work unit contradicts NETWORK projection"
+    end
+    return unit
 end
 
 local function witness_identity(input)
@@ -939,6 +1081,36 @@ local function upper_sensor(instance, need)
     return "semantic"
 end
 
+local function release_presentation_policy(instance, needs)
+    local state, state_err = inherited_form_state(instance)
+    if not state then
+        if state_err == "absent" then return nil end
+        return nil, state_err
+    end
+    if state.status ~= "released" then return nil end
+    local current, current_err = current_work_unit(instance, state.projection)
+    if not current then return nil, current_err end
+    local expected = {
+        [current.id] = true,
+        [state.unit.id] = true,
+        [state.residue.id] = true,
+    }
+    local matched = 0
+    local unexpected = 0
+    for _, need in ipairs(needs) do
+        if expected[need.object_id] then
+            matched = matched + 1
+        else
+            unexpected = unexpected + 1
+        end
+    end
+    if matched == 0 then return nil end
+    if matched ~= 3 or unexpected ~= 0 or #needs ~= 3 then
+        return nil, "post-release observation scope is incomplete"
+    end
+    return "network.rejected_form_after_release.v0"
+end
+
 local function upper_witness(instance, current, sensor, needs)
     local unit_ids = {}
     local unit_versions = {}
@@ -960,6 +1132,11 @@ local function upper_witness(instance, current, sensor, needs)
     table.sort(class_names)
     local mode = sensor .. "_observe"
     local source_domain = "upper_observation:" .. table.concat(class_names, "+")
+    local presentation_policy, policy_err = release_presentation_policy(
+        instance,
+        needs
+    )
+    if policy_err then return nil, policy_err end
     return build_witness(instance, current, {
         kind = "upper_observation_need",
         target_operator = "☴",
@@ -979,6 +1156,7 @@ local function upper_witness(instance, current, sensor, needs)
                 sensor = sensor,
                 unit_ids = unit_ids,
                 unit_versions = unit_versions,
+                presentation_policy = presentation_policy,
             }},
             expected_effect = {
                 discharge_reader = "upper_observation_need",
@@ -989,6 +1167,102 @@ local function upper_witness(instance, current, sensor, needs)
             observation_classes = class_names,
         },
     })
+end
+
+function qualified.inherited_form_witnesses(instance, context, options)
+    options = options or {}
+    local current = current_operator(instance, context)
+    if not current then return nil, "invalid current operator" end
+    if instance.status == "dead" or instance.status == "dying"
+        or instance.status == "manifested" then
+        return {}, {}
+    end
+    if options.ablate_inherited_form_consumer == true then
+        return {}, {{
+            kind = "qualified_consumer_ablation",
+            consumer_contract = inherited_form_consumer.id,
+            event_truth_status = "runtime_confirmed",
+        }}
+    end
+    if options.router_mode ~= "tree" or not topology.is_adjacent(current, "☷") then
+        return {}, {}
+    end
+    local state, state_err = inherited_form_state(instance)
+    if not state then
+        if state_err == "absent" then return {}, {} end
+        return nil, state_err
+    end
+    if state.status == "released" then return {}, {} end
+
+    local projection = state.projection
+    local unit = state.unit
+    local form = projection.rejected_form
+    local planned, planned_err = field.plan_unit_ids(instance, 1)
+    if not planned then return nil, planned_err end
+    local scope_refs = sorted_unique({
+        exact_ref(unit.id, unit.version),
+        projection.projection_id,
+        projection.carrier_id,
+        projection.source_corpse_id,
+        projection.historical_qa_id,
+        form.candidate_seal_id,
+        form.verdict_id,
+    })
+    local witness, witness_err = build_witness(instance, current, {
+        kind = "inherited_rejected_form_release_need",
+        target_operator = "☷",
+        causal_class = inherited_form_consumer.causal_class,
+        source_domain = "network_inherited_rejected_form",
+        scope_refs = scope_refs,
+        provenance_refs = merge_refs(
+            {"consumer:" .. inherited_form_consumer.id},
+            projection.source_refs
+        ),
+        source_truth_status = "inherited_proposal",
+        action_mode = "inherited_rejected_form_release",
+        action_input = {
+            preconditions = {
+                packet_id = instance.id,
+                generation = instance.generation,
+                object_versions = {[unit.id] = unit.version},
+                planned_residue_unit_id = planned[1],
+                relevant_revisions = {
+                    potential = instance.revisions.potential,
+                },
+            },
+            options = {dissolve = {
+                scope = "unit",
+                target = {
+                    kind = "unit",
+                    id = unit.id,
+                    version = unit.version,
+                },
+                reason = {
+                    kind = "rejected",
+                    subtype = "ancestor_candidate",
+                    network_projection_id = projection.projection_id,
+                    carrier_id = projection.carrier_id,
+                    source_corpse_id = projection.source_corpse_id,
+                    historical_qa_id = projection.historical_qa_id,
+                    candidate_seal_id = form.candidate_seal_id,
+                    verdict_id = form.verdict_id,
+                },
+                preserve_residue = true,
+            }},
+            expected_effect = {
+                event_type = "dissolve_organ_payload",
+                scope_refs = scope_refs,
+                discharge_reader = "inherited_rejected_form_release_need",
+            },
+            content_truth_status = "inherited_proposal",
+        },
+        metadata = {
+            consumer_contract = inherited_form_consumer.id,
+            network_projection_id = projection.projection_id,
+        },
+    })
+    if not witness then return nil, witness_err end
+    return {witness}, {}
 end
 
 function qualified.upper_witnesses(instance, context, options)
@@ -1016,11 +1290,26 @@ function qualified.upper_witnesses(instance, context, options)
         return {}, diagnostics
     end
 
+    local inherited, inherited_err = inherited_form_state(instance)
+    local deferred_current_id
+    if not inherited then
+        if inherited_err ~= "absent" then return nil, inherited_err end
+    elseif inherited.status == "pending" then
+        local current_unit, current_err = current_work_unit(
+            instance,
+            inherited.projection
+        )
+        if not current_unit then return nil, current_err end
+        deferred_current_id = current_unit.id
+    end
+
     local grouped = {}
     for _, need in ipairs(needs.items or {}) do
-        local sensor = upper_sensor(instance, need)
-        grouped[sensor] = grouped[sensor] or {}
-        grouped[sensor][#grouped[sensor] + 1] = need
+        if need.object_id ~= deferred_current_id then
+            local sensor = upper_sensor(instance, need)
+            grouped[sensor] = grouped[sensor] or {}
+            grouped[sensor][#grouped[sensor] + 1] = need
+        end
     end
     local sensors = {}
     for sensor in pairs(grouped) do
@@ -1072,6 +1361,14 @@ function qualified.derive(instance, tick_result, options)
     if not upper then
         return nil, upper_diagnostics
     end
+    local inherited, inherited_diagnostics = qualified.inherited_form_witnesses(
+        instance,
+        context,
+        options
+    )
+    if not inherited then
+        return nil, inherited_diagnostics
+    end
     local structure, structure_diagnostics = qualified.structure_witnesses(
         instance,
         context,
@@ -1111,6 +1408,9 @@ function qualified.derive(instance, tick_result, options)
     for _, witness in ipairs(upper) do
         witnesses[#witnesses + 1] = witness
     end
+    for _, witness in ipairs(inherited) do
+        witnesses[#witnesses + 1] = witness
+    end
     for _, witness in ipairs(structure) do
         witnesses[#witnesses + 1] = witness
     end
@@ -1131,6 +1431,9 @@ function qualified.derive(instance, tick_result, options)
         unqualified[#unqualified + 1] = diagnostic
     end
     for _, diagnostic in ipairs(upper_diagnostics or {}) do
+        unqualified[#unqualified + 1] = diagnostic
+    end
+    for _, diagnostic in ipairs(inherited_diagnostics or {}) do
         unqualified[#unqualified + 1] = diagnostic
     end
     for _, diagnostic in ipairs(structure_diagnostics or {}) do
@@ -1171,5 +1474,6 @@ qualified.repository_review_consumer = copy_value(repository_review_consumer)
 qualified.repository_effect_consumer = copy_value(repository_effect_consumer)
 qualified.repository_reconcile_consumer = copy_value(repository_reconcile_consumer)
 qualified.repository_delivery_consumer = copy_value(repository_delivery_consumer)
+qualified.inherited_form_consumer = copy_value(inherited_form_consumer)
 
 return qualified

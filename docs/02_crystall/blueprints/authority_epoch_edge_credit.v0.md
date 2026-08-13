@@ -37,6 +37,10 @@ pressure witness change: forbidden
 organ effect change: forbidden
 router default change: forbidden
 promotion decision: forbidden
+amendment 2026-08-13:
+  P10 direct inherited-form evaluator is superseded by
+  docs/02_crystall/blueprints/dissolve_p10_evidence.v0.md
+  all generic DISSOLVE and promotion deferrals remain in force
 ```
 
 This blueprint replaces `edge-stats.v2` only for new evidence. Existing v2
@@ -2002,7 +2006,7 @@ Closed required cases:
 | P07 | L0 | identity-loss life | larger-loss control |
 | P08 | L0 | host tick-limit life | observer mirror |
 | P09 | L0 | CONNECT witness life | no-relation-need control |
-| P10 | L0 | DISSOLVE witness life | no-rigidity control |
+| P10 | L0 | credited ☷ arrival + exact direct `unit_dissolution` final-state join | semantically verified no-rigidity life + observer mirror |
 | P11 | L0 | multi-alternative CHOOSE life | confirmation control |
 | P12 | L0 | observer-pair family aggregate | every required deterministic family |
 | P13 | L0 | malformed harness boundary | matching typed failure |
@@ -2979,7 +2983,7 @@ instrument error becomes Packet death
 ## 20. Explicit Deferrals
 
 ```text
-DISSOLVE witness/action/readiness treatment
+DISSOLVE witness/action/readiness treatments beyond the direct inherited-form slice
 CYCLE witness/action/readiness treatment
 automatic QA route producers/actions
 remaining 22-edge direction campaign

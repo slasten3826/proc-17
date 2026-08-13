@@ -99,7 +99,7 @@ end)
 
 suite:check("M4 descendant receives bounded history but no current check", function()
     local observed = assert(fixture.grow_qa_descendant())
-    local history = observed.ingress.carrier.payload.qa_history
+    local history = observed.carrier.payload.qa_history
     H.assert_eq(history.applicability_truth_status, "inherited_proposal")
     H.assert_eq(observed.descendant_current_check_count, 0)
     H.assert_eq(#fixture.events(observed.descendant, "qa_check"), 0)

@@ -71,6 +71,64 @@ local function unique_refs(values)
     return result
 end
 
+local function contains_ref(values, wanted)
+    for _, value in ipairs(values or {}) do
+        if value == wanted then return true end
+    end
+    return false
+end
+
+local function verify_qa_rejected_assessment(corpse, assessment, qa_history)
+    if assessment.contract_id ~= "software.create.v0"
+        or assessment.task_state ~= "unfinished"
+        or assessment.terminal_recoverable ~= true
+        or assessment.terminal_recovery_basis ~= "qa_rejected"
+        or assessment.event_truth_status ~= "runtime_confirmed"
+        or corpse.process_contract_id ~= "software.create.v0"
+        or corpse.work_mode ~= "build"
+        or corpse.death_cause ~= "blocked"
+        or type(assessment.progress) ~= "table"
+        or assessment.progress.rejected_generation ~= corpse.generation
+        or type(assessment.remaining_work) ~= "table"
+        or assessment.remaining_work.count ~= 1
+        or assessment.remaining_work.kind ~= "fresh_candidate_generation"
+        or assessment.remaining_work.stage_id ~= corpse.stage_id
+        or type(qa_history) ~= "table" then
+        return nil, "QA-rejected assessment cannot produce recovery carrier"
+    end
+    local evidence = qa_history.qa_evidence
+    local verdict = evidence and evidence.verdict
+    if not verdict or verdict.verdict ~= "rejected"
+        or assessment.progress.candidate_seal_id ~= verdict.candidate_seal_id
+        or assessment.progress.verdict_id ~= verdict.verdict_id then
+        return nil, "QA-rejected assessment contradicts frozen verdict"
+    end
+    for _, required in ipairs({
+        corpse.corpse_id,
+        corpse.corpse_hash,
+        corpse.terminal_trace_ref,
+        corpse.manifest_trace_ref,
+        evidence.qa_contract_id,
+        evidence.request_id,
+        evidence.request_ref,
+        evidence.check and evidence.check.qa_check_id,
+        evidence.check_ref,
+        verdict.verdict_id,
+        evidence.verdict_ref,
+    }) do
+        if type(required) ~= "string"
+            or not contains_ref(assessment.evidence_refs, required) then
+            return nil, "QA-rejected assessment omits frozen evidence"
+        end
+    end
+    for _, required in ipairs(evidence.source_refs or {}) do
+        if not contains_ref(assessment.evidence_refs, required) then
+            return nil, "QA-rejected assessment omits QA source ref"
+        end
+    end
+    return true
+end
+
 local function build_qa_history(source)
     local evidence = source.qa_evidence
     if type(evidence) ~= "table" then return nil end
@@ -131,11 +189,15 @@ local function verify_qa_history(value, record)
     if not qa_schema.same(expected_refs, value.source_refs) then
         return nil, "carrier QA history refs are not normalized"
     end
-    for _, required in ipairs({
+    local required_refs = {
         value.source_corpse_id,
         value.source_corpse_hash,
         value.source_packet_id,
-    }) do
+    }
+    for _, ref in ipairs(value.qa_evidence.source_refs or {}) do
+        required_refs[#required_refs + 1] = ref
+    end
+    for _, required in ipairs(required_refs) do
         local present = false
         for _, ref in ipairs(value.source_refs) do
             if ref == required then present = true break end
@@ -168,6 +230,14 @@ function carrier.build_recovery(lineage, corpse, assessment, options)
     end
     local qa_history, qa_history_err = build_qa_history(corpse)
     if qa_history_err then return nil, qa_history_err end
+    if assessment.terminal_recovery_basis == "qa_rejected" then
+        local exact, exact_err = verify_qa_rejected_assessment(
+            corpse,
+            assessment,
+            qa_history
+        )
+        if not exact then return nil, exact_err end
+    end
     local payload = {
         original_task = lineage.task.payload,
         prior_manifest = copy_value(corpse.manifest),

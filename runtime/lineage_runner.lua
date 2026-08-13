@@ -6,6 +6,7 @@ local grave = require("runtime.grave")
 local lineage = require("runtime.lineage")
 local lineage_budget = require("runtime.lineage_budget")
 local network_ingress = require("runtime.network_ingress")
+local network_projection = require("runtime.network_projection")
 local session_memory = require("runtime.session_memory")
 local tension_runner = require("runtime.tension_runner")
 
@@ -366,6 +367,7 @@ function lineage_runner.run(task, substrate, options)
                 protocol_version = "vertical_packet_life.v0",
                 flow_domain = domain,
                 projection_adapter = options.projection_adapter or "vertical_single.v0",
+                network_projection = copy_value(ingress.network_projection),
             },
             inherited_graves = inherited_graves,
         })
@@ -671,6 +673,25 @@ function lineage_runner.run(task, substrate, options)
                 stage_error("carrier", recovery_verify_err)
             )
         end
+        local recovery_projection
+        if assessment.terminal_recovery_basis == "qa_rejected" then
+            local projection_err
+            recovery_projection, projection_err = network_projection.derive(
+                state,
+                dead,
+                assessment_event,
+                recovery,
+                {max_carrier_bytes = state.policy.carrier.max_bytes}
+            )
+            if not recovery_projection then
+                return terminate_loud(
+                    state,
+                    session,
+                    ledger_cursor,
+                    stage_error("network_projection", projection_err)
+                )
+            end
+        end
         local carrier_charge, carrier_charge_err = lineage_budget.charge(
             state.budget,
             "carrier:" .. recovery.carrier_id,
@@ -713,10 +734,34 @@ function lineage_runner.run(task, substrate, options)
                 recovery.applicability_truth_status,
             },
         }))
+        if recovery_projection ~= nil and dead.repository_id ~= nil then
+            report.carriers[#report.carriers + 1] = copy_value(recovery)
+            assert(lineage.finish(state, {
+                status = "suspended",
+                cause = "fresh_repository_allocation_required",
+                assessment_id = assessment.assessment_id,
+                source_refs = {
+                    dead.corpse_id,
+                    recovery.carrier_id,
+                    recovery_projection.projection_id,
+                },
+            }))
+            local finished, finish_err = finish_report(
+                state,
+                report,
+                session,
+                ledger_cursor
+            )
+            if not finished then
+                return terminate_loud(state, session, ledger_cursor, finish_err)
+            end
+            return state, finished
+        end
         local continued, continued_err = lineage.mark_continued(
             state,
             dead,
-            recovery
+            recovery,
+            {network_projection = recovery_projection}
         )
         if not continued then
             return terminate_loud(
@@ -726,7 +771,16 @@ function lineage_runner.run(task, substrate, options)
                 stage_error("continuation", continued_err)
             )
         end
-        local next_ingress, ingress_err = network_ingress.prepare(state, recovery)
+        local next_ingress, ingress_err = network_ingress.prepare(
+            state,
+            recovery,
+            {
+                network_projection = recovery_projection,
+                source_corpse = dead,
+                assessment_event = assessment_event,
+                max_bytes = state.policy.carrier.max_bytes,
+            }
+        )
         if not next_ingress then
             return terminate_loud(
                 state,

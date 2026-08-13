@@ -43,6 +43,9 @@ local function prepare_options(options)
         return nil, "packet_options must be table"
     end
     local packet_options = copy_value(prepared.packet_options or {})
+    if packet_options.network_projection ~= nil then
+        return nil, "NETWORK projection must enter through trusted packet_life"
+    end
     if packet_options.metadata ~= nil and type(packet_options.metadata) ~= "table" then
         return nil, "packet metadata must be table"
     end
@@ -1268,6 +1271,7 @@ function tension_runner.run(prompt, substrate, options)
             packet_options = options.packet_options,
             projection_adapter = packet_life.projection_adapter,
             inherited_graves = prepared_graves,
+            network_projection = packet_life.network_projection,
         })
         if not instance then
             birth_err = birth_receipt

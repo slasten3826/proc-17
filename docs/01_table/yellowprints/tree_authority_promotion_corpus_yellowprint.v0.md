@@ -9,6 +9,10 @@ transition step: 4.3B
 scope: deterministic/live corpus and canonical edge closure
 production code change authorized: no
 promotion authorized: no
+amendment 2026-08-13:
+  direct inherited-form P10 evidence semantics superseded by
+  dissolve_p10_evidence_yellowprint.v0
+  generic/raw/formed DISSOLVE and promotion status unchanged
 ```
 
 ## 1. Table Decisions
@@ -59,7 +63,7 @@ does not satisfy the required successful live cases.
 | P07 | ENCODE/CHOOSE reaches identity loss | Internal `identity_loss`, warning grave, no CYCLE loss | Larger loss limit control | Green in mortality battery |
 | P08 | Small host ceiling with payable internal budget | `tick_limit`, Packet remains alive, final edge committed not executed | Same life with legacy observer off | Missing under tree |
 | P09 | Relation state produces CONNECT pressure | ☰ selected and executed from varying witness; relation revision changes | State without relation need | Partial |
-| P10 | Packet-owned rigidity/repair pressure produces DISSOLVE | ☷ selected and executed without harness reason; release and loss visible | Same state without rigidity | Red/missing |
+| P10 | Packet-owned rigidity/repair pressure produces DISSOLVE | Credited arrival into ☷ joined to exact `unit_dissolution`, target release, released mass and residue; irreversible loss read separately | Same prompt/work mode/physics with no qualified inherited form, plus observer mirror | Direct inherited-form corpus green; raw/formed treatments still missing |
 | P11 | At least two real alternatives reach CHOOSE | Real suppression, killed count, choice loss > 0 | One-alternative confirmation fixture | Missing from promotion evidence |
 | P12 | Mirror run of every L0 family | Observer on/off leaves all Packet physics identical | Trace delta contains instrumentation only | Partial matrix |
 | P13 | Malformed Lua/contract invariant | Runner returns loud harness failure, no typed Packet death | Matching valid typed failure | Existing local gates, corpus record missing |
@@ -204,6 +208,8 @@ pass.
 | Malformed effect becomes Packet death | Harness error and no terminal required |
 | Observer becomes authority | No legacy observer ref in committed route evidence |
 | DISSOLVE reason injected | Fixture options contain no dissolve reason |
+| Any old loss called DISSOLVE evidence | Exact `unit_dissolution`, target transition and residue join required; `boundary.loss_records` is neither necessary nor sufficient |
+| Ritual `no_rigidity` reference | Control semantics prove no active inherited form, no release event and no credited arrival into ☷ |
 | CHOOSE confirmation called collapse | `alternative_count > 1` and `not_chosen_count > 0` required |
 | Constant signal called adaptive | Matched negative fixture must remove/change contribution |
 | Weight hides missing reader | Missing-reader gate evaluated before score thresholds |

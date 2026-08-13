@@ -1,10 +1,12 @@
 local packet_core = require("core.packet")
 local topology = require("core.topology")
 local object_coverage = require("runtime.object_coverage")
+local dissolve_schema = require("core.dissolve_schema")
 
 local field = {}
 
 local FIELD_PROTOCOL = "field.v0"
+local inherited_release_plans = setmetatable({}, {__mode = "k"})
 
 local add_unit_rights = {
     ["▽"] = true,
@@ -381,6 +383,9 @@ function field.set_activation(instance, actor, id, activation, source)
     if not unit then
         return nil, "field unit not found"
     end
+    if unit.kind == "inherited_rejected_form" then
+        return nil, "inherited rejected form requires atomic release transaction"
+    end
     if unit.activation == "dissolved" and activation ~= "dissolved" then
         return nil, "dissolved field unit cannot be reactivated"
     end
@@ -415,6 +420,171 @@ function field.set_activation(instance, actor, id, activation, source)
     unit.version = unit.version + 1
     instance.revisions.potential = instance.revisions.potential + 1
     return copy_value(unit)
+end
+
+function field.prepare_inherited_form_release(instance, actor, input)
+    local mutable, mutable_err = packet_core.assert_mutable(
+        instance,
+        "prepare inherited form release"
+    )
+    if not mutable then return nil, mutable_err end
+    local glyph, glyph_err = actor_glyph(actor)
+    if not glyph then return nil, glyph_err end
+    if glyph ~= "☷" then return nil, "only DISSOLVE may release inherited form" end
+    local lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        glyph,
+        "prepare inherited form release"
+    )
+    if not lease then return nil, lease_err end
+    if type(input) ~= "table" or getmetatable(input) ~= nil then
+        return nil, "inherited form release input must be a plain table"
+    end
+    local allowed = {
+        release = true,
+        residue_carrier = true,
+        residue_source_refs = true,
+    }
+    for key in pairs(input) do
+        if not allowed[key] then
+            return nil, "inherited form release input contains unknown key: "
+                .. tostring(key)
+        end
+    end
+    local release_ok, release_err = dissolve_schema.verify_release(input.release)
+    if not release_ok then return nil, release_err end
+    local residue_ok, residue_err = dissolve_schema.verify_residue_carrier(
+        input.residue_carrier
+    )
+    if not residue_ok then return nil, residue_err end
+    if input.residue_carrier.release_id ~= input.release.release_id then
+        return nil, "DISSOLVE residue contradicts release identity"
+    end
+    local root_value, root_err = root(instance)
+    if not root_value then return nil, root_err end
+    local target = root_value.units[input.release.target.id]
+    if not target or target.kind ~= "inherited_rejected_form"
+        or target.generation ~= instance.generation
+        or target.version ~= input.release.target.before_version
+        or target.activation ~= input.release.target.before_activation then
+        return nil, "DISSOLVE inherited target is stale"
+    end
+    if input.release.residue_unit_id ~= next_unit_id(root_value)
+        or root_value.units[input.release.residue_unit_id] ~= nil then
+        return nil, "DISSOLVE planned residue id is stale"
+    end
+    local residue_unit, unit_err = field.validate_unit_plan(
+        instance,
+        glyph,
+        {
+            id = input.release.residue_unit_id,
+            kind = "rejected_form_residue",
+            carrier = copy_value(input.residue_carrier),
+            source_refs = copy_array(input.residue_source_refs),
+            event_truth_status = "runtime_confirmed",
+            content_truth_status = "mixed",
+            activation = "live",
+            migration = {
+                status = "inherited_form_released",
+                release_id = input.release.release_id,
+                target_unit_id = target.id,
+            },
+        },
+        {pending_created_event = true}
+    )
+    if not residue_unit then return nil, unit_err end
+    residue_unit.migration = {
+        status = "inherited_form_released",
+        release_id = input.release.release_id,
+        target_unit_id = target.id,
+    }
+    local plan = {
+        kind = "field_inherited_form_release_plan",
+        packet_id = instance.id,
+        generation = instance.generation,
+        potential_revision = instance.revisions.potential,
+        release = copy_value(input.release),
+        residue_unit = residue_unit,
+    }
+    inherited_release_plans[plan] = instance
+    return plan
+end
+
+function field.commit_inherited_form_release(instance, actor, plan, event_id)
+    local glyph, glyph_err = actor_glyph(actor)
+    if not glyph then return nil, glyph_err end
+    if glyph ~= "☷" or inherited_release_plans[plan] ~= instance then
+        return nil, "invalid inherited form release plan"
+    end
+    inherited_release_plans[plan] = nil
+    local lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        glyph,
+        "commit inherited form release"
+    )
+    if not lease then return nil, lease_err end
+    local event, event_err = packet_core.event_in_current_tick(
+        instance,
+        glyph,
+        event_id
+    )
+    if not event then return nil, event_err end
+    if event.type ~= "unit_dissolution"
+        or not dissolve_schema.same(event.payload, plan.release) then
+        return nil, "release event does not match field plan"
+    end
+    local root_value, root_err = root(instance)
+    if not root_value then return nil, root_err end
+    local release = plan.release
+    local target = root_value.units[release.target.id]
+    if instance.revisions.potential ~= plan.potential_revision
+        or not target or target.version ~= release.target.before_version
+        or target.activation ~= release.target.before_activation
+        or root_value.next_unit_id ~= tonumber(
+            release.residue_unit_id:match("^unit:(%d+)$")
+        )
+        or root_value.units[release.residue_unit_id] ~= nil then
+        return nil, "inherited form release plan became stale"
+    end
+
+    local target_snapshot = copy_value(target)
+    local order_length = #root_value.unit_order
+    local next_snapshot = root_value.next_unit_id
+    local revision_snapshot = instance.revisions.potential
+    local ok, residue_or_err = pcall(function()
+        target.activation = "dissolved"
+        target.activation_source = {
+            event_id = event_id,
+            actor = glyph,
+            reason = "inherited_rejected_form_release",
+        }
+        target.version = release.target.after_version
+
+        local residue = copy_value(plan.residue_unit)
+        residue.created_event_id = event_id
+        root_value.units[residue.id] = residue
+        root_value.unit_order[#root_value.unit_order + 1] = residue.id
+        root_value.next_unit_id = root_value.next_unit_id + 1
+        instance.revisions.potential = instance.revisions.potential + 1
+        if target.activation ~= release.target.after_activation
+            or target.version ~= release.target.after_version
+            or root_value.next_unit_id ~= next_snapshot + 1
+            or instance.revisions.potential ~= revision_snapshot + 1 then
+            error("inherited form release postcondition failed")
+        end
+        return residue
+    end)
+    if not ok then
+        root_value.units[release.target.id] = target_snapshot
+        root_value.units[release.residue_unit_id] = nil
+        while #root_value.unit_order > order_length do
+            root_value.unit_order[#root_value.unit_order] = nil
+        end
+        root_value.next_unit_id = next_snapshot
+        instance.revisions.potential = revision_snapshot
+        return nil, tostring(residue_or_err)
+    end
+    return copy_value(residue_or_err), copy_value(target)
 end
 
 local function validate_relation_candidate(root_value, candidate, planned_id)

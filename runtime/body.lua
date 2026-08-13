@@ -1,6 +1,8 @@
 local cycle = require("logic.cycle")
 local packet_core = require("core.packet")
 local qa_evidence_schema = require("core.qa_evidence_schema")
+local dissolve_schema = require("core.dissolve_schema")
+local network_projection_schema = require("core.network_projection_schema")
 local field = require("runtime.field")
 local object_coverage = require("runtime.object_coverage")
 local digest = require("core.digest")
@@ -62,6 +64,22 @@ local function copy_value(value, seen)
     for key, child in pairs(value) do
         result[copy_value(key, seen)] = copy_value(child, seen)
     end
+    return result
+end
+
+local function sorted_unique(values)
+    local result, seen = {}, {}
+    for _, value in ipairs(values or {}) do
+        if type(value) ~= "string" or value == "" then
+            return nil, "release refs must contain non-empty strings"
+        end
+        if seen[value] then
+            return nil, "release refs must not contain duplicates"
+        end
+        seen[value] = true
+        result[#result + 1] = value
+    end
+    table.sort(result)
     return result
 end
 
@@ -1022,6 +1040,180 @@ function body.record_qa_candidate_verdict(instance, payload)
         payload,
         {}
     )
+end
+
+function body.release_inherited_rejected_form(instance, input)
+    local lease, lease_err = packet_core.assert_actor_tick(
+        instance,
+        "☷",
+        "release inherited rejected form"
+    )
+    if not lease then return nil, lease_err end
+    local input_ok, input_err = exact_keys(input, {
+        target = true,
+        reason = true,
+        preserve_residue = true,
+        source_refs = true,
+        planned_residue_unit_id = true,
+        potential_revision = true,
+    }, "inherited form release")
+    if not input_ok then return nil, input_err end
+    if input.preserve_residue ~= true
+        or type(input.target) ~= "table"
+        or input.target.kind ~= "unit"
+        or type(input.target.id) ~= "string"
+        or type(input.target.version) ~= "number"
+        or input.target.version < 1
+        or input.target.version ~= math.floor(input.target.version)
+        or type(input.planned_residue_unit_id) ~= "string"
+        or type(input.potential_revision) ~= "number"
+        or input.potential_revision ~= instance.revisions.potential then
+        return nil, "inherited form release preconditions are invalid"
+    end
+    local reason, reason_err = dissolve_schema.normalize_inherited_reason(
+        input.reason
+    )
+    if not reason or not dissolve_schema.same(reason, input.reason) then
+        return nil, reason_err or "inherited form reason is not normalized"
+    end
+    local refs, refs_err = sorted_unique(input.source_refs)
+    if not refs then return nil, refs_err end
+    if not equal_value(refs, input.source_refs) then
+        return nil, "inherited form release refs are not normalized"
+    end
+
+    local projection = instance.ingress and instance.ingress.network_projection
+    local projection_ok, projection_err =
+        network_projection_schema.verify_projection(projection)
+    if not projection_ok then return nil, projection_err end
+    local form = projection.rejected_form
+    local expected_reason = {
+        kind = "rejected",
+        subtype = "ancestor_candidate",
+        network_projection_id = projection.projection_id,
+        carrier_id = projection.carrier_id,
+        source_corpse_id = projection.source_corpse_id,
+        historical_qa_id = projection.historical_qa_id,
+        candidate_seal_id = form.candidate_seal_id,
+        verdict_id = form.verdict_id,
+    }
+    if not dissolve_schema.same(reason, expected_reason) then
+        return nil, "inherited form reason contradicts NETWORK projection"
+    end
+    local unit = field.get_unit(instance, input.target.id)
+    if not unit or unit.kind ~= "inherited_rejected_form"
+        or unit.generation ~= instance.generation
+        or unit.created_by ~= "▽"
+        or unit.version ~= input.target.version
+        or (unit.activation ~= "live" and unit.activation ~= "selected")
+        or unit.content_truth_status ~= "inherited_proposal"
+        or not network_projection_schema.same(unit.carrier, form) then
+        return nil, "inherited rejected form target is stale or foreign"
+    end
+    local expected_scope = {
+        table.concat({
+            "coverage", "field_unit", unit.id, tostring(unit.version),
+        }, ":"),
+        reason.network_projection_id,
+        reason.carrier_id,
+        reason.source_corpse_id,
+        reason.historical_qa_id,
+        reason.candidate_seal_id,
+        reason.verdict_id,
+    }
+    table.sort(expected_scope)
+    if not equal_value(refs, expected_scope) then
+        return nil, "inherited form release scope is not exact"
+    end
+    local planned, planned_err = field.plan_unit_ids(instance, 1)
+    if not planned then return nil, planned_err end
+    if planned[1] ~= input.planned_residue_unit_id then
+        return nil, "inherited form residue allocation is stale"
+    end
+    for _, event in ipairs(instance.trace or {}) do
+        local payload = event.payload or {}
+        if event.type == "unit_dissolution"
+            and payload.target and payload.target.id == unit.id
+            and payload.reason and payload.reason.network_projection_id
+                == projection.projection_id then
+            return nil, "already_released"
+        end
+    end
+
+    local release, release_err = dissolve_schema.normalize_release({
+        protocol_version = dissolve_schema.release_protocol,
+        target = {
+            kind = "unit",
+            id = unit.id,
+            before_version = unit.version,
+            after_version = unit.version + 1,
+            before_activation = unit.activation,
+            after_activation = "dissolved",
+        },
+        reason = reason,
+        residue_unit_id = input.planned_residue_unit_id,
+        released_mass = {forms = 1, relations = 0},
+        irreversible_identity_loss = 0,
+        source_refs = refs,
+        event_truth_status = "runtime_confirmed",
+        content_truth_status = "mixed",
+    })
+    if not release then return nil, release_err end
+    local residue_carrier, residue_err = dissolve_schema.normalize_residue_carrier({
+        protocol_version = dissolve_schema.residue_protocol,
+        source_packet_id = form.source_packet_id,
+        source_corpse_id = form.source_corpse_id,
+        source_generation = form.source_generation,
+        historical_qa_id = form.historical_qa_id,
+        candidate_seal_id = form.candidate_seal_id,
+        qa_contract_id = form.qa_contract_id,
+        verdict_id = form.verdict_id,
+        rejected_check_refs = copy_value(form.rejected_check_refs),
+        failure_summary = copy_value(form.failure_summary),
+        release_id = release.release_id,
+        ancestor_evidence_truth_status = "runtime_confirmed",
+        prior_applicability_truth_status = "inherited_proposal",
+        release_truth_status = "runtime_confirmed",
+    })
+    if not residue_carrier then return nil, residue_err end
+    local residue_refs = copy_value(refs)
+    residue_refs[#residue_refs + 1] = release.release_id
+    table.sort(residue_refs)
+    local plan, plan_err = field.prepare_inherited_form_release(
+        instance,
+        "☷",
+        {
+            release = release,
+            residue_carrier = residue_carrier,
+            residue_source_refs = residue_refs,
+        }
+    )
+    if not plan then return nil, plan_err end
+
+    local trace_length = #instance.trace
+    local event, event_err = packet_core.append_unit_dissolution(instance, {
+        type = "unit_dissolution",
+        operator = "☷",
+        truth_status = "runtime_confirmed",
+        payload = release,
+        cost = {},
+    })
+    if not event then return nil, event_err end
+    local committed, residue, target = pcall(
+        field.commit_inherited_form_release,
+        instance,
+        "☷",
+        plan,
+        event.id
+    )
+    if not committed or residue == nil then
+        while #instance.trace > trace_length do
+            instance.trace[#instance.trace] = nil
+        end
+        return nil, tostring(committed and target or residue)
+    end
+    return copy_value(release), copy_value(residue), copy_value(event),
+        copy_value(target)
 end
 
 function body.record_choice(instance, choice_payload)
