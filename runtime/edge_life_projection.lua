@@ -109,6 +109,8 @@ local runner_instrumentation_keys = {
     work_layer_observer = true,
     work_layer_observations = true,
     work_layer_observer_errors = true,
+    dissolve_pressure_relief_reader = true,
+    dissolve_pressure_relief_measurements = true,
 }
 
 local function instrument_error(code, extra)

@@ -1,5 +1,27 @@
 # DISSOLVE Campaign Conservation And Resume Contract
 
+Latest pause/resume checkpoint before the next brainstorming branch:
+
+```text
+docs/00_chaos/dissolve_pressure_relief_pause_and_resume_notes_2026-08-14.md
+```
+
+Publication amendment 2026-08-20:
+
+```text
+R1-R7 audit/TABLE/CRYSTALL complete
+R8 pure pressure-relief reader and exact runner hook complete
+R9 PR-T01 through PR-T20 focused/hostile/runner corpus complete
+R10 full Lua suite, mortality, static and diff publication gates green
+```
+
+The published runtime fact is narrow: one opt-in diagnostic reader can prove
+whether the exact inherited rejected-form obligation that selected ☷ was
+discharged, while retaining any successor obligation separately. The reader is
+off by default and has no route, budget, loss, trace, corpse or authority mass.
+This does not authorize every-tick DISSOLVE, semantic age, generic relation GC,
+raw/formed relation promotion, a universal Z model or external harness fusion.
+
 Amendment 2026-08-13:
 
 ```text
@@ -15,7 +37,19 @@ Permanent evidence:
   tests/test_inherited_form_dissolve.lua
   tests/test_inherited_form_dissolve_hostile.lua
   tests/test_inherited_form_dissolve_life.lua
+  tests/test_dissolve_pressure_relief.lua
   docs/03_manifest/qualified_dissolve_inherited_form.v0.md
+
+Immediate pressure aftermath measured 2026-08-13:
+  exact selected release witness: 1 -> 0
+  successor upper OBSERVE witness: 0 -> 1
+  aggregate qualified witness count: 1 -> 1
+
+The first measurement therefore rejects aggregate witness-count delta as a
+general pressure_relief formula. Relief is currently supported only as typed
+discharge of the exact causal obligation that selected ☷. See:
+  docs/00_chaos/dissolve_pressure_relief_first_measurement_notes_2026-08-13.md
+  docs/01_table/yellowprints/dissolve_pressure_relief_reader_yellowprint.v0.md
 
 This amendment does not backfill the older checkpoint text below. The general
 raw-stale route remains RED at R3-04, semantic-age/every-tick collection remains

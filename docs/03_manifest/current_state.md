@@ -15,6 +15,9 @@ integrity-gated CALM body + standalone L1 -> opt-in Vertical Packet Life
 -> canonical authority instrument v3 and reproducible diagnostic report
 -> exact QA-rejected NETWORK reentry and qualified inherited-form DISSOLVE
 -> exact direct-treatment P10 evidence and executable no-rigidity control
+-> first post-release pressure measurement: exact discharge, aggregate 1 -> 1
+-> pressure-relief reader TABLE with explicit same-coordinate topology control
+-> opt-in pure pressure-relief reader + PR-T01..PR-T20 falsification corpus
 ```
 
 proc-17 already controls packet movement, operator position, cost, truth status,
@@ -159,7 +162,8 @@ referent change creates one validation debt and a recast discharges it.
 - `logic/manifest.lua`: classifies and assembles the outward result.
 - `runtime/router.lua`: derives movement from packet pressure.
 - `runtime/tension_runner.lua`: executes the routed life and commits movement
-  through the Packet body.
+  through the Packet body; its opt-in pressure-relief hook runs after the
+  actual post-tick derivation and before successor commit/no-viable handling.
 
 `runtime/operator_registry.lua` contains exactly ten descriptors in canonical
 ProcessLang order. Every descriptor names its read areas, write areas, required
@@ -232,6 +236,15 @@ are recorded in
 [`qualified_dissolve_inherited_form.v0.md`](qualified_dissolve_inherited_form.v0.md).
 Its treatment-specific P10 evidence reader and matched corpus are recorded in
 [`dissolve_p10_evidence.v0.md`](dissolve_p10_evidence.v0.md).
+
+`runtime/dissolve_pressure_relief.lua` is a detached diagnostic reader for one
+exact inherited rejected-form release. It joins the selected route, exact
+release and final field state, derives a pure same-coordinate control, and
+separately classifies the actual upper-OBSERVE successor. The runner option is
+`off` by default. In `v0`, the reader adds only verified result measurements;
+matched off/on lives have identical Packet, route, revisions, economics,
+terminal state and edge evidence. This is treatment evidence, not general
+DISSOLVE authority or an every-tick collector.
 
 `runtime/router.lua` records pressure snapshots and immutable route derivations
 as append-only trace data. In the default shadow mode it also records the
@@ -430,11 +443,17 @@ is not selected by automatic pressure or exposed as CLI release acceptance.
 Current local audit results:
 
 ```text
-lua tests/run.lua                   136 listed suites passed
+lua tests/run.lua                   140 listed suites passed
+lua tests/smoke_mortality_battery.lua 8/8 passed
+luac -p over every tracked/worktree Lua source passed
 tests/test_inherited_form_dissolve.lua passed exact release/observation/replay
 tests/test_inherited_form_dissolve_hostile.lua passed rollback/finality/policy controls
 tests/test_inherited_form_dissolve_life.lua passed E02/E07/ablation/masslessness
 tests/test_dissolve_p10_evidence.lua passed grown P10/control/false-green corpus
+tests/test_dissolve_pressure_relief.lua passed exact 1->0 discharge / aggregate 1->1
+tests/test_dissolve_pressure_relief_reader.lua passed focused outcome controls
+tests/test_dissolve_pressure_relief_reader_hostile.lua passed hostile invariants
+tests/test_dissolve_pressure_relief_runner.lua passed no-rigidity/masslessness/failure
 tests/test_vertical_packet_life.lua A-F passed
 tests/test_vertical_packet_life_ablation.lua passed
 tests/test_tree_authority.lua        10/10 Gate A cases passed
@@ -651,7 +670,9 @@ completion and repository manifestation inside the body.
    sight, strict structure formation, exact alternative collapse and complete
    plan delivery now have route-carried witnesses and actions. One exact
    inherited rejected-form DISSOLVE treatment and its direct P10 reader are
-   complete. Generic
+   complete. Its opt-in pressure-relief reader can also distinguish exact
+   discharge from aggregate pressure movement without changing body physics.
+   Generic
    semantic ENCODE, raw-stale/formed DISSOLVE, broader build execution and most
    of the lower triangle still need equivalent producers. Exact choice loss is
    a provisional count proxy, not calibrated potential mass. Bounded chains
@@ -719,6 +740,11 @@ The active roadmap is deliberately ordered so new power follows owned facts:
    - canonical v3 instrument and current report                 complete
    - direct inherited-form DISSOLVE treatment                    complete
    - direct inherited-form P10 evidence reader                   complete
+   - first exact post-release pressure measurement               complete
+   - post-effect pressure-relief reader TABLE                    complete
+   - pressure-relief cross-table audit / crystall                complete
+   - pure pressure-relief runtime reader / runner hook            complete
+   - PR-T01..PR-T20 focused and hostile corpus                    complete
    - full promotion measurement                              blocked by coverage
 6. implement the outer lineage runner                         complete (in-memory v0)
 7. add capability-safe repository hands                       complete (7.1-7.10)
@@ -759,7 +785,10 @@ truth. Roadmap 7.9 promoted only this demonstrated surface and connected
 qualified review, effect and reconciliation dispatch. The later direct
 inherited-form DISSOLVE campaign is now complete as a separate bounded
 treatment, including its exact direct P10 reader and matched control; it does
-not promote general DISSOLVE. Roadmap 7.10 added the named terminal
+not promote general DISSOLVE. Its later pressure-relief campaign adds a pure,
+opt-in reader for the exact selected obligation plus a twenty-control
+falsification corpus; every-tick collection and semantic-age policy remain
+deferred. Roadmap 7.10 added the named terminal
 reader and exact one-artifact projection without giving △ host authority.
 
 The first real repository work loop is now lawful inside the body:

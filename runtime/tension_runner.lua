@@ -13,6 +13,7 @@ local grave = require("runtime.grave")
 local camera = require("runtime.camera")
 local freshness = require("runtime.freshness")
 local pressure_action = require("runtime.pressure_action")
+local dissolve_pressure_relief = require("runtime.dissolve_pressure_relief")
 local work_layer = require("runtime.work_layer")
 local digest = require("core.digest")
 
@@ -88,6 +89,12 @@ local function prepare_options(options)
     if prepared.work_layer_observer ~= "off"
         and prepared.work_layer_observer ~= "shadow_v0" then
         return nil, "work_layer_observer must be off or shadow_v0"
+    end
+    prepared.dissolve_pressure_relief_reader =
+        prepared.dissolve_pressure_relief_reader or "off"
+    if prepared.dissolve_pressure_relief_reader ~= "off"
+        and prepared.dissolve_pressure_relief_reader ~= "v0" then
+        return nil, "dissolve_pressure_relief_reader must be off or v0"
     end
     if prepared.work_layer_contract ~= nil
         and type(prepared.work_layer_contract) ~= "table" then
@@ -235,6 +242,7 @@ local runner_only_option_keys = {
     authority_instrument_bounds = true,
     expected_authority_epoch = true,
     edge_evidence = true,
+    dissolve_pressure_relief_reader = true,
 }
 
 local function body_options(options)
@@ -867,10 +875,10 @@ end
 local function record_arrival_evidence(instance, result, instrument,
     pending_arrival, pending_credit, tick_event, payload, trace_start)
     if instrument.mode == "off" or not pending_arrival then
-        return true
+        return true, nil
     end
     if not pending_credit then
-        return true
+        return true, nil
     end
     local effect_refs, bundle = tick_effect_sources(
         instance,
@@ -889,7 +897,13 @@ local function record_arrival_evidence(instance, result, instrument,
         }
     )
     if not arrival then
-        return note_instrument_error(result, instrument, arrival_err)
+        local noted, note_err = note_instrument_error(
+            result,
+            instrument,
+            arrival_err
+        )
+        if not noted then return nil, note_err end
+        return true, nil
     end
     local recorded, stats_err = edge_stats.runtime_record_arrival(
         instrument.recorder,
@@ -898,8 +912,77 @@ local function record_arrival_evidence(instance, result, instrument,
         bundle
     )
     if not recorded then
-        return note_instrument_error(result, instrument, stats_err)
+        local noted, note_err = note_instrument_error(result, instrument, stats_err)
+        if not noted then return nil, note_err end
+        return true, nil
     end
+    return true, copy_value(arrival)
+end
+
+local function relief_error(err)
+    if type(err) == "table" then
+        return table.concat({
+            tostring(err.code or "reader_failure"),
+            tostring(err.stage or "unknown_stage"),
+            tostring(err.message or "pressure-relief reader failed"),
+        }, ":")
+    end
+    return tostring(err or "pressure-relief reader failed")
+end
+
+local function capture_dissolve_pressure_relief(instance, result, options, input)
+    if options.dissolve_pressure_relief_reader ~= "v0" then
+        return true
+    end
+    local before, before_err = digest.record(instance)
+    if not before then
+        return nil, "dissolve_pressure_relief:purity:" .. tostring(before_err)
+    end
+    local trusted_context
+    if input.credit_commit and input.arrival_evidence then
+        trusted_context = {edge_credit = {
+            commit = copy_value(input.credit_commit),
+            arrival = copy_value(input.arrival_evidence),
+        }}
+    end
+    local called, view, measure_err = pcall(
+        dissolve_pressure_relief.measure,
+        instance,
+        {
+            protocol_version = dissolve_pressure_relief.request_protocol_version,
+            packet_id = instance.id,
+            generation = instance.generation,
+            route_event_ref = input.arrived_route_ref,
+        },
+        trusted_context
+    )
+    local after, after_err = digest.record(instance)
+    if not after then
+        return nil, "dissolve_pressure_relief:purity:" .. tostring(after_err)
+    end
+    if before ~= after then
+        return nil, "dissolve_pressure_relief:purity:reader mutated Packet"
+    end
+    if not called then
+        return nil, "dissolve_pressure_relief:reader_failure:"
+            .. tostring(view)
+    end
+    if not view then
+        return nil, "dissolve_pressure_relief:" .. relief_error(measure_err)
+    end
+    local verified, verify_err = dissolve_pressure_relief.verify(view)
+    if not verified then
+        return nil, "dissolve_pressure_relief:invalid_view:"
+            .. tostring(verify_err)
+    end
+    for _, existing in ipairs(result.dissolve_pressure_relief_measurements) do
+        if existing.measurement_id == view.measurement_id then
+            return nil, "dissolve_pressure_relief:duplicate_measurement_id"
+        end
+    end
+    result.dissolve_pressure_relief_measurements[
+        #result.dissolve_pressure_relief_measurements + 1
+    ] = copy_value(view)
     return true
 end
 
@@ -1328,6 +1411,9 @@ function tension_runner.run(prompt, substrate, options)
             and options.legacy_shadow ~= false or false,
         work_layer_observer = options.work_layer_observer,
         work_layer_observations = {},
+        dissolve_pressure_relief_reader =
+            options.dissolve_pressure_relief_reader,
+        dissolve_pressure_relief_measurements = {},
         stop_reason = nil,
         final_status = instance.status,
         birth = birth_receipt,
@@ -1460,6 +1546,11 @@ function tension_runner.run(prompt, substrate, options)
             return nil, stage_error("qualified_action", committed_plan_or_err)
         end
         local committed_plan = committed_plan_or_err
+        local arrived_route_ref = pending_arrival
+            and pending_arrival.trace_event_id or nil
+        local arrived_action_mode = committed_plan and committed_plan.mode or nil
+        local arrived_credit_commit = pending_credit and copy_value(pending_credit)
+            or nil
         local tick_event, tick_err = packet_core.begin_tick(instance, current, {})
         if not tick_event then
             return nil, stage_error("tick", tick_err)
@@ -1613,8 +1704,9 @@ function tension_runner.run(prompt, substrate, options)
         result_tick.trace_event_id = tick_event.id
         result_tick.readiness = readiness
         result_tick.registry = operator_registry.protocol_version
+        local arrival_evidence
         if pending_arrival then
-            local arrival_recorded, arrival_record_err = record_arrival_evidence(
+            local arrival_recorded, arrival_evidence_or_err = record_arrival_evidence(
                 instance,
                 result,
                 instrument,
@@ -1625,8 +1717,12 @@ function tension_runner.run(prompt, substrate, options)
                 trace_start
             )
             if not arrival_recorded then
-                return nil, stage_error("authority_instrument", arrival_record_err)
+                return nil, stage_error(
+                    "authority_instrument",
+                    arrival_evidence_or_err
+                )
             end
+            arrival_evidence = arrival_evidence_or_err
             pending_arrival = nil
             pending_credit = nil
         end
@@ -1717,6 +1813,21 @@ function tension_runner.run(prompt, substrate, options)
         })
         if not route then
             return nil, stage_error("router", route_err)
+        end
+
+        if current == "☷"
+            and arrived_action_mode == "inherited_rejected_form_release" then
+            local captured, capture_err = capture_dissolve_pressure_relief(
+                instance,
+                result,
+                options,
+                {
+                    arrived_route_ref = arrived_route_ref,
+                    credit_commit = arrived_credit_commit,
+                    arrival_evidence = arrival_evidence,
+                }
+            )
+            if not captured then return nil, capture_err end
         end
 
         if not is_committable_route(route) then
