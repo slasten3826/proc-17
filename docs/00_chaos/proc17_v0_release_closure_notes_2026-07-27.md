@@ -1,5 +1,16 @@
 # proc-17 v0 Release Closure Notes
 
+```text
+STATUS RECONCILED 2026-08-23 by:
+docs/00_chaos/proc17_kernel_roadmap_and_model_orchestration_notes_2026-08-23.md
+
+The v0.1 public capability and finite release law in this document remain
+active. C1-C5 were implemented after this note; C6-C9 and the v0.1.0 tag remain
+open. Later QA, authority-instrument and DISSOLVE campaigns do not silently
+widen the v0.1 claim. The newer roadmap resumes release closure before another
+kernel expansion.
+```
+
 Status:
 
 ```text

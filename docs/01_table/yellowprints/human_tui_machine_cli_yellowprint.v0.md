@@ -1,5 +1,15 @@
 # Human TUI / Machine CLI Yellowprint v0
 
+```text
+PARTIALLY SUPERSEDED 2026-08-23 by:
+docs/00_chaos/external_harness_convergence_and_kernel_scope_notes_2026-08-23.md
+
+Still active: the narrow machine ABI, body snapshots/events and non-sovereign
+renderer constraints. Deferred outside proc-17 v0.1 kernel scope: building the
+Go TUI itself. This yellowprint remains the display-contract inventory for any
+future external or standalone renderer.
+```
+
 Status:
 
 ```text

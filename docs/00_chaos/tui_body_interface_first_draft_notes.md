@@ -1,5 +1,16 @@
 # TUI Body Interface First Draft Notes
 
+```text
+PARTIALLY SUPERSEDED 2026-08-23 by:
+docs/00_chaos/external_harness_convergence_and_kernel_scope_notes_2026-08-23.md
+
+Survives: body visibility, typed snapshots/events and the law that a renderer
+must read body evidence instead of asking the substrate to explain itself.
+Superseded as active kernel roadmap: proc-17-owned Go TUI implementation and
+the assumption that proc-17 must own its human cockpit. Preserve this draft as
+downstream display pressure and archaeology.
+```
+
 Status:
 
 ```text

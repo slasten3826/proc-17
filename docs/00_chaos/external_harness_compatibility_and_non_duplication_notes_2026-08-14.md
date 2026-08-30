@@ -1,6 +1,17 @@
 # External Harness Compatibility And Non-Duplication Notes
 
 ```text
+EXTENDED 2026-08-23 by:
+docs/00_chaos/external_harness_convergence_and_kernel_scope_notes_2026-08-23.md
+
+Hax supplied a second independent external-harness observation. The newer
+note strengthens this boundary into an explicit kernel-only v0.1 scope,
+partially supersedes the proc-17-owned TUI roadmap and records fine-tuning as
+an optional substrate optimization rather than a correctness prerequisite.
+This document remains active for the detailed host/kernel ownership split.
+```
+
+```text
 layer: CHAOS
 date: 2026-08-14
 status: active architecture constraint / future integration direction
