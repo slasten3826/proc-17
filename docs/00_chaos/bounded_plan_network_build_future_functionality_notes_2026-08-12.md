@@ -11,6 +11,27 @@ TABLE or CRYSTALL authorized: no
 NETWORK authority change authorized: no
 ```
 
+```text
+RESUMED 2026-08-31 after completion of the accepted DISSOLVE campaign and
+host migration to Candy Shop.
+
+New evidence:
+  docs/00_chaos/local_qwen_deepseek_proc17_matched_ab_results_2026-08-31.md
+
+The direct matched baseline shows that proc-17 contains and measures a weak
+local substrate but does not manufacture missing cognition. The next queued
+experiment is now cross-model: DeepSeek PLAN -> bounded carrier -> fresh local
+Qwen BUILD. Production NETWORK and automatic stage authority remain unchanged.
+
+That first cross-model treatment has now run. A raw JSON-shaped carrier caused a
+correct body rejection because Qwen used `analysis.txt` as an operation key. A
+deterministically compiled plain-text carrier produced a complete 1651-byte
+Qwen artifact. The detailed evidence, including both arms and their hashes, is
+in `docs/00_chaos/local_qwen_deepseek_proc17_matched_ab_results_2026-08-31.md`.
+The next question is carrier crystallization, not whether the first treatment
+exists.
+```
+
 This document owns the future functional arc exposed by the Pro text-appraisal
 experiment:
 

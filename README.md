@@ -41,7 +41,7 @@ The repository currently contains:
 - one capability-safe create-only repository hand with independent native
   read-back and exact one-artifact delivery;
 - a JSON machine CLI for one explicit plan or build Packet per invocation;
-- 107 Lua test suites plus mortality, expected-red QA, and live-substrate smoke
+  - 140 Lua test suites plus mortality, expected-red QA, and live-substrate smoke
   programs.
 
 The fixed single-pass runner remains as a smoke rail. The tension runner is the
@@ -138,3 +138,9 @@ Live DeepSeek smoke programs require the corresponding API configuration.
 
 The previous laboratory body remains available in Git history on the
 `old-body-lab` branch.
+
+## Shareable Release Candidate
+
+The short public release surface is [release/v0.1.0](release/v0.1.0). This
+repository remains the laboratory; the release directory defines the narrow
+capability claim and the checks required before the `v0.1.0` tag is published.

@@ -11,6 +11,27 @@ TABLE or CRYSTALL authorized: no
 NETWORK authority change: no
 ```
 
+```text
+EVIDENCE AMENDMENT 2026-08-31
+
+The first local-Qwen versus DeepSeek matched proc-17 baseline is recorded in:
+  docs/00_chaos/local_qwen_deepseek_proc17_matched_ab_results_2026-08-31.md
+
+It queues a stricter cross-provider carrier probe:
+  dead DeepSeek PLAN -> bounded hot semantic projection -> fresh Qwen BUILD
+
+The full parent log remains cold evidence. The Qwen child may receive only the
+typed plan projection and content-addressed refs, with no hidden provider
+continuity and no live parent authority. This is still a host-composed
+experiment, not production NETWORK authority.
+
+The first host-composed cross-provider probe has now been executed. A raw
+structured carrier reached Qwen semantically but failed the BUILD envelope; a
+deterministically compiled carrier completed and materialized the child file.
+This is evidence that carrier compilation is a separate boundary contract, not
+permission for an LLM to rewrite transport keys.
+```
+
 This note extends, but does not supersede:
 
 ```text
