@@ -41,7 +41,7 @@ The repository currently contains:
 - one capability-safe create-only repository hand with independent native
   read-back and exact one-artifact delivery;
 - a JSON machine CLI for one explicit plan or build Packet per invocation;
-  - 140 Lua test suites plus mortality, expected-red QA, and live-substrate smoke
+- 141 Lua test suites plus mortality, expected-red QA, and live-substrate smoke
   programs.
 
 The fixed single-pass runner remains as a smoke rail. The tension runner is the
@@ -79,7 +79,8 @@ is not yet a general coding agent.
 The CLI uses DeepSeek by default and emits exactly one JSON object on stdout.
 Plan mode requires Lua 5.4, `curl`, and `DEEPSEEK_API_KEY`. Build mode also
 requires Linux, a C compiler, `pkg-config`, Lua 5.4 development headers, and the
-native create-only provider:
+native create-only provider. The QA supervisor builds its pinned Lua 5.4.8
+static runtime from committed source; a system `liblua5.4.a` is not required.
 
 ```sh
 make -C native provider-shell
@@ -115,6 +116,9 @@ universally correct or QA-accepted.
 ## Verification
 
 Requires Lua 5.4.
+
+The full QA battery additionally requires a Linux C toolchain, `make`, `tar`,
+`sha256sum`, `ar`, and `ranlib`. It performs no dependency download.
 
 ```sh
 lua tests/run.lua

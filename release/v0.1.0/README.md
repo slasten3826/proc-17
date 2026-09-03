@@ -47,6 +47,11 @@ requires the native create-only provider:
 make -C native provider-shell
 ```
 
+The deterministic QA build uses the committed, digest-pinned Lua 5.4.8 source
+to produce its own static runtime. It does not require a distribution-provided
+`liblua5.4.a` and does not access the network. Building that runtime requires a
+Linux C toolchain, `make`, `tar`, `sha256sum`, `ar`, and `ranlib`.
+
 The CLI emits one JSON result. Exit status `0` means that the Packet completed;
 it does not mean that produced software is universally correct or QA-accepted.
 

@@ -48,6 +48,7 @@ local tests = {
     "tests.test_qa_verdict_tick",
     "tests.test_qa_terminal_retention",
     "tests.test_qa_source_bridge",
+    "tests.test_qa_pinned_lua_static",
     "tests.test_qa_provider_loader",
     "tests.test_qa_process",
     "tests.test_qa_provider_witness",

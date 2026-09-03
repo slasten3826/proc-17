@@ -443,7 +443,7 @@ is not selected by automatic pressure or exposed as CLI release acceptance.
 Current local audit results:
 
 ```text
-lua tests/run.lua                   140 listed suites passed
+lua tests/run.lua                   141 listed suites passed
 lua tests/smoke_mortality_battery.lua 8/8 passed
 luac -p over every tracked/worktree Lua source passed
 tests/test_inherited_form_dissolve.lua passed exact release/observation/replay
@@ -488,6 +488,7 @@ tests/test_qa_body_join.lua          9 green / 0 red
 tests/test_qa_runner_tick.lua        7 green / 0 red
 tests/test_qa_verdict_tick.lua       7 green / 0 red
 tests/test_qa_terminal_retention.lua 5 green / 0 red
+tests/test_qa_pinned_lua_static.lua source/build/verify passed
 lua tests/run_qa_trusted_fault_campaign.lua 9/9, zero candidate outcomes
 lua tests/run_qa_cleanup_ambiguity_campaign.lua 6/6, zero candidate outcomes, six quarantines
 lua tests/run_qa_repeated_residue_campaign.lua 32/32, all named residue deltas zero/exact
@@ -506,6 +507,12 @@ GCC -fanalyzer production + test     passed
 ASan + UBSan                         passed (LeakSan not claimed)
 git diff --check                     passed
 ```
+
+Release portability amendment, 2026-09-03: the QA supervisor now builds its
+static Lua runtime from the committed, SHA-256-pinned Lua 5.4.8 source archive.
+The local archive passed version/member verification and the supervisor passed
+its no-`PT_INTERP`, no-`DT_NEEDED` closure test on Manjaro without a system
+`/usr/lib/liblua5.4.a`. Ordinary build and test paths perform no download.
 
 The Body Integrity Gate was grown from a red baseline that reproduced caller
 aliasing, wrong-position writes, old-visit authorization, invalid economic

@@ -121,10 +121,11 @@ The baseline must be refreshed from a clean checkout immediately before the
 release tag. The current laboratory evidence records:
 
 ```text
-ordinary Lua suite: 140 suites passed
+ordinary Lua suite: 141 suites passed
 mortality battery: 8/8 passed
 static Lua parse: required
 native provider build: required for build-path verification
+pinned Lua source/build: required; no system static Lua archive or network fetch
 expected-red QA matrix: internal containment evidence, not acceptance
 ```
 
@@ -134,6 +135,8 @@ Required release commands:
 lua tests/run.lua
 lua tests/smoke_mortality_battery.lua
 luac -p proc17.lua cli/proc17.lua core/*.lua runtime/*.lua organs/*.lua logic/*.lua
+make -C native qa-lua-static-verify
+make -C native qa-static-closure-test
 ```
 
 The clean-checkout battery must also exercise:

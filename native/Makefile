@@ -35,11 +35,16 @@ QA_RESIDUE_OBSERVER_TEST = tests/test_proc17_qa_residue_observer
 QA_GENERATED_DIR = generated
 QA_PREBUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_prebuild.h
 QA_BUILD_IDENTITY = $(QA_GENERATED_DIR)/proc17_qa_build_identity.h
-QA_LUA_STATIC_ARCHIVE ?= /usr/lib/liblua5.4.a
+QA_LUA_VERSION = 5.4.8
+QA_LUA_BUILD_ROOT = $(CURDIR)/build/deps/lua-$(QA_LUA_VERSION)
+QA_LUA_LOCAL_STATIC_ARCHIVE = $(QA_LUA_BUILD_ROOT)/src/liblua.a
+QA_LUA_STATIC_BUILDER = $(CURDIR)/build_pinned_lua_static.sh
+QA_LUA_SOURCE_ARCHIVE = $(CURDIR)/../third_party/lua-$(QA_LUA_VERSION)/lua-$(QA_LUA_VERSION).tar.gz
+QA_LUA_STATIC_ARCHIVE ?= $(QA_LUA_LOCAL_STATIC_ARCHIVE)
 QA_LIBC_STATIC_ARCHIVE ?= /usr/lib/libc.a
 QA_LIBM_STATIC_ARCHIVE ?= /usr/lib/libm.a
 QA_LIBDL_STATIC_ARCHIVE ?= /usr/lib/libdl.a
-QA_LUA_STATIC_CFLAGS ?= -I/usr/include/lua5.4
+QA_LUA_STATIC_CFLAGS ?= -I$(QA_LUA_BUILD_ROOT)/src
 QA_STATIC_LDFLAGS ?= -static-pie
 
 .PHONY: all test test-create test-read clean toolchain-check provider-shell loader-test-fixture \
@@ -59,7 +64,7 @@ QA_STATIC_LDFLAGS ?= -static-pie
 	qa-supervisor-basic-fixtures-test qa-supervisor-hostile-fixtures-test \
 	qa-supervisor-trusted-fault-test qa-supervisor-cleanup-ambiguity-test \
 	qa-residue-observer-contract-syntax qa-residue-observer-test \
-	qa-supervisor-leak-loop-test
+	qa-supervisor-leak-loop-test qa-lua-static qa-lua-static-verify
 
 all: toolchain-check $(MODULE)
 
@@ -107,6 +112,14 @@ $(QA_WIRE_TEST): tests/test_proc17_qa_wire.c proc17_qa_wire.h \
 
 $(QA_GENERATED_DIR):
 	mkdir -p $@
+
+$(QA_LUA_LOCAL_STATIC_ARCHIVE): $(QA_LUA_SOURCE_ARCHIVE) $(QA_LUA_STATIC_BUILDER)
+	$(QA_LUA_STATIC_BUILDER) build
+
+qa-lua-static: $(QA_LUA_LOCAL_STATIC_ARCHIVE)
+
+qa-lua-static-verify: $(QA_LUA_LOCAL_STATIC_ARCHIVE)
+	$(QA_LUA_STATIC_BUILDER) verify
 
 $(QA_PREBUILD_IDENTITY): Makefile proc17_qa_policy.h qa_probe_source/probe.lua \
 		$(QA_LUA_STATIC_ARCHIVE) $(QA_LIBC_STATIC_ARCHIVE) \

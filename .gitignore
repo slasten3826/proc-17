@@ -17,6 +17,7 @@ native/tests/proc17_repository_fs_wrong_abi.so
 native/proc17_qa_supervisor
 native/proc17_qa_launcher.so
 native/generated/
+native/build/
 native/tests/test_proc17_qa_launcher
 native/tests/test_proc17_qa_supervisor
 native/tests/test_proc17_qa_wire
