@@ -1,5 +1,10 @@
 # proc-17
 
+> Development note, 2026-09-06: active work on proc-17 is paused while work
+> moves to ProcessChainNetwork. The body remains a working, unfinished research
+> prototype. See the
+> [conservation journal](docs/00_chaos/proc17_conservation_journal_2026-09-06.md).
+
 proc-17 is the first executable body of procesis.
 
 It is not a chatbot and the LLM is not its controller. A replaceable substrate

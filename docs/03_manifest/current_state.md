@@ -1,6 +1,11 @@
 # Current State - 2026-08-13
 
-Status: active packet-first body
+Status: working packet-first research body; active development paused 2026-09-06
+
+This remains the detailed implementation map at the conservation boundary. Its
+roadmap section records unfinished laboratory work; it is no longer an active
+work order. See
+[`../00_chaos/proc17_conservation_journal_2026-09-06.md`](../00_chaos/proc17_conservation_journal_2026-09-06.md).
 
 Current transition:
 
